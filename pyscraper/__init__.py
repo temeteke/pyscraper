@@ -173,7 +173,7 @@ class WebFile():
     @mproperty
     @debug
     def filename(self):
-        if self._filename:
+        if hasattr(self, '_filename'):
             return self._filename
 
         logger.debug("Request Headers: " + str(self.session.headers))
