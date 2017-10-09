@@ -197,6 +197,7 @@ class WebFile():
     def filepath_tmp(self):
         return Path(str(self.filepath) + '.part')
 
+    @retry(WebFileDownloadError, tries=10, delay=1, logger=logger)
     def download(self):
         logger.info("Downloading {}".format(self.url))
 
@@ -204,53 +205,43 @@ class WebFile():
             logger.warning("{} is already downloaded.".format(self.filepath))
             return
 
-        try_maxcount = 10
-        for i in range(1, try_maxcount+1):
-            logger.debug("Trying to download ({}/{})".format(i, try_maxcount))
+        if self.filepath_tmp.exists():
+            downloaded_size = self.filepath_tmp.stat().st_size
+            self.session.headers['Range'] = 'bytes={}-'.format(downloaded_size)
+        else:
+            downloaded_size = 0
 
-            if self.filepath_tmp.exists():
-                downloaded_size = self.filepath_tmp.stat().st_size
-                self.session.headers['Range'] = 'bytes={}-'.format(downloaded_size)
-            else:
-                downloaded_size = 0
+        try:
+            logger.debug("Request Headers: " + str(self.session.headers))
+            r = self.session.get(self.url, stream=True)
+            logger.debug("Response Headers: " + str(r.headers))
+            r.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            logger.warning(e)
+            if e.response.status_code == 416:
+                if self.filepath_tmp.exists():
+                    logger.debug("Removing downloaded file.")
+                    self.filepath_tmp.unlink()
+            raise WebFileDownloadError
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+            logger.warning(e)
+            raise WebFileDownloadError
 
-            try:
-                logger.debug("Request Headers: " + str(self.session.headers))
-                r = self.session.get(self.url, stream=True)
-                logger.debug("Response Headers: " + str(r.headers))
-                r.raise_for_status()
-            except requests.exceptions.HTTPError as e:
-                logger.warning(e)
-                if e.response.status_code == 416:
-                    if self.filepath_tmp.exists():
-                        logger.debug("Removing downloaded file.")
-                        self.filepath_tmp.unlink()
-                else:
-                    wait_random(maxsec=30)
-                continue
-            except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
-                logger.warning(e)
-                wait_random(maxsec=30)
-                continue
+        total_size = int(r.headers['Content-Length'])
+        if 'Content-Range' in r.headers:
+            total_size = int(r.headers['Content-Range'].split('/')[-1])
+        if total_size == 0:
+            raise WebFileDownloadError
 
-            total_size = int(r.headers['Content-Length'])
-            if 'Content-Range' in r.headers:
-                total_size = int(r.headers['Content-Range'].split('/')[-1])
-            if total_size == 0:
-                raise WebFileDownloadError
+        with tqdm(total=total_size, initial=downloaded_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+            with self.filepath_tmp.open('ab') as f:
+                for block in r.iter_content(1024):
+                    f.write(block)
+                    pbar.update(len(block))
 
-            with tqdm(total=total_size, initial=downloaded_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-                with self.filepath_tmp.open('ab') as f:
-                    for block in r.iter_content(1024):
-                        f.write(block)
-                        pbar.update(len(block))
-
-            if self.filepath_tmp.stat().st_size == total_size:
-                self.filepath_tmp.rename(self.filepath)
-                return
-            else:
-                logger.warning("The size of the downloaded file is wrong.")
-                wait_random(maxsec=30)
-                continue
-
-        raise WebFileDownloadError
+        if self.filepath_tmp.stat().st_size == total_size:
+            self.filepath_tmp.rename(self.filepath)
+            return
+        else:
+            logger.warning("The size of the downloaded file is wrong.")
+            raise WebFileDownloadError
