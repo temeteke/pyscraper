@@ -1,5 +1,6 @@
 import logging
 from functools import wraps
+from memoize import mproperty
 from abc import ABCMeta, abstractmethod
 import lxml.html
 import requests
@@ -46,12 +47,20 @@ class WebPage(metaclass=ABCMeta):
             f.write(self.source)
 
 class WebPageRequests(WebPage):
-    def __init__(self, url):
+    def __init__(self, url, session=None):
         super().__init__()
         self.url = url
-        self.response = requests.get(self.url)
 
-    @property
+        if session:
+            self.session = session
+        else:
+            self.session = requests.Session()
+
+    @mproperty
+    def response(self):
+        return requests.get(self.url)
+
+    @mproperty
     def source(self):
         return self.response.text
 
