@@ -197,7 +197,7 @@ class WebFile():
     def filepath_tmp(self):
         return Path(str(self.filepath) + '.part')
 
-    @retry(WebFileDownloadError, tries=10, delay=1, logger=logger)
+    @retry(WebFileDownloadError, tries=5, delay=2, jitter=(1, 5), logger=logger)
     def download(self):
         logger.info("Downloading {}".format(self.url))
 
