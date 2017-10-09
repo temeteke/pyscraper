@@ -10,6 +10,7 @@ from retry import retry
 from pathlib import Path
 import re
 from tqdm import tqdm
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -166,20 +167,25 @@ class WebFile():
         if not self.directory.exists():
             self.directory.mkdir()
 
-        if not filename:
-            filename = url.split('/').pop()
-        self._filename = re.sub(r'[/:\s\*]', '_', filename)
+        if filename:
+            self._filename = re.sub(r'[/:\s\*]', '_', filename)
 
     @mproperty
     @debug
     def filename(self):
+        if self._filename:
+            return self._filename
+
         logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.head(self.url, allow_redirects=True)
+        r = self.session.head(self.url)
         logger.debug("Response Headers: " + str(r.headers))
+
         if 'Content-Disposition' in r.headers:
             return re.findall('filename="(.+)"', r.headers['Content-Disposition'])[0]
+        elif 'Location' in r.headers:
+            return urlparse(r.headers['Location']).path.split('/').pop()
         else:
-            return self._filename
+            return urlparse(self.url).path.split('/').pop()
 
     @mproperty
     @debug
