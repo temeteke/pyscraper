@@ -13,13 +13,16 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+HEADERS = {'Referer': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:56.0) Gecko/20100101 Firefox/56.0'}
+
 def debug(f):
     @wraps(f)
     def wrapper(*args, **kwds):
-        logger.debug("{}".format(f.__name__))
         result = f(*args, **kwds)
-        if result:
-            logger.debug("-> {}".format(result))
+        if args[1:]:
+            logger.debug("{}('{}') -> {}".format('.'.join([args[0].__class__.__name__, f.__name__]), ','.join(args[1:]), result))
+        else:
+            logger.debug("{} -> {}".format(f.__name__, result))
         return result
     return wrapper
 
@@ -51,7 +54,7 @@ class WebPage(metaclass=ABCMeta):
             f.write(self.source)
 
 class WebPageRequests(WebPage):
-    def __init__(self, url, session=None):
+    def __init__(self, url, session=None, headers={}):
         super().__init__()
         self.url = url
 
@@ -60,9 +63,14 @@ class WebPageRequests(WebPage):
         else:
             self.session = requests.Session()
 
+        self.session.headers.update(HEADERS)
+        self.session.headers.update(headers)
+
     @mproperty
     def response(self):
-        return requests.get(self.url)
+        r = self.session.get(self.url)
+        logger.debug("Response Headers: " + str(r.headers))
+        return r
 
     @mproperty
     def source(self):
@@ -151,6 +159,7 @@ class WebFile():
         else:
             self.session = requests.Session()
 
+        self.session.headers.update(HEADERS)
         self.session.headers.update(headers)
 
         self.directory = Path(directory)
@@ -164,6 +173,7 @@ class WebFile():
     @mproperty
     @debug
     def filename(self):
+        logger.debug("Request Headers: " + str(self.session.headers))
         r = self.session.head(self.url, allow_redirects=True)
         logger.debug("Response Headers: " + str(r.headers))
         if 'Content-Disposition' in r.headers:
