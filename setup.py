@@ -11,5 +11,9 @@ setup(
         'requests',
         'selenium',
         'lxml',
+        'memoize',
+        'retry',
+        'pyvirtualdisplay',
+        'tqdm',
     ],
 )
