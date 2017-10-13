@@ -43,11 +43,14 @@ class WebFile():
         logger.debug("Response Headers: " + str(r.headers))
 
         if 'Content-Disposition' in r.headers:
-            return re.findall('filename="(.+)"', r.headers['Content-Disposition'])[0]
-        elif 'Location' in r.headers:
+            m = re.search('filename="(.+)"', r.headers['Content-Disposition'])
+            if m:
+                return m.group(1)
+
+        if 'Location' in r.headers:
             return urlparse(r.headers['Location']).path.split('/').pop()
-        else:
-            return urlparse(self.url).path.split('/').pop()
+
+        return urlparse(self.url).path.split('/').pop()
 
     @mproperty
     @debug
