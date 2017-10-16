@@ -14,7 +14,7 @@ class WebFileDownloadError(Exception):
     pass
 
 class WebFile():
-    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None):
+    def __init__(self, url, session=None, headers={}, cookies={}):
         self.url = url
 
         if session:
@@ -27,13 +27,6 @@ class WebFile():
 
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
-
-        self.directory = Path(directory)
-        if not self.directory.exists():
-            self.directory.mkdir()
-
-        if filename:
-            self._filename = re.sub(r'[/:\s\*]', '_', filename)
 
     @mproperty
     @debug
@@ -66,7 +59,14 @@ class WebFile():
         return Path(str(self.filepath) + '.part')
 
     @retry(WebFileDownloadError, tries=5, delay=2, jitter=(1, 5), logger=logger)
-    def download(self):
+    def download(self, directory='.', filename=None):
+        self.directory = Path(directory)
+        if not self.directory.exists():
+            self.directory.mkdir()
+
+        if filename:
+            self._filename = re.sub(r'[/:\s\*]', '_', filename)
+
         logger.info("Downloading {}".format(self.url))
 
         if self.filepath.exists():
