@@ -14,7 +14,7 @@ class WebFileDownloadError(Exception):
     pass
 
 class WebFile():
-    def __init__(self, url, session=None, headers={}, directory='.', filename=None):
+    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None):
         self.url = url
 
         if session:
@@ -24,6 +24,9 @@ class WebFile():
 
         self.session.headers.update(HEADERS)
         self.session.headers.update(headers)
+
+        for k, v in cookies.items():
+            self.session.cookies.set(k, v)
 
         self.directory = Path(directory)
         if not self.directory.exists():

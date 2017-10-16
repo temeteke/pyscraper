@@ -73,6 +73,14 @@ class WebPageSelenium(WebPage):
     def source(self):
         return self.webdriver.page_source
 
+    @property
+    @debug
+    def cookies(self):
+        cookies = {}
+        for cookie in self.webdriver.get_cookies():
+            cookies[cookie['name']] = cookie['value']
+        return cookies
+
     @debug
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def get(self, xpath):
