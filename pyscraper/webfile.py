@@ -10,7 +10,7 @@ from .utils import debug, HEADERS
 
 logger = logging.getLogger(__name__)
 
-class WebFileDownloadError(Exception):
+class WebFileSizeError(Exception):
     pass
 
 class WebFile():
@@ -58,7 +58,7 @@ class WebFile():
     def filepath_tmp(self):
         return Path(str(self.filepath) + '.part')
 
-    @retry(WebFileDownloadError, tries=10, delay=2, jitter=(1, 5), logger=logger)
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, WebFileSizeError), tries=10, delay=2, jitter=(1, 5), logger=logger)
     def download(self, directory='.', filename=None):
         self.directory = Path(directory)
         if not self.directory.exists():
@@ -85,21 +85,17 @@ class WebFile():
             logger.debug("Response Headers: " + str(r.headers))
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            logger.warning(e)
             if e.response.status_code == 416:
                 if self.filepath_tmp.exists():
                     logger.debug("Removing downloaded file.")
                     self.filepath_tmp.unlink()
-            raise WebFileDownloadError
-        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
-            logger.warning(e)
-            raise WebFileDownloadError
+            raise
 
         total_size = int(r.headers['Content-Length'])
         if 'Content-Range' in r.headers:
             total_size = int(r.headers['Content-Range'].split('/')[-1])
         if total_size == 0:
-            raise WebFileDownloadError
+            raise WebFileSizeError("File size is zero.")
 
         with tqdm(total=total_size, initial=downloaded_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             with self.filepath_tmp.open('ab') as f:
@@ -111,5 +107,4 @@ class WebFile():
             self.filepath_tmp.rename(self.filepath)
             return
         else:
-            logger.warning("The size of the downloaded file is wrong.")
-            raise WebFileDownloadError
+            raise WebFileSizeError("The size of the downloaded file is wrong.")
