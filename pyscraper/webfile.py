@@ -58,7 +58,7 @@ class WebFile():
     def filepath_tmp(self):
         return Path(str(self.filepath) + '.part')
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, WebFileSizeError), tries=10, delay=2, backoff=2, jitter=(1, 5), logger=logger)
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, WebFileSizeError), tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download(self, directory='.', filename=None):
         self.directory = Path(directory)
         if not self.directory.exists():
