@@ -78,6 +78,8 @@ class WebFile():
             self.session.headers['Range'] = 'bytes={}-'.format(downloaded_size)
         else:
             downloaded_size = 0
+            if 'Range' in self.session.headers:
+                del self.session.headers['Range']
 
         try:
             logger.debug("Request Headers: " + str(self.session.headers))
