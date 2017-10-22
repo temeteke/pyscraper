@@ -54,8 +54,9 @@ class WebPageRequests(WebPage):
         self.session.headers.update(headers)
 
     @mproperty
+    @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def response(self):
-        r = self.session.get(self.url, timeout=1)
+        r = self.session.get(self.url, timeout=10)
         logger.debug("Response Headers: " + str(r.headers))
         return r
 
