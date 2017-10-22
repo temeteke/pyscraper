@@ -44,7 +44,7 @@ class WebFile():
     @debug
     def _filename_auto(self):
         if 'Content-Disposition' in self._response.headers:
-            m = re.search('filename="(.+)"', self._responase.headers['Content-Disposition'])
+            m = re.search('filename="(.+)"', self._response.headers['Content-Disposition'])
             if m:
                 return m.group(1)
         else:
@@ -102,6 +102,8 @@ class WebFile():
         if self.filepath.exists():
             logger.warning("{} is already downloaded.".format(self.filepath))
             return
+
+        logger.info("Filepath is {}".format(self.filepath))
 
         if self.filepath_tmp.exists():
             downloaded_size = self.filepath_tmp.stat().st_size
