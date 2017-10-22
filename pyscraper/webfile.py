@@ -16,6 +16,9 @@ class WebFileSizeError(Exception):
 class WebFile():
     def __init__(self, url, session=None, headers={}, cookies={}):
         self.url = url
+        self._filename = None
+        self._filestem = None
+        self._filesuffix = None
 
         if session:
             self.session = session
@@ -28,24 +31,54 @@ class WebFile():
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
 
+    def _get_normal_path(self, string):
+        return re.sub(r'[/:\s\*]', '_', string)[:128]
+
     @mproperty
     @debug
     @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
-    def filename(self):
-        if hasattr(self, '_filename'):
-            return self._filename
-
+    def headers(self):
         logger.debug("Request Headers: " + str(self.session.headers))
         r = self.session.head(self.url, timeout=10)
         logger.debug("Response Headers: " + str(r.headers))
+        return r.headers
 
-        if 'Content-Disposition' in r.headers:
-            m = re.search('filename="(.+)"', r.headers['Content-Disposition'])
+    @mproperty
+    @debug
+    def filestem(self):
+        if self._filestem:
+            return self._get_normal_path(self._filestem)
+        elif self._filename:
+            return Path(self._filename).stem
+        else:
+            return Path(self.filename).stem
+
+    @mproperty
+    @debug
+    def filesuffix(self):
+        if self._filesuffix:
+            return self._filesuffix
+        elif self._filename:
+            return Path(self._filename).suffix
+        else:
+            if self.headers['Content-Type'] == 'video/mp4':
+                return 'mp4'
+            else:
+                return Path(self.filename).suffix
+
+    @mproperty
+    @debug
+    def filename(self):
+        if self._filename or self._filestem:
+            return '{}.{}'.format(self.filestem, self.filesuffix)
+
+        if 'Content-Disposition' in self.headers:
+            m = re.search('filename="(.+)"', self.headers['Content-Disposition'])
             if m:
                 return m.group(1)
 
-        if 'Location' in r.headers:
-            return urlparse(r.headers['Location']).path.split('/').pop()
+        if 'Location' in self.headers:
+            return urlparse(self.headers['Location']).path.split('/').pop()
 
         return urlparse(self.url).path.split('/').pop()
 
@@ -60,13 +93,14 @@ class WebFile():
         return Path(str(self.filepath) + '.part')
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
-    def download(self, directory='.', filename=None):
+    def download(self, directory='.', filename=None, filestem=None, filesuffix=None):
         self.directory = Path(directory)
         if not self.directory.exists():
             self.directory.mkdir()
 
-        if filename:
-            self._filename = re.sub(r'[/:\s\*]', '_', filename)
+        self._filename = filename
+        self._filestem = filestem
+        self._filesuffix = filesuffix
 
         logger.info("Downloading {}".format(self.url))
 
