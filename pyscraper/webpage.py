@@ -55,7 +55,7 @@ class WebPageRequests(WebPage):
 
     @mproperty
     def response(self):
-        r = self.session.get(self.url)
+        r = self.session.get(self.url, timeout=1)
         logger.debug("Response Headers: " + str(r.headers))
         return r
 
@@ -91,24 +91,33 @@ class WebPageSelenium(WebPage):
             raise WebPageNoSuchElementError
 
     @debug
-    @retry((ElementNotInteractableException, NoSuchElementException), tries=10, delay=1, logger=logger)
+    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def click(self, xpath):
-        self.webdriver.find_element_by_xpath(xpath).click()
+        try:
+            self.webdriver.find_element_by_xpath(xpath).click()
+        except (ElementNotInteractableException, NoSuchElementException) as e:
+            raise WebPageNoSuchElementError(e)
 
     @debug
-    @retry((ElementNotInteractableException, NoSuchElementException), tries=10, delay=1, logger=logger)
+    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def move_to(self, xpath):
-        actions = ActionChains(self.webdriver)
-        actions.move_to_element(self.webdriver.find_element_by_xpath(xpath))
-        actions.perform()
+        try:
+            actions = ActionChains(self.webdriver)
+            actions.move_to_element(self.webdriver.find_element_by_xpath(xpath))
+            actions.perform()
+        except (ElementNotInteractableException, NoSuchElementException):
+            raise WebPageNoSuchElementError
 
     @debug
-    @retry((ElementNotInteractableException, NoSuchElementException), tries=10, delay=1, logger=logger)
+    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def switch_to_frame(self, xpath):
-        iframe = self.webdriver.find_element_by_xpath(xpath)
-        iframe_url = iframe.get_attribute('src')
-        self.webdriver.switch_to_frame(iframe)
-        return iframe_url
+        try:
+            iframe = self.webdriver.find_element_by_xpath(xpath)
+            iframe_url = iframe.get_attribute('src')
+            self.webdriver.switch_to_frame(iframe)
+            return iframe_url
+        except (ElementNotInteractableException, NoSuchElementException):
+            raise WebPageNoSuchElementError
 
 class WebPagePhantomJS(WebPageSelenium):
     def __init__(self, url):

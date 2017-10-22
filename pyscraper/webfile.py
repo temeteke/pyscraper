@@ -35,7 +35,7 @@ class WebFile():
             return self._filename
 
         logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.head(self.url)
+        r = self.session.head(self.url, timeout=1)
         logger.debug("Response Headers: " + str(r.headers))
 
         if 'Content-Disposition' in r.headers:
@@ -83,7 +83,7 @@ class WebFile():
 
         try:
             logger.debug("Request Headers: " + str(self.session.headers))
-            r = self.session.get(self.url, stream=True)
+            r = self.session.get(self.url, stream=True, timeout=1)
             logger.debug("Response Headers: " + str(r.headers))
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
