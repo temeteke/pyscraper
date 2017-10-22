@@ -16,6 +16,7 @@ class WebFileSizeError(Exception):
 class WebFile():
     def __init__(self, url, session=None, headers={}, cookies={}):
         self.url = url
+
         self._filename = None
         self._filestem = None
         self._filesuffix = None
@@ -31,27 +32,33 @@ class WebFile():
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
 
-    def _get_normal_path(self, string):
-        return re.sub(r'[/:\s\*]', '_', string)[:128]
+    @mproperty
+    @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    def _response(self):
+        logger.debug("Request Headers: " + str(self.session.headers))
+        r = self.session.head(self.url, allow_redirects=True, timeout=10)
+        logger.debug("Response Headers: " + str(r.headers))
+        return r
 
     @mproperty
     @debug
-    @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
-    def headers(self):
-        logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.head(self.url, timeout=10)
-        logger.debug("Response Headers: " + str(r.headers))
-        return r.headers
+    def _filename_auto(self):
+        if 'Content-Disposition' in self._response.headers:
+            m = re.search('filename="(.+)"', self._responase.headers['Content-Disposition'])
+            if m:
+                return m.group(1)
+        else:
+            return urlparse(self._response.url).path.split('/').pop()
 
     @mproperty
     @debug
     def filestem(self):
         if self._filestem:
-            return self._get_normal_path(self._filestem)
+            return re.sub(r'[/:\s\*\.]', '_', self._filestem)[:128]
         elif self._filename:
             return Path(self._filename).stem
         else:
-            return Path(self.filename).stem
+            return Path(self._filename_auto).stem
 
     @mproperty
     @debug
@@ -60,27 +67,15 @@ class WebFile():
             return self._filesuffix
         elif self._filename:
             return Path(self._filename).suffix
+        elif self._response.headers['Content-Type'] == 'video/mp4':
+            return '.mp4'
         else:
-            if self.headers['Content-Type'] == 'video/mp4':
-                return 'mp4'
-            else:
-                return Path(self.filename).suffix
+            return Path(self._filename_auto).suffix
 
     @mproperty
     @debug
     def filename(self):
-        if self._filename or self._filestem:
-            return '{}.{}'.format(self.filestem, self.filesuffix)
-
-        if 'Content-Disposition' in self.headers:
-            m = re.search('filename="(.+)"', self.headers['Content-Disposition'])
-            if m:
-                return m.group(1)
-
-        if 'Location' in self.headers:
-            return urlparse(self.headers['Location']).path.split('/').pop()
-
-        return urlparse(self.url).path.split('/').pop()
+        return self.filestem + self.filesuffix
 
     @mproperty
     @debug
