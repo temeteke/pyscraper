@@ -10,6 +10,9 @@ from .utils import debug, HEADERS
 
 logger = logging.getLogger(__name__)
 
+class WebFileRequestError(Exception):
+    pass
+
 class WebFileSizeError(Exception):
     pass
 
@@ -119,17 +122,20 @@ class WebFile():
             logger.debug("Response Headers: " + str(r.headers))
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 416:
-                if self.filepath_tmp.exists():
-                    logger.debug("Removing downloaded file.")
+            if 400 <= e.response.status_code < 500:
+                if e.response.status_code == 416 and self.filepath_tmp.exists():
+                    logger.warning("Removing downloaded file")
                     self.filepath_tmp.unlink()
+                    raise
+                else:
+                    raise WebFileRequestError(e)
             raise
 
         total_size = int(r.headers['Content-Length'])
         if 'Content-Range' in r.headers:
             total_size = int(r.headers['Content-Range'].split('/')[-1])
         if total_size == 0:
-            raise WebFileSizeError("File size is zero.")
+            raise WebFileSizeError("File size is zero")
 
         with tqdm(total=total_size, initial=downloaded_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             with self.filepath_tmp.open('ab') as f:

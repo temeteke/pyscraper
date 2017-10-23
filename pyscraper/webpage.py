@@ -10,6 +10,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 import pyvirtualdisplay
 import lxml.html
 from .utils import debug, HEADERS
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,8 @@ class WebPage(metaclass=ABCMeta):
     def get(self, xpath):
         return self.html.xpath(xpath)
 
-    def dump(self, filename='dump.html'):
-        with open(filename, 'w') as f:
+    def dump(self, filestem='dump'):
+        with Path('{}.html'.format(filestem)).open('w') as f:
             f.write(self.source)
 
 class WebPageRequests(WebPage):
@@ -119,6 +120,12 @@ class WebPageSelenium(WebPage):
             return iframe_url
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
+
+    def dump(self, filestem='dump'):
+        with Path('{}.html'.format(filestem)).open('w') as f:
+            f.write(self.source)
+        self.webdriver.save_screenshot(filestem+'.png')
+
 
 class WebPagePhantomJS(WebPageSelenium):
     def __init__(self, url):
