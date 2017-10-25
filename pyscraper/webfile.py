@@ -50,8 +50,8 @@ class WebFile():
             m = re.search('filename="(.+)"', self._response.headers['Content-Disposition'])
             if m:
                 return m.group(1)
-        else:
-            return urlparse(self._response.url).path.split('/').pop()
+
+        return urlparse(self._response.url).path.split('/').pop()
 
     @mproperty
     @debug
