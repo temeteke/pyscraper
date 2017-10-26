@@ -57,6 +57,7 @@ class WebPageRequests(WebPage):
     @mproperty
     @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def response(self):
+        logger.debug("Getting {}".format(self.url))
         r = self.session.get(self.url, timeout=10)
         logger.debug("Response Headers: " + str(r.headers))
         return r
@@ -134,6 +135,7 @@ class WebPagePhantomJS(WebPageSelenium):
 
     def __enter__(self):
         self.webdriver = webdriver.PhantomJS()
+        logger.debug("Getting {}".format(self.url))
         self.webdriver.get(self._url)
         return self
 
@@ -151,6 +153,7 @@ class WebPageFirefox(WebPageSelenium):
         firefox_capabilities = DesiredCapabilities.FIREFOX
         firefox_capabilities['marionette'] = True
         self.webdriver = webdriver.Firefox(capabilities=firefox_capabilities)
+        logger.debug("Getting {}".format(self.url))
         self.webdriver.get(self._url)
         return self
 
