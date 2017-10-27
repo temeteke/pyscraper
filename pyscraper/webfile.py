@@ -36,7 +36,7 @@ class WebFile():
             self.session.cookies.set(k, v)
 
     @mproperty
-    @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    @retry(requests.exceptions.ReadTimeout, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def _response(self):
         logger.debug("Request Headers: " + str(self.session.headers))
         r = self.session.head(self.url, allow_redirects=True, timeout=10)
@@ -90,7 +90,7 @@ class WebFile():
     def filepath_tmp(self):
         return Path(str(self.filepath) + '.part')
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download(self, directory='.', filename=None, filestem=None, filesuffix=None):
         self.directory = Path(directory)
         if not self.directory.exists():
