@@ -135,7 +135,7 @@ class WebPagePhantomJS(WebPageSelenium):
 
     def __enter__(self):
         self.webdriver = webdriver.PhantomJS()
-        logger.debug("Getting {}".format(self.url))
+        logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
 
@@ -153,7 +153,7 @@ class WebPageFirefox(WebPageSelenium):
         firefox_capabilities = DesiredCapabilities.FIREFOX
         firefox_capabilities['marionette'] = True
         self.webdriver = webdriver.Firefox(capabilities=firefox_capabilities)
-        logger.debug("Getting {}".format(self.url))
+        logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
 
