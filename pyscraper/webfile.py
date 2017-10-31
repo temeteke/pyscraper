@@ -57,7 +57,7 @@ class WebFile():
     @debug
     def filestem(self):
         if self._filestem:
-            return re.sub(r'[/:\s\*\.]', '_', self._filestem)[:128]
+            return re.sub(r'[/:\s\*\.\?]', '_', self._filestem)[:128]
         elif self._filename:
             return Path(self._filename).stem
         else:
