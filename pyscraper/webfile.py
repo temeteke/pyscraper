@@ -17,14 +17,10 @@ class WebFileSizeError(Exception):
     pass
 
 class WebFile():
-    def __init__(self, url, session=None, headers={}, cookies={}):
+    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
         self.offset = 0
 
         self.url = url
-
-        self._filename = None
-        self._filestem = None
-        self._filesuffix = None
 
         if session:
             self.session = session
@@ -36,6 +32,14 @@ class WebFile():
 
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
+
+        self.directory = Path(directory)
+        if not self.directory.exists():
+            self.directory.mkdir()
+
+        self._filename = filename
+        self._filestem = filestem
+        self._filesuffix = filesuffix
 
     @mproperty
     @retry(requests.exceptions.ReadTimeout, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
@@ -140,15 +144,7 @@ class WebFile():
         else:
             raise WebFileSizeError("The size of the downloaded file is wrong.")
 
-    def download(self, directory='.', filename=None, filestem=None, filesuffix=None):
-        self.directory = Path(directory)
-        if not self.directory.exists():
-            self.directory.mkdir()
-
-        self._filename = filename
-        self._filestem = filestem
-        self._filesuffix = filesuffix
-
+    def download(self):
         logger.info("Downloading {}".format(self.url))
 
         if self.filepath.exists():
