@@ -171,10 +171,11 @@ class WebFile(FileIOBase):
             raise
 
     def read(self, size=None):
-        data = self.joinedfiles.read(size)
-        if size and data:
-            self.seek(self.tell() + len(data))
-            return data
+        if self.caching:
+            data = self.joinedfiles.read(size)
+            if size and data:
+                self.seek(self.tell() + len(data))
+                return data
 
         if self.tell():
             self.session.headers['Range'] = 'bytes={}-'.format(self.tell())
@@ -184,23 +185,32 @@ class WebFile(FileIOBase):
 
         partfile = Path('{}.part{}'.format(self.filepath, self.tell()))
         logger.debug('Downloading to {}'.format(partfile))
-        with partfile.open('ab') as f:
+        if self.caching:
+            with partfile.open('ab') as f:
+                for chunk in self._res.iter_content(1024):
+                    self.seek(self.tell() + len(chunk))
+                    f.write(chunk)
+                    data += chunk
+        else:
             for chunk in self._res.iter_content(1024):
                 self.seek(self.tell() + len(chunk))
-                f.write(chunk)
                 data += chunk
 
-        if self.tell() == self.size and reduce(lambda x,y: x+y, [partfile.stat().st_size for partfile in self.joinedfiles.files]) == self.size:
-            self.joinedfiles.seek(0)
-            with self.filepath.open('wb') as f:
-                for chunk in self.joinedfiles.read_in_chunks(1024):
-                    f.write(chunk)
+        if self.caching:
+            if self.tell() == self.size and reduce(lambda x,y: x+y, [partfile.stat().st_size for partfile in self.joinedfiles.files]) == self.size:
+                self.joinedfiles.seek(0)
+                with self.filepath.open('wb') as f:
+                    for chunk in self.joinedfiles.read_in_chunks(1024):
+                        f.write(chunk)
 
         return data
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download(self):
         logger.info("Downloading {}".format(self.url))
+
+        _caching = self.caching
+        self.caching = True
 
         if self.filepath.exists():
             logger.warning("{} is already downloaded.".format(self.filepath))
@@ -211,3 +221,5 @@ class WebFile(FileIOBase):
         with tqdm(total=self.size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             for chunk in self.read_in_chunks(1024):
                 pbar.update(len(chunk))
+
+        self.caching = _caching
