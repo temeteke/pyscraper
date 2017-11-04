@@ -18,6 +18,8 @@ class WebFileSizeError(Exception):
 
 class WebFile():
     def __init__(self, url, session=None, headers={}, cookies={}):
+        self.offset = 0
+
         self.url = url
 
         self._filename = None
@@ -88,9 +90,56 @@ class WebFile():
     @mproperty
     @debug
     def filepath_tmp(self):
-        return Path(str(self.filepath) + '.part')
+        return Path(str(self.filepath) + '.part0')
+
+    @mproperty
+    @debug
+    def size(self):
+        return int(self._response.headers['Content-Length'])
+
+    def seek(self, offset):
+        self.offset = offset
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    def read(self, size):
+        if self.filepath_tmp.exists():
+            with self.filepath_tmp.open('rb') as f:
+                f.seek(self.offset)
+                block = f.read(size)
+                self.offset += len(block)
+                yield block
+            self.session.headers['Range'] = 'bytes={}-'.format(self.offset)
+        else:
+            if 'Range' in self.session.headers:
+                del self.session.headers['Range']
+
+        try:
+            logger.debug("Request Headers: " + str(self.session.headers))
+            r = self.session.get(self.url, stream=True, timeout=10)
+            logger.debug("Response Headers: " + str(r.headers))
+            r.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            if 400 <= e.response.status_code < 500:
+                if e.response.status_code == 416 and self.filepath_tmp.exists():
+                    logger.warning("Removing downloaded file")
+                    self.filepath_tmp.unlink()
+                    self.offset = 0
+                    raise
+                else:
+                    raise WebFileRequestError(e)
+            raise
+
+        with self.filepath_tmp.open('ab') as f:
+            for chunk in r.iter_content(size):
+                f.write(chunk)
+                yield chunk
+
+        if self.filepath_tmp.stat().st_size == self.size:
+            self.filepath_tmp.rename(self.filepath)
+            return
+        else:
+            raise WebFileSizeError("The size of the downloaded file is wrong.")
+
     def download(self, directory='.', filename=None, filestem=None, filesuffix=None):
         self.directory = Path(directory)
         if not self.directory.exists():
@@ -109,42 +158,8 @@ class WebFile():
         logger.info("Filepath is {}".format(self.filepath))
 
         if self.filepath_tmp.exists():
-            downloaded_size = self.filepath_tmp.stat().st_size
-            self.session.headers['Range'] = 'bytes={}-'.format(downloaded_size)
-        else:
-            downloaded_size = 0
-            if 'Range' in self.session.headers:
-                del self.session.headers['Range']
+            self.seek(self.filepath_tmp.stat().st_size)
 
-        try:
-            logger.debug("Request Headers: " + str(self.session.headers))
-            r = self.session.get(self.url, stream=True, timeout=10)
-            logger.debug("Response Headers: " + str(r.headers))
-            r.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            if 400 <= e.response.status_code < 500:
-                if e.response.status_code == 416 and self.filepath_tmp.exists():
-                    logger.warning("Removing downloaded file")
-                    self.filepath_tmp.unlink()
-                    raise
-                else:
-                    raise WebFileRequestError(e)
-            raise
-
-        total_size = int(r.headers['Content-Length'])
-        if 'Content-Range' in r.headers:
-            total_size = int(r.headers['Content-Range'].split('/')[-1])
-        if total_size == 0:
-            raise WebFileSizeError("File size is zero")
-
-        with tqdm(total=total_size, initial=downloaded_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-            with self.filepath_tmp.open('ab') as f:
-                for block in r.iter_content(1024):
-                    f.write(block)
-                    pbar.update(len(block))
-
-        if self.filepath_tmp.stat().st_size == total_size:
-            self.filepath_tmp.rename(self.filepath)
-            return
-        else:
-            raise WebFileSizeError("The size of the downloaded file is wrong.")
+        with tqdm(total=self.size, initial=self.offset, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+            for block in self.read(1024):
+                pbar.update(len(block))
