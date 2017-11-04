@@ -105,13 +105,16 @@ class WebFile():
         self.offset = offset
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
-    def read(self, size):
+    def iter_content(self, chunk_size):
         if self.filepath_tmp.exists():
             with self.filepath_tmp.open('rb') as f:
                 f.seek(self.offset)
-                block = f.read(size)
-                self.offset += len(block)
-                yield block
+                while True:
+                    chunk = f.read(chunk_size)
+                    self.offset += len(chunk)
+                    if not chunk:
+                        break
+                    yield chunk
             self.session.headers['Range'] = 'bytes={}-'.format(self.offset)
         else:
             if 'Range' in self.session.headers:
@@ -134,7 +137,8 @@ class WebFile():
             raise
 
         with self.filepath_tmp.open('ab') as f:
-            for chunk in r.iter_content(size):
+            for chunk in r.iter_content(chunk_size):
+                self.offset += len(chunk)
                 f.write(chunk)
                 yield chunk
 
@@ -157,5 +161,5 @@ class WebFile():
             self.seek(self.filepath_tmp.stat().st_size)
 
         with tqdm(total=self.size, initial=self.offset, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-            for block in self.read(1024):
+            for block in self.iter_content(1024):
                 pbar.update(len(block))
