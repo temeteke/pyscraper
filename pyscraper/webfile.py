@@ -7,8 +7,53 @@ from pathlib import Path
 import re
 import requests
 from .utils import debug, HEADERS
+from functools import reduce
 
 logger = logging.getLogger(__name__)
+
+class FileIOBase():
+    def __init__(self):
+        self.seek(0)
+
+    def read(self, size):
+        pass
+
+    def seek(self, position):
+        self.position = position
+
+    def tell(self):
+        return self.position
+
+    def read_in_chunks(self, chunk_size, start=0):
+        self.seek(start)
+        while True:
+            chunk = self.read(chunk_size)
+            if chunk:
+                yield chunk
+            else:
+                break
+
+class JoinedFiles(FileIOBase):
+    def __init__(self, filepaths):
+        self.filepaths = filepaths
+        super().__init__()
+
+    def read(self, size=None):
+        data = b''
+        for filepath in self.filepaths:
+            start = int(re.findall(r'\d+$', filepath.suffix)[0])
+            stop = start + filepath.stat().st_size
+
+            if self.tell() in range(start, stop):
+                start_in_partfile = self.tell() - start
+                stop_in_partfile = start_in_partfile + size
+                #logger.debug('Reading {} from {} to {}'.format(filepath, start_in_partfile, stop_in_partfile))
+                with filepath.open('rb') as f:
+                    f.seek(start_in_partfile)
+                    data += f.read(stop_in_partfile-start_in_partfile)
+
+        self.seek(self.tell() + len(data))
+        return data
 
 class WebFileRequestError(Exception):
     pass
@@ -16,10 +61,8 @@ class WebFileRequestError(Exception):
 class WebFileSizeError(Exception):
     pass
 
-class WebFile():
-    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
-        self.offset = 0
-
+class WebFile(FileIOBase):
+    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None, caching=False):
         self.url = url
 
         if session:
@@ -40,6 +83,12 @@ class WebFile():
         self._filename = filename
         self._filestem = filestem
         self._filesuffix = filesuffix
+
+        self.caching = caching
+
+        self.joinedfiles = JoinedFiles(sorted(self.directory.glob('{}.part*'.format(self.filepath.name)), key=lambda x:int(re.findall(r'\d+$', x.suffix)[0])))
+
+        super().__init__()
 
     @mproperty
     @retry(requests.exceptions.ReadTimeout, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
@@ -101,53 +150,55 @@ class WebFile():
     def size(self):
         return int(self._response.headers['Content-Length'])
 
-    def seek(self, offset):
-        self.offset = offset
-
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
-    def iter_content(self, chunk_size):
-        if self.filepath_tmp.exists():
-            with self.filepath_tmp.open('rb') as f:
-                f.seek(self.offset)
-                while True:
-                    chunk = f.read(chunk_size)
-                    self.offset += len(chunk)
-                    if not chunk:
-                        break
-                    yield chunk
-            self.session.headers['Range'] = 'bytes={}-'.format(self.offset)
-        else:
-            if 'Range' in self.session.headers:
-                del self.session.headers['Range']
-
+    @mproperty
+    def _res(self):
         try:
             logger.debug("Request Headers: " + str(self.session.headers))
             r = self.session.get(self.url, stream=True, timeout=10)
             logger.debug("Response Headers: " + str(r.headers))
             r.raise_for_status()
+            return r
         except requests.exceptions.HTTPError as e:
             if 400 <= e.response.status_code < 500:
-                if e.response.status_code == 416 and self.filepath_tmp.exists():
+                if e.response.status_code == 416 and self.joinedfiles.filepaths:
                     logger.warning("Removing downloaded file")
-                    self.filepath_tmp.unlink()
-                    self.offset = 0
+                    for filepath in self.joinedfiles.filepaths:
+                        filepath.unlink()
+                    self.seek(0)
                     raise
                 else:
                     raise WebFileRequestError(e)
             raise
 
-        with self.filepath_tmp.open('ab') as f:
-            for chunk in r.iter_content(chunk_size):
-                self.offset += len(chunk)
-                f.write(chunk)
-                yield chunk
+    def read(self, size=None):
+        data = self.joinedfiles.read(size)
+        if size and data:
+            self.seek(self.tell() + len(data))
+            return data
 
-        if self.filepath_tmp.stat().st_size == self.size:
-            self.filepath_tmp.rename(self.filepath)
-            return
+        if self.tell():
+            self.session.headers['Range'] = 'bytes={}-'.format(self.tell())
         else:
-            raise WebFileSizeError("The size of the downloaded file is wrong.")
+            if 'Range' in self.session.headers:
+                del self.session.headers['Range']
 
+        partfile = Path('{}.part{}'.format(self.filepath, self.tell()))
+        logger.debug('Downloading to {}'.format(partfile))
+        with partfile.open('ab') as f:
+            for chunk in self._res.iter_content(1024):
+                self.seek(self.tell() + len(chunk))
+                f.write(chunk)
+                data += chunk
+
+        if self.tell() == self.size and reduce(lambda x,y: x+y, [partfile.stat().st_size for partfile in self.joinedfiles.files]) == self.size:
+            self.joinedfiles.seek(0)
+            with self.filepath.open('wb') as f:
+                for chunk in self.joinedfiles.read_in_chunks(1024):
+                    f.write(chunk)
+
+        return data
+
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, WebFileSizeError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download(self):
         logger.info("Downloading {}".format(self.url))
 
@@ -157,9 +208,6 @@ class WebFile():
 
         logger.info("Filepath is {}".format(self.filepath))
 
-        if self.filepath_tmp.exists():
-            self.seek(self.filepath_tmp.stat().st_size)
-
-        with tqdm(total=self.size, initial=self.offset, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-            for block in self.iter_content(1024):
-                pbar.update(len(block))
+        with tqdm(total=self.size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+            for chunk in self.read_in_chunks(1024):
+                pbar.update(len(chunk))
