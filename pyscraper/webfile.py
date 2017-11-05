@@ -133,19 +133,19 @@ class WebFile(FileIOBase):
         return Path(self.directory, self.filename)
 
     def seek(self, offset):
-        if not offset in range(self.tell(), self.size):
-            if offset:
-                headers = {'Range': 'bytes={}-'.format(offset)}
-            else:
-                headers = {}
+        logger.debug('Seek to {}'.format(offset))
+        if offset:
+            headers = {'Range': 'bytes={}-'.format(offset)}
+        else:
+            headers = {}
 
-            self.response = self._get_response(headers)
+        self.response = self._get_response(headers)
 
         super().seek(offset)
 
     def read(self, size=None):
         chunk = self.response.raw.read(size)
-        self.seek(self.tell() + len(chunk))
+        self.position += len(chunk)
         return chunk
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
@@ -165,14 +165,13 @@ class WebFile(FileIOBase):
             filepath_tmp_size = 0
 
         try:
-            self.seek(filepath_tmp_size)
-
             with tqdm(total=self.size, initial=filepath_tmp_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-                for chunk in self.read_in_chunks(1024):
-                    with filepath_tmp.open('ab') as f:
+                with filepath_tmp.open('ab') as f:
+                    for chunk in self.read_in_chunks(1024, filepath_tmp_size):
                         f.write(chunk)
                         pbar.update(len(chunk))
         except requests.exceptions.HTTPError as e:
+            logger.warning(e)
             if 400 <= e.response.status_code < 500:
                 if e.response.status_code == 416 and filepath_tmp.exists():
                     logger.warning("Removing downloaded file")
@@ -182,8 +181,9 @@ class WebFile(FileIOBase):
                     raise WebFileRequestError(e)
             raise
 
+        logger.debug('Comparing file size: {} {}'.format(filepath_tmp.stat().st_size, self.size))
         if filepath_tmp.stat().st_size == self.size:
-            self.filepath_tmp.rename(self.filepath)
+            filepath_tmp.rename(self.filepath)
 
 class JoinedFiles(FileIOBase):
     def __init__(self, filepaths):
@@ -223,7 +223,7 @@ class WebFileCached(WebFile):
         if not size or size > len(data):
             chunk = super().read(size-len(data))
             data += chunk
-            self.seek(self.tell() + len(chunk))
+            self.position += len(chunk)
 
             partfile = Path('{}.part{}'.format(self.filepath, self.tell()))
             logger.debug('Downloading to {}'.format(partfile))
