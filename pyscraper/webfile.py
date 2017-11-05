@@ -121,8 +121,6 @@ class WebFile(FileIOBase):
     def filepath(self):
         return Path(self.directory, self.filename)
 
-    @mproperty
-    @debug
     def get_response(self, headers={}):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)
@@ -160,7 +158,7 @@ class WebFile(FileIOBase):
 
         logger.info("Filepath is {}".format(self.filepath))
 
-        downloaded_file = Path(str(self.filepath) + '.part0')
+        downloaded_file = Path(str(self.filepath) + '.part')
         if downloaded_file.exists():
             downloaded_file_size = downloaded_file.st().st_size
         else:
@@ -173,6 +171,9 @@ class WebFile(FileIOBase):
                 with self.filepath.open('wb') as f:
                     f.write(chunk)
                     pbar.update(len(chunk))
+
+        if downloaded_file.st().st_size == self.size:
+            self.downloaded_file.rename(self.filepath)
 
 class JoinedFiles(FileIOBase):
     def __init__(self, filepaths):
@@ -227,3 +228,16 @@ class WebFileCached(WebFile):
                         f.write(chunk)
 
         return data
+
+    def download(self):
+        logger.info("Downloading {}".format(self.url))
+
+        if self.filepath.exists():
+            logger.warning("{} is already downloaded.".format(self.filepath))
+            return
+
+        logger.info("Filepath is {}".format(self.filepath))
+
+        with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+            for chunk in self.read_in_chunks(1024):
+                f.write(chunk)
