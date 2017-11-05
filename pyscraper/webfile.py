@@ -20,6 +20,7 @@ class FileIOBase():
 
     def seek(self, position):
         self.position = position
+        return position
 
     def tell(self):
         return self.position
@@ -78,23 +79,15 @@ class WebFile(FileIOBase):
         return r
 
     @mproperty
-    @retry(requests.exceptions.ReadTimeout, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
-    def response_headers(self):
-        logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.head(self.url, allow_redirects=True, timeout=10)
-        logger.debug("Response Headers: " + str(r.headers))
-        return r.headers
-
-    @mproperty
     @debug
     def size(self):
-        return int(self.response_headers['Content-Length'])
+        return int(self.response.headers['Content-Length'])
 
     @mproperty
     @debug
     def _filename_auto(self):
-        if 'Content-Disposition' in self.response_headers:
-            m = re.search('filename="(.+)"', self.response_headers['Content-Disposition'])
+        if 'Content-Disposition' in self.response.headers:
+            m = re.search('filename="(.+)"', self.response.headers['Content-Disposition'])
             if m:
                 return m.group(1)
 
@@ -117,7 +110,7 @@ class WebFile(FileIOBase):
             return self._filesuffix
         elif self._filename:
             return Path(self._filename).suffix
-        elif self.response_headers['Content-Type'] == 'video/mp4':
+        elif self.response.headers['Content-Type'] == 'video/mp4':
             return '.mp4'
         else:
             return Path(self._filename_auto).suffix
@@ -133,7 +126,9 @@ class WebFile(FileIOBase):
         return Path(self.directory, self.filename)
 
     def seek(self, offset):
-        logger.debug('Seek to {}'.format(offset))
+        if offset == self.position:
+            return self.position
+
         if offset:
             headers = {'Range': 'bytes={}-'.format(offset)}
         else:
@@ -141,7 +136,7 @@ class WebFile(FileIOBase):
 
         self.response = self._get_response(headers)
 
-        super().seek(offset)
+        return super().seek(offset)
 
     def read(self, size=None):
         chunk = self.response.raw.read(size)
