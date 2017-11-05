@@ -155,14 +155,14 @@ class WebFile(FileIOBase):
 
         filepath_tmp = Path(str(self.filepath) + '.part')
         if filepath_tmp.exists():
-            filepath_tmp_size = filepath_tmp.stat().st_size
+            downloaded_file_size = filepath_tmp.stat().st_size
         else:
-            filepath_tmp_size = 0
+            downloaded_file_size = 0
 
         try:
-            with tqdm(total=self.size, initial=filepath_tmp_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+            with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
                 with filepath_tmp.open('ab') as f:
-                    for chunk in self.read_in_chunks(1024, filepath_tmp_size):
+                    for chunk in self.read_in_chunks(1024, downloaded_file_size):
                         f.write(chunk)
                         pbar.update(len(chunk))
         except requests.exceptions.HTTPError as e:
@@ -207,31 +207,27 @@ class WebFileCached(WebFile):
 
         super().__init__(url=url, session=session, headers=headers, cookies=cookies, filename=filename, filestem=filestem, filesuffix=filesuffix)
 
-    def read(self, size=None):
-        data = b''
+    def seek(self, offset):
+        self.joinedfiles.seek(offset)
+        return super().seek(offset)
 
-        self.joinedfiles.seek(self.tell())
-        chunk = self.joinedfiles.read(size)
-        data += chunk
-        self.seek(self.tell() + len(chunk))
+    def read(self, size=None):
+        data = self.joinedfiles.read(size)
 
         if not size or size > len(data):
-            chunk = super().read(size-len(data))
-            data += chunk
-            self.position += len(chunk)
+            data += super().read(size-len(data))
 
-            partfile = Path('{}.part{}'.format(self.filepath, self.tell()))
+            partfile = Path('{}.part{}'.format(self.filepath, self.tell()+len(data)))
             logger.debug('Downloading to {}'.format(partfile))
-
             with partfile.open('ab') as f:
                 f.write(data)
 
-            if self.tell() == self.size and reduce(lambda x,y: x+y, [partfile.stat().st_size for partfile in self.joinedfiles.files]) == self.size:
-                self.joinedfiles.seek(0)
+            if self.tell()+len(data) == self.size and reduce(lambda x,y: x+y, [partfile.stat().st_size for partfile in self.joinedfiles.files]) == self.size:
                 with self.filepath.open('ab') as f:
-                    for chunk in self.joinedfiles.read_in_chunks(1024):
+                    for chunk in JoinedFiles(sorted(self.directory.glob('{}.part*'.format(self.filepath.name)), key=lambda x:int(re.findall(r'\d+$', x.suffix)[0]))).read_in_chunks(1024):
                         f.write(chunk)
 
+        self.position += len(data)
         return data
 
     def download(self):
