@@ -62,9 +62,20 @@ class WebFile(FileIOBase):
         self._filestem = filestem
         self._filesuffix = filesuffix
 
-        self.response = self.get_response()
+        self.response = self._get_response()
 
         super().__init__()
+
+    def _get_response(self, headers={}):
+        headers_all = self.session.headers.copy()
+        headers_all.update(headers)
+
+        logger.debug("Request Headers: " + str(headers_all))
+        r = self.session.get(self.url, headers=headers, stream=True, timeout=10)
+        logger.debug("Response Headers: " + str(r.headers))
+
+        r.raise_for_status()
+        return r
 
     @mproperty
     @retry(requests.exceptions.ReadTimeout, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
@@ -121,17 +132,6 @@ class WebFile(FileIOBase):
     def filepath(self):
         return Path(self.directory, self.filename)
 
-    def get_response(self, headers={}):
-        headers_all = self.session.headers.copy()
-        headers_all.update(headers)
-
-        logger.debug("Request Headers: " + str(headers_all))
-        r = self.session.get(self.url, headers=headers, stream=True, timeout=10)
-        logger.debug("Response Headers: " + str(r.headers))
-
-        r.raise_for_status()
-        return r
-
     def seek(self, offset):
         if not offset in range(self.tell(), self.size):
             if offset:
@@ -139,7 +139,7 @@ class WebFile(FileIOBase):
             else:
                 headers = {}
 
-            self.response = self.get_response(headers)
+            self.response = self._get_response(headers)
 
         super().seek(offset)
 
@@ -158,22 +158,22 @@ class WebFile(FileIOBase):
 
         logger.info("Filepath is {}".format(self.filepath))
 
-        downloaded_file = Path(str(self.filepath) + '.part')
-        if downloaded_file.exists():
-            downloaded_file_size = downloaded_file.st().st_size
+        filepath_tmp = Path(str(self.filepath) + '.part')
+        if filepath_tmp.exists():
+            filepath_tmp_size = filepath_tmp.stat().st_size
         else:
-            downloaded_file_size = 0
+            filepath_tmp_size = 0
 
-        self.seek(downloaded_file_size)
+        self.seek(filepath_tmp_size)
 
-        with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+        with tqdm(total=self.size, initial=filepath_tmp_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             for chunk in self.read_in_chunks(1024):
-                with self.filepath.open('wb') as f:
+                with filepath_tmp.open('ab') as f:
                     f.write(chunk)
                     pbar.update(len(chunk))
 
-        if downloaded_file.st().st_size == self.size:
-            self.downloaded_file.rename(self.filepath)
+        if filepath_tmp.stat().st_size == self.size:
+            self.filepath_tmp.rename(self.filepath)
 
 class JoinedFiles(FileIOBase):
     def __init__(self, filepaths):
@@ -223,7 +223,7 @@ class WebFileCached(WebFile):
 
             if self.tell() == self.size and reduce(lambda x,y: x+y, [partfile.stat().st_size for partfile in self.joinedfiles.files]) == self.size:
                 self.joinedfiles.seek(0)
-                with self.filepath.open('wb') as f:
+                with self.filepath.open('ab') as f:
                     for chunk in self.joinedfiles.read_in_chunks(1024):
                         f.write(chunk)
 
@@ -240,4 +240,4 @@ class WebFileCached(WebFile):
 
         with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             for chunk in self.read_in_chunks(1024):
-                f.write(chunk)
+                pbar.update(len(chunk))
