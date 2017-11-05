@@ -143,12 +143,12 @@ class WebFile(FileIOBase):
 
         super().seek(offset)
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
         chunk = self.response.raw.read(size)
         self.seek(self.tell() + len(chunk))
         return chunk
 
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download(self):
         logger.info("Downloading {}".format(self.url))
 
@@ -164,13 +164,23 @@ class WebFile(FileIOBase):
         else:
             filepath_tmp_size = 0
 
-        self.seek(filepath_tmp_size)
+        try:
+            self.seek(filepath_tmp_size)
 
-        with tqdm(total=self.size, initial=filepath_tmp_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-            for chunk in self.read_in_chunks(1024):
-                with filepath_tmp.open('ab') as f:
-                    f.write(chunk)
-                    pbar.update(len(chunk))
+            with tqdm(total=self.size, initial=filepath_tmp_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+                for chunk in self.read_in_chunks(1024):
+                    with filepath_tmp.open('ab') as f:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
+        except requests.exceptions.HTTPError as e:
+            if 400 <= e.response.status_code < 500:
+                if e.response.status_code == 416 and filepath_tmp.exists():
+                    logger.warning("Removing downloaded file")
+                    filepath_tmp.unlink()
+                    raise
+                else:
+                    raise WebFileRequestError(e)
+            raise
 
         if filepath_tmp.stat().st_size == self.size:
             self.filepath_tmp.rename(self.filepath)
