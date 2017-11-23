@@ -27,9 +27,13 @@ class FileIOBase():
     def tell(self):
         return self.position
 
-    def read_in_chunks(self, chunk_size, start=0):
+    def read_in_chunks(self, chunk_size, start=0, stop=None):
         self.seek(start)
         while True:
+            if stop and stop-self.tell() < chunk_size:
+                chunk_size = stop-self.tell()
+                self.logger.debug('Read last chunk(size:{})'.format(chunk_size))
+
             chunk = self.read(chunk_size)
             if chunk:
                 yield chunk
@@ -199,7 +203,11 @@ class JoinedFiles(FileIOBase):
 
     @property
     def size(self):
-        return reduce(lambda x,y: x+y, [partfile.stat().st_size for partfile in self.filepaths])
+        position = self.tell()
+        self.seek(0)
+        size = len(self.read())
+        self.seek(position)
+        return size
 
     def read(self, size=-1):
         data = b''
@@ -222,15 +230,26 @@ class JoinedFiles(FileIOBase):
         return data
 
     def write(self, b):
+        for filepath in self.filepaths:
+            start = int(re.findall(r'\d+$', filepath.suffix)[0])
+            stop = start + filepath.stat().st_size
+
+            if self.tell() in range(start, stop+1):
+                self.logger.debug('Saving data to {}'.format(filepath))
+                with filepath.open('ab') as f:
+                    f.write(b[self.tell()-stop:])
+                self.position += len(b)
+                return len(b)
+
         partfile = Path('{}.part{}'.format(self.filepath, self.tell()))
-        self.logger.debug('Save data to {}'.format(partfile))
+        self.logger.debug('Saving data to {}'.format(partfile))
         with partfile.open('ab') as f:
             f.write(b)
         self.position += len(b)
         return len(b)
 
     def join(self):
-        logger.debug('Join files')
+        self.logger.debug('Joining files')
         self.seek(0)
 
         with self.filepath.open('wb') as f:
@@ -238,10 +257,24 @@ class JoinedFiles(FileIOBase):
                 f.write(chunk)
 
         for filepath in self.filepaths:
+            self.logger.debug('Removing {}'.format(filepath))
             filepath.unlink()
 
 class WebFileCached(WebFile):
+    def seek(self, offset):
+        if self.filepath.exists():
+            self.logger.debug("Seek using cached file '{}'".format(self.filepath))
+            FileIOBase.seek(self, offset)
+        else:
+            super().seek(offset)
+
     def read(self, size=-1):
+        if self.filepath.exists():
+            self.logger.debug("Reading from cached file '{}'".format(self.filepath))
+            with self.filepath.open('rb') as f:
+                f.seek(self.tell())
+                return f.read(size)
+
         joined_files = JoinedFiles(self.filepath)
 
         joined_files.seek(self.tell())
@@ -261,7 +294,7 @@ class WebFileCached(WebFile):
                 new_data = super().read(size-len(old_data))
                 joined_files.write(new_data)
 
-        if self.tell() == self.size and joined_files.size == self.size:
+        if joined_files.size == self.size:
             joined_files.join()
 
         return old_data + new_data
