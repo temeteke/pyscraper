@@ -148,12 +148,14 @@ class WebFile(FileIOBase):
         return super().seek(offset)
 
     def read(self, size=None):
+        """Read and return contents."""
         chunk = self.response.raw.read(size)
         self.position += len(chunk)
         return chunk
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download(self):
+        """Read contents and save into a file."""
         self.logger.info("Downloading {}".format(self.url))
 
         if self.filepath.exists():
@@ -192,17 +194,19 @@ class WebFile(FileIOBase):
 class WebFileSeekError(Exception):
     pass
 
-class JoinedFiles(FileIOBase):
+class JoinedFile(FileIOBase):
     def __init__(self, filepath):
         super().__init__()
-        self.filepath = filepath
+        self.filepath = Path(filepath)
 
     @property
     def filepaths(self):
+        """Return a list of files."""
         return sorted(self.filepath.parent.glob('{}.part*'.format(self.filepath.name)), key=lambda x:int(re.findall(r'\d+$', x.suffix)[0]))
 
     @property
     def size(self):
+        """Return a total size of files."""
         position = self.tell()
         self.seek(0)
         size = len(self.read())
@@ -210,8 +214,20 @@ class JoinedFiles(FileIOBase):
         return size
 
     def read(self, size=-1):
-        data = b''
+        if self.filepath.exists():
+            return self.read_joined_file(size)
+        else:
+            return self.read_part_files(size)
 
+    def read_joined_file(self, size=-1):
+        """Read and return contents of joined file."""
+        with self.filepath.open('rb') as f:
+            f.seek(self.tell())
+            return f.read(size)
+
+    def read_part_files(self, size=-1):
+        """Read and return contents of part files."""
+        data = b''
         for filepath in self.filepaths:
             start = int(re.findall(r'\d+$', filepath.suffix)[0])
             stop = start + filepath.stat().st_size
@@ -219,17 +235,18 @@ class JoinedFiles(FileIOBase):
             if self.tell() in range(start, stop):
                 start_in_partfile = self.tell() - start
                 stop_in_partfile = stop if not size or size < 0 else start_in_partfile + size
-                self.logger.debug('Read from downloaded file {} from {} to {}'.format(filepath, start_in_partfile, stop_in_partfile))
+                self.logger.debug('Read from cached file {} from {} to {}'.format(filepath, start_in_partfile, stop_in_partfile))
                 with filepath.open('rb') as f:
                     f.seek(start_in_partfile)
                     read_data = f.read(stop_in_partfile-start_in_partfile)
 
                 self.seek(self.tell() + len(read_data))
                 data += read_data
-
+        
         return data
 
     def write(self, b):
+        """Write contents."""
         for filepath in self.filepaths:
             start = int(re.findall(r'\d+$', filepath.suffix)[0])
             stop = start + filepath.stat().st_size
@@ -249,16 +266,37 @@ class JoinedFiles(FileIOBase):
         return len(b)
 
     def join(self):
+        if self.filepath.exists():
+            return
+
         self.logger.debug('Joining files')
         self.seek(0)
-
         with self.filepath.open('wb') as f:
-            for chunk in self.read_in_chunks(1024):
-                f.write(chunk)
+            while True:
+                chunk = self.read_part_files(1024)
+                if chunk:
+                    f.write(chunk)
+                else:
+                    break
 
         for filepath in self.filepaths:
             self.logger.debug('Removing {}'.format(filepath))
             filepath.unlink()
+
+    def unlink(self):
+        try:
+            self.filepath.unlink()
+        except FileNotFoundError:
+            pass
+
+        for filepath in self.filepaths:
+            try:
+                filepath.unlink()
+            except FileNotFoundError:
+                pass
+
+class JoinedFileReadError(Exception):
+    pass
 
 class WebFileCached(WebFile):
     def seek(self, offset):
@@ -269,13 +307,14 @@ class WebFileCached(WebFile):
             super().seek(offset)
 
     def read(self, size=-1):
+        """Read and return contents."""
         if self.filepath.exists():
             self.logger.debug("Reading from cached file '{}'".format(self.filepath))
             with self.filepath.open('rb') as f:
                 f.seek(self.tell())
                 return f.read(size)
 
-        joined_files = JoinedFiles(self.filepath)
+        joined_files = JoinedFile(self.filepath)
 
         joined_files.seek(self.tell())
         old_data = joined_files.read(size)
@@ -294,12 +333,10 @@ class WebFileCached(WebFile):
                 new_data = super().read(size-len(old_data))
                 joined_files.write(new_data)
 
-        if joined_files.size == self.size:
-            joined_files.join()
-
         return old_data + new_data
 
     def download(self):
+        """Read contents and save into a file."""
         self.logger.info("Downloading {}".format(self.url))
 
         if self.filepath.exists():
