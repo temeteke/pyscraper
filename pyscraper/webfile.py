@@ -247,14 +247,21 @@ class JoinedFile(FileIOBase):
 
     def write(self, b):
         """Write contents."""
+        if self.filepath.exists():
+            with self.filepath.open('r+b') as f:
+                f.seek(self.tell())
+                f.write(b)
+                return len(b)
+
         for filepath in self.filepaths:
             start = int(re.findall(r'\d+$', filepath.suffix)[0])
             stop = start + filepath.stat().st_size
 
             if self.tell() in range(start, stop+1):
                 self.logger.debug('Saving data to {}'.format(filepath))
-                with filepath.open('ab') as f:
-                    f.write(b[self.tell()-stop:])
+                with filepath.open('r+b') as f:
+                    f.seek(self.tell()-start)
+                    f.write(b)
                 self.position += len(b)
                 return len(b)
 

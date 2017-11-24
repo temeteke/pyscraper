@@ -98,32 +98,62 @@ class TestJoinedFile(unittest.TestCase):
         self.jf.seek(8)
         self.assertEqual(b'', self.jf.read())
 
-    def test_write01(self):
+    def test_write_read01(self):
+        self.jf.seek(0)
+        self.jf.write(b'xyz')
+        self.jf.seek(0)
+        self.assertEqual(b'xyzdefg', self.jf.read())
+
+    def test_write_read02(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
         self.jf.seek(0)
         self.assertEqual(b'abcdefgxyzhijklmn', self.jf.read())
 
-    def test_write02(self):
+    def test_writ_reade03(self):
         self.jf.seek(7)
         self.jf.write(b'xyzxyz')
         self.jf.seek(0)
         self.assertEqual(b'abcdefgxyzxyzklmn', self.jf.read())
 
-    def test_write03(self):
+    def test_write_read04(self):
+        self.jf.seek(3)
+        self.jf.write(b'xyz')
+        self.jf.seek(0)
+        self.assertEqual(b'abcxyzg', self.jf.read())
+
+    def test_write_read05(self):
+        self.jf.seek(13)
+        self.jf.write(b'xyz')
+        self.jf.seek(10)
+        self.assertEqual(b'hijxyzn', self.jf.read())
+
+    def test_write_partfile01(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
         with Path('{}.part0'.format(self.TEST_FILE)).open('rb') as f:
             actual = f.read()
         self.assertEqual(b'abcdefgxyz', actual)
 
-    def test_join01(self):
+    def test_join_partfile01(self):
         self.jf.join()
         with Path(self.TEST_FILE).open('rb') as f:
             actual = f.read()
         self.assertEqual(b'abcdefg', actual)
 
-    def test_join02(self):
+    def test_join_read01(self):
+        self.jf.join()
+        self.jf.seek(0)
+        self.assertEqual(b'abcdefg', self.jf.read())
+
+    def test_join_write_read01(self):
+        self.jf.join()
+        self.jf.seek(0)
+        self.jf.write(b'xyz')
+        self.jf.seek(0)
+        self.assertEqual(b'xyzdefg', self.jf.read())
+
+    def test_write_join_partfile01(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
         self.jf.join()
@@ -131,14 +161,24 @@ class TestJoinedFile(unittest.TestCase):
             actual = f.read()
         self.assertEqual(b'abcdefgxyzhijklmn', actual)
 
-    def test_join03(self):
+    def test_write_join_partfile02(self):
+        self.jf.seek(7)
+        self.jf.write(b'xyzxyz')
         self.jf.join()
-        self.jf.seek(0)
-        self.assertEqual(b'abcdefg', self.jf.read())
+        with Path(self.TEST_FILE).open('rb') as f:
+            actual = f.read()
+        self.assertEqual(b'abcdefgxyzxyzklmn', actual)
 
-    def test_join04(self):
+    def test_write_join_read01(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
         self.jf.join()
         self.jf.seek(0)
         self.assertEqual(b'abcdefgxyzhijklmn', self.jf.read())
+
+    def test_write_join_read02(self):
+        self.jf.seek(7)
+        self.jf.write(b'xyzxyz')
+        self.jf.join()
+        self.jf.seek(0)
+        self.assertEqual(b'abcdefgxyzxyzklmn', self.jf.read())
