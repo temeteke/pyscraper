@@ -73,6 +73,7 @@ class WebFile(FileIOBase):
 
         self.response = self._get_response()
 
+    @retry(requests.exceptions.HTTPError, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def _get_response(self, headers={}):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)
@@ -81,7 +82,15 @@ class WebFile(FileIOBase):
         r = self.session.get(self.url, headers=headers, stream=True, timeout=10)
         self.logger.debug("Response Headers: " + str(r.headers))
 
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            self.logger.warning(e)
+            if 400 <= e.response.status_code < 500:
+                raise WebFileRequestError(e)
+            else:
+                raise
+        
         return r
 
     @mproperty
