@@ -26,10 +26,6 @@ class TestWebFile(unittest.TestCase):
         cls.content = requests.get(cls.URL).content
         cls.wf = cls._get_webfile(cls.URL)
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.wf.unlink()
-
     def test_read01(self):
         logger.debug('test_read01')
         self.wf.seek(0)
@@ -54,6 +50,10 @@ class TestWebFileCached(TestWebFile):
     @classmethod
     def _get_webfile(cls, url):
         return WebFileCached(url)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.wf.unlink()
 
     def test_read05(self):
         logger.debug('test_read05')
