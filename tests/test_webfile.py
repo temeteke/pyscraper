@@ -26,6 +26,10 @@ class TestWebFile(unittest.TestCase):
         cls.content = requests.get(cls.URL).content
         cls.wf = cls._get_webfile(cls.URL)
 
+    @classmethod
+    def tearDownClass(cls):
+        cls.wf.unlink()
+
     def test_read01(self):
         logger.debug('test_read01')
         self.wf.seek(0)
@@ -51,11 +55,34 @@ class TestWebFileCached(TestWebFile):
     def _get_webfile(cls, url):
         return WebFileCached(url)
 
-class TestWebFileCached2(TestWebFileCached):
     def test_read05(self):
         logger.debug('test_read05')
+        self.wf.seek(0)
+        self.assertEqual(self.content[:128], self.wf.read(128))
+
+    def test_read06(self):
+        logger.debug('test_read06')
+        self.wf.seek(512)
+        self.assertEqual(self.content[512:640], self.wf.read(128))
+
+    def test_read07(self):
+        logger.debug('test_read07')
+        self.wf.seek(576)
+        self.assertEqual(self.content[576:704], self.wf.read(128))
+
+    def test_read08(self):
+        logger.debug('test_read08')
+        self.wf.seek(256)
+        self.assertEqual(self.content[256:], self.wf.read())
+
+class TestWebFileCached2(TestWebFileCached):
+    def test_join01(self):
+        logger.debug('test_join01')
         self.wf.seek(128)
-        self.assertEqual(self.content[128:256], self.wf.read(128))
+        self.wf.read(128)
+        with Path('1024').open('rb') as f:
+            actual = f.read()
+        self.assertEqual(self.content, actual)
 
 class TestJoinedFile(unittest.TestCase):
     TEST_FILE = 'test_joined_file'

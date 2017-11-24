@@ -340,6 +340,9 @@ class WebFileCached(WebFile):
                 new_data = super().read(size-len(old_data))
                 joined_files.write(new_data)
 
+        if joined_files.size == self.size:
+            joined_files.join()
+
         return old_data + new_data
 
     def download(self):
@@ -355,3 +358,6 @@ class WebFileCached(WebFile):
         with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             for chunk in self.read_in_chunks(1024):
                 pbar.update(len(chunk))
+
+    def unlink(self):
+        JoinedFile(self.filepath).unlink()
