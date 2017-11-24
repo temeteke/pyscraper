@@ -75,8 +75,7 @@ class TestWebFileCached(TestWebFile):
         self.wf.seek(256)
         self.assertEqual(self.content[256:], self.wf.read())
 
-class TestWebFileCached2(TestWebFileCached):
-    def test_join01(self):
+    def test_read09(self):
         logger.debug('test_join01')
         self.wf.seek(128)
         self.wf.read(128)

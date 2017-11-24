@@ -135,9 +135,6 @@ class WebFile(FileIOBase):
         if offset >= self.size:
             raise WebFileSeekError('{} is out of range 0-{}'.format(offset, self.size-1))
 
-        if offset == self.position:
-            return self.position
-
         if offset:
             headers = {'Range': 'bytes={}-'.format(offset)}
         else:
@@ -234,12 +231,14 @@ class JoinedFile(FileIOBase):
 
             if self.tell() in range(start, stop):
                 start_in_partfile = self.tell() - start
-                stop_in_partfile = stop if not size or size < 0 else start_in_partfile + size
+                stop_in_partfile = stop if size is None or size < 0 else start_in_partfile + size
                 self.logger.debug('Read from cached file {} from {} to {}'.format(filepath, start_in_partfile, stop_in_partfile))
                 with filepath.open('rb') as f:
                     f.seek(start_in_partfile)
                     read_data = f.read(stop_in_partfile-start_in_partfile)
 
+                if size >= 0:
+                    size -= len(read_data)
                 self.seek(self.tell() + len(read_data))
                 data += read_data
         
@@ -307,11 +306,7 @@ class JoinedFileReadError(Exception):
 
 class WebFileCached(WebFile):
     def seek(self, offset):
-        if self.filepath.exists():
-            self.logger.debug("Seek using cached file '{}'".format(self.filepath))
-            FileIOBase.seek(self, offset)
-        else:
-            super().seek(offset)
+        FileIOBase.seek(self, offset)
 
     def read(self, size=-1):
         """Read and return contents."""
@@ -324,26 +319,27 @@ class WebFileCached(WebFile):
         joined_files = JoinedFile(self.filepath)
 
         joined_files.seek(self.tell())
-        old_data = joined_files.read(size)
-        new_data = b''
+        cached_data = joined_files.read(size)
 
         try:
-            self.seek(joined_files.tell())
+            super().seek(joined_files.tell())
         except WebFileSeekError as e:
-            return old_data
+            return cached_data
 
-        if not size or size < 0 or size > len(old_data):
+        if not size or size < 0 or size > len(cached_data):
             if not size or size < 0:
                 new_data = super().read()
                 joined_files.write(new_data)
-            elif size > len(old_data):
-                new_data = super().read(size-len(old_data))
+            elif size > len(cached_data):
+                new_data = super().read(size-len(cached_data))
                 joined_files.write(new_data)
+        else:
+            new_data = b''
 
         if joined_files.size == self.size:
             joined_files.join()
 
-        return old_data + new_data
+        return cached_data + new_data
 
     def download(self):
         """Read contents and save into a file."""
