@@ -63,7 +63,7 @@ class WebFile(FileIOBase):
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
 
-        self.directory = Path(self._gen_path(directory))
+        self.directory = Path(re.sub(r'[/:\s\*\?]', '_', directory)[:128])
         if not self.directory.exists():
             self.directory.mkdir()
 
@@ -92,10 +92,6 @@ class WebFile(FileIOBase):
         
         return r
 
-    @debug
-    def _gen_path(self, string):
-        return re.sub(r'[/:\s\*\.\?]', '_', string)[:128]
-
     @mproperty
     @debug
     def size(self):
@@ -115,7 +111,7 @@ class WebFile(FileIOBase):
     @debug
     def filestem(self):
         if self._filestem:
-            return self._gen_path(self._filestem)
+            return re.sub(r'[/:\s\*\.\?]', '_', self._filestem)[:128]
         elif self._filename:
             return Path(self._filename).stem
         else:
@@ -147,6 +143,9 @@ class WebFile(FileIOBase):
         if offset >= self.size:
             raise WebFileSeekError('{} is out of range 0-{}'.format(offset, self.size-1))
 
+        if offset == self.position:
+            return self.position
+
         if offset:
             headers = {'Range': 'bytes={}-'.format(offset)}
         else:
@@ -155,7 +154,6 @@ class WebFile(FileIOBase):
         self.response = self._get_response(headers)
 
         return super().seek(offset)
-
     
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, requests.packages.urllib3.exceptions.ReadTimeoutError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
@@ -315,7 +313,11 @@ class JoinedFileReadError(Exception):
 
 class WebFileCached(WebFile):
     def seek(self, offset):
-        FileIOBase.seek(self, offset)
+        self.position_cached = offset
+        return offset
+
+    def tell(self):
+        return self.position_cached
 
     def read(self, size=-1):
         """Read and return contents."""
@@ -329,6 +331,7 @@ class WebFileCached(WebFile):
 
         joined_files.seek(self.tell())
         cached_data = joined_files.read(size)
+        self.seek(self.tell()+len(cached_data))
 
         try:
             super().seek(joined_files.tell())
@@ -339,9 +342,11 @@ class WebFileCached(WebFile):
             if not size or size < 0:
                 new_data = super().read()
                 joined_files.write(new_data)
+                self.seek(self.tell()+len(new_data))
             elif size > len(cached_data):
                 new_data = super().read(size-len(cached_data))
                 joined_files.write(new_data)
+                self.seek(self.tell()+len(new_data))
         else:
             new_data = b''
 
