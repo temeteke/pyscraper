@@ -122,6 +122,15 @@ class WebPageSelenium(WebPage):
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
 
+    def forward(self):
+        self.webdriver.forward()
+
+    def back(self):
+        self.webdriver.back()
+
+    def execute_script(self, script):
+        self.webdriver.execute_script(script)
+
     def dump(self, filestem='dump'):
         with Path('{}.html'.format(filestem)).open('w') as f:
             f.write(self.source)

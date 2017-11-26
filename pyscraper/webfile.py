@@ -63,7 +63,7 @@ class WebFile(FileIOBase):
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
 
-        self.directory = Path(directory)
+        self.directory = Path(self._gen_path(directory))
         if not self.directory.exists():
             self.directory.mkdir()
 
@@ -73,25 +73,28 @@ class WebFile(FileIOBase):
 
         self.response = self._get_response()
 
-    @retry(requests.exceptions.HTTPError, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ReadTimeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def _get_response(self, headers={}):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)
 
-        self.logger.debug("Request Headers: " + str(headers_all))
         r = self.session.get(self.url, headers=headers, stream=True, timeout=10)
+        self.logger.debug("Request Headers: " + str(r.request.headers))
         self.logger.debug("Response Headers: " + str(r.headers))
 
         try:
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            self.logger.warning(e)
             if 400 <= e.response.status_code < 500:
                 raise WebFileRequestError(e)
             else:
                 raise
         
         return r
+
+    @debug
+    def _gen_path(self, string):
+        return re.sub(r'[/:\s\*\.\?]', '_', string)[:128]
 
     @mproperty
     @debug
@@ -112,7 +115,7 @@ class WebFile(FileIOBase):
     @debug
     def filestem(self):
         if self._filestem:
-            return re.sub(r'[/:\s\*\.\?]', '_', self._filestem)[:128]
+            return self._gen_path(self._filestem)
         elif self._filename:
             return Path(self._filename).stem
         else:
@@ -153,13 +156,14 @@ class WebFile(FileIOBase):
 
         return super().seek(offset)
 
+    
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, requests.packages.urllib3.exceptions.ReadTimeoutError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
         """Read and return contents."""
         chunk = self.response.raw.read(size)
         self.position += len(chunk)
         return chunk
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download(self):
         """Read contents and save into a file."""
         self.logger.info("Downloading {}".format(self.url))
@@ -182,15 +186,11 @@ class WebFile(FileIOBase):
                     for chunk in self.read_in_chunks(1024, downloaded_file_size):
                         f.write(chunk)
                         pbar.update(len(chunk))
-        except requests.exceptions.HTTPError as e:
+        except WebFileRequestError as e:
             self.logger.warning(e)
-            if 400 <= e.response.status_code < 500:
-                if e.response.status_code == 416 and filepath_tmp.exists():
-                    self.logger.warning("Removing downloaded file")
-                    filepath_tmp.unlink()
-                    raise
-                else:
-                    raise WebFileRequestError(e)
+            if e.response.status_code == 416 and filepath_tmp.exists():
+                self.logger.warning("Removing downloaded file")
+                filepath_tmp.unlink()
             raise
 
         self.logger.debug('Comparing file size: {} {}'.format(filepath_tmp.stat().st_size, self.size))
