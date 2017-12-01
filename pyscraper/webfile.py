@@ -8,6 +8,7 @@ import re
 import requests
 from .utils import debug, HEADERS
 from functools import reduce
+import unicodedata
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,10 @@ class WebFile(FileIOBase):
     @debug
     def filestem(self):
         if self._filestem:
-            return re.sub(r'[/:\s\*\.\?"]', '_', self._filestem)[:128]
+            filestem = unicodedata.normalize('NFC', self._filestem)
+            while len(filestem.encode()) > 192:
+                filestem = filestem[:-1]
+            return re.sub(r'[/:\s\*\.\?"]', '_', filestem)
         elif self._filename:
             return Path(self._filename).stem
         else:
