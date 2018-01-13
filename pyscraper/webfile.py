@@ -64,7 +64,7 @@ class WebFile(FileIOBase):
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
 
-        self.directory = Path(re.sub(r'[/:\s\*\?\'\\"]', '_', directory)[:128])
+        self.directory = Path(re.sub(r'[:\s\*\?\'\\"]', '_', directory))
         if not self.directory.exists():
             self.directory.mkdir()
 
