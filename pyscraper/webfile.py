@@ -96,7 +96,10 @@ class WebFile(FileIOBase):
     @mproperty
     @debug
     def size(self):
-        return int(self.response.headers['Content-Length'])
+        try:
+            return int(self.response.headers['Content-Length'])
+        except KeyError:
+            return None
 
     @mproperty
     @debug
@@ -183,22 +186,27 @@ class WebFile(FileIOBase):
         else:
             downloaded_file_size = 0
 
-        try:
-            with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-                with filepath_tmp.open('ab') as f:
-                    for chunk in self.read_in_chunks(1024, downloaded_file_size):
-                        f.write(chunk)
-                        pbar.update(len(chunk))
-        except WebFileRequestError as e:
-            self.logger.warning(e)
-            if e.response.status_code == 416 and filepath_tmp.exists():
-                self.logger.warning("Removing downloaded file")
-                filepath_tmp.unlink()
-            raise
+        if self.size:
+            try:
+                with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+                    with filepath_tmp.open('ab') as f:
+                        for chunk in self.read_in_chunks(1024, downloaded_file_size):
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+            except WebFileRequestError as e:
+                self.logger.warning(e)
+                if e.response.status_code == 416 and filepath_tmp.exists():
+                    self.logger.warning("Removing downloaded file")
+                    filepath_tmp.unlink()
+                raise
 
-        self.logger.debug('Comparing file size: {} {}'.format(filepath_tmp.stat().st_size, self.size))
-        if filepath_tmp.stat().st_size == self.size:
-            filepath_tmp.rename(self.filepath)
+            self.logger.debug('Comparing file size: {} {}'.format(filepath_tmp.stat().st_size, self.size))
+            if filepath_tmp.stat().st_size == self.size:
+                filepath_tmp.rename(self.filepath)
+        else:
+            with self.filepath.open('ab') as f:
+                for chunk in self.response.iter_content():
+                    f.write(chunk)
 
 class WebFileSeekError(Exception):
     pass
