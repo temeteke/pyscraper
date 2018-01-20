@@ -170,6 +170,34 @@ class WebFile(FileIOBase):
         self.position += len(chunk)
         return chunk
 
+    @retry(WebFileRequestError, tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    def download_and_check_size(self):
+        """Download file and check downloaded file size"""
+        filepath_tmp = Path(str(self.filepath) + '.part')
+        if filepath_tmp.exists():
+            downloaded_file_size = filepath_tmp.stat().st_size
+        else:
+            downloaded_file_size = 0
+
+        try:
+            with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+                with filepath_tmp.open('ab') as f:
+                    for chunk in self.read_in_chunks(1024, downloaded_file_size):
+                        f.write(chunk)
+                        pbar.update(len(chunk))
+        except WebFileRequestError as e:
+            self.logger.warning(e)
+            if e.response.status_code == 416 and filepath_tmp.exists():
+                self.logger.warning("Removing downloaded file")
+                filepath_tmp.unlink()
+            raise
+
+        self.logger.debug('Comparing file size: {} {}'.format(filepath_tmp.stat().st_size, self.size))
+        if filepath_tmp.stat().st_size == self.size:
+            filepath_tmp.rename(self.filepath)
+        else:
+            raise WebFileRequestError("Downloaded file size is wrong (actual:{} expected:{})".format(filepath_tmp.stat().st_size, self.size))
+
     def download(self):
         """Read contents and save into a file."""
         self.logger.info("Downloading {}".format(self.url))
@@ -180,29 +208,8 @@ class WebFile(FileIOBase):
 
         self.logger.info("Filepath is {}".format(self.filepath))
 
-        filepath_tmp = Path(str(self.filepath) + '.part')
-        if filepath_tmp.exists():
-            downloaded_file_size = filepath_tmp.stat().st_size
-        else:
-            downloaded_file_size = 0
-
         if self.size:
-            try:
-                with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-                    with filepath_tmp.open('ab') as f:
-                        for chunk in self.read_in_chunks(1024, downloaded_file_size):
-                            f.write(chunk)
-                            pbar.update(len(chunk))
-            except WebFileRequestError as e:
-                self.logger.warning(e)
-                if e.response.status_code == 416 and filepath_tmp.exists():
-                    self.logger.warning("Removing downloaded file")
-                    filepath_tmp.unlink()
-                raise
-
-            self.logger.debug('Comparing file size: {} {}'.format(filepath_tmp.stat().st_size, self.size))
-            if filepath_tmp.stat().st_size == self.size:
-                filepath_tmp.rename(self.filepath)
+            self.download_and_check_size()
         else:
             with self.filepath.open('ab') as f:
                 for chunk in self.response.iter_content():
