@@ -147,11 +147,11 @@ class WebFile(FileIOBase):
     def filepath(self):
         return Path(self.directory, self.filename)
 
-    def seek(self, offset):
+    def seek(self, offset, force=False):
         if offset >= self.size:
             raise WebFileSeekError('{} is out of range 0-{}'.format(offset, self.size-1))
 
-        if offset == self.position:
+        if not force and offset == self.position:
             return self.position
 
         if offset:
@@ -162,6 +162,10 @@ class WebFile(FileIOBase):
         self.response = self._get_response(headers)
 
         return super().seek(offset)
+
+    def reload(self):
+        self.logger.debug("Reloading")
+        self.seek(self.tell(), force=True)
     
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, requests.exceptions.ReadTimeout, requests.packages.urllib3.exceptions.ReadTimeoutError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
@@ -192,11 +196,14 @@ class WebFile(FileIOBase):
                 filepath_tmp.unlink()
             raise
 
-        self.logger.debug('Comparing file size: {} {}'.format(filepath_tmp.stat().st_size, self.size))
+        self.logger.debug("Comparing file size: {} {}".format(filepath_tmp.stat().st_size, self.size))
         if filepath_tmp.stat().st_size == self.size:
+            self.logger.debug("Removind temporary file")
             filepath_tmp.rename(self.filepath)
         else:
-            raise WebFileRequestError("Downloaded file size is wrong (actual:{} expected:{})".format(filepath_tmp.stat().st_size, self.size))
+            self.logger.debug("Downloaded file size is wrong")
+            self.reload()
+            raise WebFileRequestError("Downloaded file size is wrong")
 
     def download(self):
         """Read contents and save into a file."""
