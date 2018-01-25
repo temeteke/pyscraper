@@ -115,7 +115,6 @@ class WebFile(FileIOBase):
     @debug
     def filestem(self):
         if self._filestem:
-            print(self._filestem)
             filestem = unicodedata.normalize('NFC', self._filestem)
             while len(filestem.encode()) > 192:
                 filestem = filestem[:-1]
