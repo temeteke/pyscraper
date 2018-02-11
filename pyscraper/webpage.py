@@ -4,7 +4,7 @@ from retry import retry
 from abc import ABCMeta, abstractmethod
 import requests
 from selenium import webdriver
-from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException
+from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
 import pyvirtualdisplay
@@ -14,7 +14,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-class WebPageNoSuchElementError(Exception):
+class WebPageError(Exception):
+    pass
+
+class WebPageNoSuchElementError(WebPageError):
     pass
 
 class WebPage(metaclass=ABCMeta):
@@ -98,7 +101,7 @@ class WebPageSelenium(WebPage):
     def click(self, xpath):
         try:
             self.webdriver.find_element_by_xpath(xpath).click()
-        except (ElementNotInteractableException, NoSuchElementException) as e:
+        except (ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException) as e:
             raise WebPageNoSuchElementError(e)
 
     @debug
