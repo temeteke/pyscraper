@@ -64,7 +64,7 @@ class WebFile(FileIOBase):
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
 
-        self.directory = Path(re.sub(r'[:\s\*\?\'\\"]', '_', directory))
+        self.directory = Path(re.sub(r'[:|\s\*\?\'\\"]', '_', directory))
         if not self.directory.exists():
             self.directory.mkdir()
 
@@ -73,6 +73,7 @@ class WebFile(FileIOBase):
         self._filesuffix = filesuffix
 
         self.response = self._get_response()
+        self.response.raw.decode_content = True
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.Timeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def _get_response(self, headers={}):
@@ -90,7 +91,7 @@ class WebFile(FileIOBase):
                 raise WebFileRequestError(e)
             else:
                 raise
-        
+
         return r
 
     @mproperty
@@ -118,7 +119,7 @@ class WebFile(FileIOBase):
             filestem = unicodedata.normalize('NFC', self._filestem)
             while len(filestem.encode()) > 192:
                 filestem = filestem[:-1]
-            return re.sub(r'[/:\s\*\.\?\'\\"]', '_', filestem)
+            return re.sub(r'[/:|\s\*\.\?\'\\"]', '_', filestem)
         elif self._filename:
             return Path(self._filename).stem
         else:
@@ -165,7 +166,7 @@ class WebFile(FileIOBase):
     def reload(self):
         self.logger.debug("Reloading")
         self.seek(self.tell(), force=True)
-    
+
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
         """Read and return contents."""
@@ -195,14 +196,15 @@ class WebFile(FileIOBase):
                 filepath_tmp.unlink()
             raise
 
-        self.logger.debug("Comparing file size: {} {}".format(filepath_tmp.stat().st_size, self.size))
-        if filepath_tmp.stat().st_size == self.size:
-            self.logger.debug("Removind temporary file")
-            filepath_tmp.rename(self.filepath)
-        else:
-            self.logger.debug("Downloaded file size is wrong")
-            self.reload()
-            raise WebFileRequestError("Downloaded file size is wrong")
+        if not 'gzip' in self.response.headers.get('Content-Encoding', ''):
+            self.logger.debug("Comparing file size {} {}".format(filepath_tmp.stat().st_size, self.size))
+            if filepath_tmp.stat().st_size != self.size:
+                self.logger.debug("Downloaded file size is wrong")
+                self.reload()
+                raise WebFileRequestError("Downloaded file size is wrong")
+
+        self.logger.debug("Removind temporary file")
+        filepath_tmp.rename(self.filepath)
 
     def download(self):
         """Read contents and save into a file."""
@@ -274,7 +276,7 @@ class JoinedFile(FileIOBase):
                     size -= len(read_data)
                 self.seek(self.tell() + len(read_data))
                 data += read_data
-        
+
         return data
 
     def write(self, b):
