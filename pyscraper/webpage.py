@@ -7,7 +7,6 @@ from selenium import webdriver
 from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
-import pyvirtualdisplay
 import lxml.html
 from .utils import debug, HEADERS
 from pathlib import Path
@@ -164,18 +163,15 @@ class WebPageFirefox(WebPageSelenium):
         self._url = url
 
     def __enter__(self):
-        self.display = pyvirtualdisplay.Display()
-        self.display.start()
-        firefox_capabilities = DesiredCapabilities.FIREFOX
-        firefox_capabilities['marionette'] = True
-        self.webdriver = webdriver.Firefox(capabilities=firefox_capabilities)
+        options = webdriver.firefox.options.Options()
+        options.set_headless(headless=True)
+        self.webdriver = webdriver.Firefox(firefox_options=options)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.webdriver.quit()
-        self.display.stop()
 
 class WebPageChrome(WebPageSelenium):
     def __init__(self, url):
@@ -184,9 +180,9 @@ class WebPageChrome(WebPageSelenium):
 
     def __enter__(self):
         options = webdriver.chrome.options.Options()
-        options.add_argument('--headless')
-        logger.debug("Getting {}".format(self._url))
+        options.set_headless(headless=True)
         self.webdriver = webdriver.Chrome(chrome_options=options)
+        logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
 
