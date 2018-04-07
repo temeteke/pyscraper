@@ -34,7 +34,7 @@ class WebPage(metaclass=ABCMeta):
 
     @property
     def html(self):
-        return lxml.html.fromstring(self.source)
+        return lxml.html.fromstring(self.source.encode('utf-8'))
 
     @debug
     def get(self, xpath):
@@ -131,8 +131,12 @@ class WebPageSelenium(WebPage):
     def back(self):
         self.webdriver.back()
 
-    def execute_script(self, script):
-        self.webdriver.execute_script(script)
+    def execute_script(self, script, *args):
+        return self.webdriver.execute_script(script, *args)
+
+    def execute_async_script(self, script, *args):
+        print(args)
+        return self.webdriver.execute_async_script(script, *args)
 
     def dump(self, filestem='dump'):
         with Path('{}.html'.format(filestem)).open('w') as f:
@@ -172,3 +176,19 @@ class WebPageFirefox(WebPageSelenium):
     def __exit__(self, exc_type, exc_value, traceback):
         self.webdriver.quit()
         self.display.stop()
+
+class WebPageChrome(WebPageSelenium):
+    def __init__(self, url):
+        super().__init__()
+        self._url = url
+
+    def __enter__(self):
+        options = webdriver.chrome.options.Options()
+        options.add_argument('--headless')
+        logger.debug("Getting {}".format(self._url))
+        self.webdriver = webdriver.Chrome(chrome_options=options)
+        self.webdriver.get(self._url)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.webdriver.quit()
