@@ -168,7 +168,7 @@ class WebFile(FileIOBase):
         self.logger.debug("Reloading")
         self.seek(self.tell(), force=True)
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError, urllib3.exceptions.ReadTimeoutError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError, urllib3.exceptions.ReadTimeoutError, urllib3.exceptions.ProtocolError), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
         """Read and return contents."""
         chunk = self.response.raw.read(size)
