@@ -4,7 +4,7 @@ from retry import retry
 from abc import ABCMeta, abstractmethod
 import requests
 from selenium import webdriver
-from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException
+from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
 import lxml.html
@@ -100,7 +100,7 @@ class WebPageSelenium(WebPage):
     def click(self, xpath):
         try:
             self.webdriver.find_element_by_xpath(xpath).click()
-        except (ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException) as e:
+        except (ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException) as e:
             raise WebPageNoSuchElementError(e)
 
     @debug
