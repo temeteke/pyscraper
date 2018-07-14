@@ -10,6 +10,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 import lxml.html
 from .utils import debug, HEADERS
 from pathlib import Path
+from http.client import RemoteDisconnected
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class WebPageSelenium(WebPage):
         return self.webdriver.current_url
 
     @property
+    @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def source(self):
         return self.webdriver.page_source
 
