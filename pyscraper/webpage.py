@@ -11,6 +11,7 @@ import lxml.html
 from .utils import debug, HEADERS
 from pathlib import Path
 from http.client import RemoteDisconnected
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ class WebPageFirefox(WebPageSelenium):
     def __enter__(self):
         options = webdriver.firefox.options.Options()
         options.set_headless(headless=True)
-        self.webdriver = webdriver.Firefox(firefox_options=options)
+        self.webdriver = webdriver.Firefox(firefox_options=options, log_path=os.path.devnull)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
@@ -183,7 +184,7 @@ class WebPageChrome(WebPageSelenium):
     def __enter__(self):
         options = webdriver.chrome.options.Options()
         options.set_headless(headless=True)
-        self.webdriver = webdriver.Chrome(chrome_options=options)
+        self.webdriver = webdriver.Chrome(chrome_options=options, log_path=os.path.devnull)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
