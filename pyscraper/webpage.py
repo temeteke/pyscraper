@@ -40,7 +40,11 @@ class WebPage(metaclass=ABCMeta):
 
     @debug
     def get(self, xpath):
-        return self.html.xpath(xpath)
+        results = self.html.xpath(xpath)
+        if results:
+            return results
+        else:
+            raise WebPageNoSuchElementError
 
     def dump(self, filestem='dump'):
         with Path('{}.html'.format(filestem)).open('w') as f:
