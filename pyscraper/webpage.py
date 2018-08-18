@@ -40,7 +40,12 @@ class WebPage(metaclass=ABCMeta):
 
     @debug
     def get(self, xpath):
-        results = self.html.xpath(xpath)
+        return self.html.xpath(xpath)
+
+    @debug
+    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
+    def get_with_retry(self, xpath):
+        results = self.get(xpath)
         if results:
             return results
         else:
@@ -94,15 +99,6 @@ class WebPageSelenium(WebPage):
         for cookie in self.webdriver.get_cookies():
             cookies[cookie['name']] = cookie['value']
         return cookies
-
-    @debug
-    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
-    def get(self, xpath):
-        results = self.html.xpath(xpath)
-        if results:
-            return results
-        else:
-            raise WebPageNoSuchElementError
 
     @debug
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
