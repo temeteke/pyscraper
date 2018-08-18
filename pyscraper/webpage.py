@@ -12,6 +12,7 @@ from .utils import debug, HEADERS
 from pathlib import Path
 from http.client import RemoteDisconnected
 import os
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class WebPageRequests(WebPage):
     @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def response(self):
         logger.debug("Getting {}".format(self.url))
+        logger.debug("Request Headers: " + str(self.session.headers))
         r = self.session.get(self.url, timeout=10)
         logger.debug("Response Headers: " + str(r.headers))
         return r
@@ -184,10 +186,19 @@ class WebPageChrome(WebPageSelenium):
     def __enter__(self):
         options = webdriver.chrome.options.Options()
         options.set_headless(headless=True)
-        self.webdriver = webdriver.Chrome(chrome_options=options, log_path=os.path.devnull)
+        self.webdriver = webdriver.Chrome(chrome_options=options)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.webdriver.quit()
+
+class WebPageCurl(WebPage):
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+
+    @mproperty
+    def source(self):
+        return subprocess.run(['curl', self.url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
