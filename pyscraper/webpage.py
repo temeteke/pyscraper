@@ -129,6 +129,10 @@ class WebPageSelenium(WebPage):
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
 
+    @debug
+    def go(self, url):
+        self.webdriver.get(url)
+
     def forward(self):
         self.webdriver.forward()
 
