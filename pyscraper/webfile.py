@@ -67,7 +67,7 @@ class WebFile(FileIOBase):
 
         self.directory = Path(re.sub(r'[:|\s\*\?\'\\"]', '_', directory))
         if not self.directory.exists():
-            self.directory.mkdir()
+            self.directory.mkdir(parents=True)
 
         self._filename = filename
         self._filestem = filestem
