@@ -36,7 +36,7 @@ class WebPage(metaclass=ABCMeta):
 
     @property
     def html(self):
-        return lxml.html.fromstring(self.source.encode('utf-8'))
+        return lxml.html.fromstring(self.source)
 
     @debug
     def get(self, xpath):
