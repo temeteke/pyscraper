@@ -24,9 +24,16 @@ class WebPageNoSuchElementError(WebPageError):
 
 class WebPage(metaclass=ABCMeta):
     def __enter__(self):
+        self.open()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def open(self):
+        pass
+
+    def close(self):
         pass
 
     @property
@@ -157,13 +164,13 @@ class WebPagePhantomJS(WebPageSelenium):
         super().__init__()
         self._url = url
 
-    def __enter__(self):
+    def open(self):
         self.webdriver = webdriver.PhantomJS()
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def close(self):
         self.webdriver.quit()
 
 class WebPageFirefox(WebPageSelenium):
@@ -171,7 +178,7 @@ class WebPageFirefox(WebPageSelenium):
         super().__init__()
         self._url = url
 
-    def __enter__(self):
+    def open(self):
         options = webdriver.firefox.options.Options()
         options.set_headless(headless=True)
         self.webdriver = webdriver.Firefox(firefox_options=options, log_path=os.path.devnull)
@@ -179,7 +186,7 @@ class WebPageFirefox(WebPageSelenium):
         self.webdriver.get(self._url)
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def close(self):
         self.webdriver.quit()
 
 class WebPageChrome(WebPageSelenium):
@@ -187,7 +194,7 @@ class WebPageChrome(WebPageSelenium):
         super().__init__()
         self._url = url
 
-    def __enter__(self):
+    def open(self):
         options = webdriver.chrome.options.Options()
         options.set_headless(headless=True)
         self.webdriver = webdriver.Chrome(chrome_options=options)
@@ -195,7 +202,7 @@ class WebPageChrome(WebPageSelenium):
         self.webdriver.get(self._url)
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def close(self):
         self.webdriver.quit()
 
 class WebPageCurl(WebPage):
