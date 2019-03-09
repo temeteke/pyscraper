@@ -50,6 +50,19 @@ class WebPage(metaclass=ABCMeta):
         return self.html.xpath(xpath)
 
     @debug
+    def get_html(self, xpath):
+        return ''.join([lxml.html.tostring(i, encoding=self.encoding).decode() for i in self.html.xpath(xpath)])
+
+    @debug
+    def get_innerhtml(self, xpath):
+        html = ''
+        for element in self.html.xpath(xpath):
+            html += element.text
+            for e in element.getchildren():
+                html += lxml.html.tostring(e, encoding=self.encoding).decode()
+        return html
+
+    @debug
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def get_with_retry(self, xpath):
         results = self.get(xpath)
@@ -87,6 +100,10 @@ class WebPageRequests(WebPage):
     @mproperty
     def source(self):
         return self.response.text
+
+    @mproperty
+    def encoding(self):
+        return self.response.encoding
 
 
 class WebPageSelenium(WebPage):
