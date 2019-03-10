@@ -197,8 +197,8 @@ class WebPageFirefox(WebPageSelenium):
 
     def open(self):
         options = webdriver.firefox.options.Options()
-        options.set_headless(headless=True)
-        self.webdriver = webdriver.Firefox(firefox_options=options, log_path=os.path.devnull)
+        options.headless = True
+        self.webdriver = webdriver.Firefox(options=options, service_log_path=os.path.devnull)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         return self
