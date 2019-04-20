@@ -224,6 +224,9 @@ class WebFile(FileIOBase):
                 for chunk in self.response.iter_content():
                     f.write(chunk)
 
+    def unlink(self):
+        self.filepath.unlink()
+
 class WebFileSeekError(Exception):
     pass
 
