@@ -225,7 +225,11 @@ class WebFile(FileIOBase):
                     f.write(chunk)
 
     def unlink(self):
-        self.filepath.unlink()
+        try:
+            self.filepath.unlink()
+            Path(str(self.filepath) + '.part').unlink()
+        except FileNotFoundError:
+            pass
 
 class WebFileSeekError(Exception):
     pass
