@@ -227,8 +227,12 @@ class WebFile(FileIOBase):
     def unlink(self):
         try:
             self.filepath.unlink()
+        except FileNotFoundError as e:
+            pass
+
+        try:
             Path(str(self.filepath) + '.part').unlink()
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             pass
 
 class WebFileSeekError(Exception):
