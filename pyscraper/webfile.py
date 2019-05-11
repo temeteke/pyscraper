@@ -133,7 +133,7 @@ class WebFile(FileIOBase):
             return self._filesuffix
         elif self._filename:
             return Path(self._filename).suffix
-        elif self.response.headers['Content-Type'] == 'video/mp4':
+        elif 'Content-Type' in self.response.headers and self.response.headers['Content-Type'] == 'video/mp4':
             return '.mp4'
         else:
             return Path(self._filename_auto).suffix
