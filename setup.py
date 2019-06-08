@@ -13,7 +13,6 @@ setup(
         'lxml',
         'memoize',
         'retry',
-        'pyvirtualdisplay',
         'tqdm',
     ],
 )
