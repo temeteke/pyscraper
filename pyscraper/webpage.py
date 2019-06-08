@@ -148,7 +148,7 @@ class WebPageSelenium(WebPage):
         try:
             iframe = self.webdriver.find_element_by_xpath(xpath)
             iframe_url = iframe.get_attribute('src')
-            self.webdriver.switch_to_frame(iframe)
+            self.webdriver.switch_to.frame(iframe)
             return iframe_url
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
