@@ -43,7 +43,10 @@ class WebPage(metaclass=ABCMeta):
 
     @property
     def html(self):
-        return lxml.html.fromstring(self.source)
+        if hasattr(self, 'content'):
+            return lxml.html.fromstring(self.content)
+        else:
+            return lxml.html.fromstring(self.source)
 
     @debug
     def get(self, xpath):
@@ -100,6 +103,10 @@ class WebPageRequests(WebPage):
         if self._encoding:
             r.encoding = self._encoding
         return r
+
+    @mproperty
+    def content(self):
+        return self.response.content
 
     @mproperty
     def source(self):
