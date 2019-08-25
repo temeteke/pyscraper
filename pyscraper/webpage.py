@@ -43,7 +43,8 @@ class WebPage(metaclass=ABCMeta):
 
     @property
     def html(self):
-        if hasattr(self, 'content'):
+        # エンコードしていないcontentがあり、encodingが指定されていない場合、contentを処理する
+        if hasattr(self, 'content') and not self._encoding:
             return lxml.html.fromstring(self.content)
         else:
             return lxml.html.fromstring(self.source)
