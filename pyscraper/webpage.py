@@ -4,7 +4,7 @@ from retry import retry
 from abc import ABCMeta, abstractmethod
 import requests
 from selenium import webdriver
-from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException
+from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, InvalidCookieDomainException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
 import lxml.html
@@ -13,6 +13,7 @@ from pathlib import Path
 from http.client import RemoteDisconnected
 import os
 import subprocess
+from http.cookiejar import MozillaCookieJar
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,15 @@ class WebPageSelenium(WebPage):
             cookies[cookie['name']] = cookie['value']
         return cookies
 
+    def set_cookies_from_file(self, cookies_file):
+        cookies = MozillaCookieJar(cookies_file)
+        cookies.load()
+        for cookie in cookies:
+            try:
+                self.webdriver.add_cookie(cookie.__dict__)
+            except InvalidCookieDomainException:
+                pass
+
     @debug
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def click(self, xpath):
@@ -203,9 +213,10 @@ class WebPagePhantomJS(WebPageSelenium):
         self.webdriver.quit()
 
 class WebPageFirefox(WebPageSelenium):
-    def __init__(self, url):
+    def __init__(self, url, cookies_file=None):
         super().__init__()
         self._url = url
+        self._cookies_file = cookies_file
 
     def open(self):
         options = webdriver.firefox.options.Options()
@@ -213,15 +224,19 @@ class WebPageFirefox(WebPageSelenium):
         self.webdriver = webdriver.Firefox(options=options, service_log_path=os.path.devnull)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
+        if self._cookies_file:
+            self.set_cookies_from_file(self._cookies_file)
+            self.webdriver.get(self._url)
         return self
 
     def close(self):
         self.webdriver.quit()
 
 class WebPageChrome(WebPageSelenium):
-    def __init__(self, url):
+    def __init__(self, url, cookies_file=None):
         super().__init__()
         self._url = url
+        self._cookies_file = cookies_file
 
     def open(self):
         options = webdriver.chrome.options.Options()
@@ -229,6 +244,9 @@ class WebPageChrome(WebPageSelenium):
         self.webdriver = webdriver.Chrome(chrome_options=options)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
+        if self._cookies_file:
+            self.set_cookies_from_file(self._cookies_file)
+            self.webdriver.get(self._url)
         return self
 
     def close(self):

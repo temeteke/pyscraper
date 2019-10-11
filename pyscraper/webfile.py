@@ -10,6 +10,7 @@ import urllib3
 from .utils import debug, HEADERS
 from functools import reduce
 import unicodedata
+from http.cookiejar import MozillaCookieJar
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class WebFileSizeError(Exception):
     pass
 
 class WebFile(FileIOBase):
-    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
+    def __init__(self, url, session=None, headers={}, cookies={}, cookies_file=None, directory='.', filename=None, filestem=None, filesuffix=None):
         super().__init__()
 
         self.url = url
@@ -62,8 +63,13 @@ class WebFile(FileIOBase):
         self.session.headers.update(HEADERS)
         self.session.headers.update(headers)
 
-        for k, v in cookies.items():
-            self.session.cookies.set(k, v)
+        if cookies_file:
+            cookies = MozillaCookieJar(cookies_file)
+            cookies.load()
+            self.session.cookies = cookies
+        else:
+            for k, v in cookies.items():
+                self.session.cookies.set(k, v)
 
         self.directory = Path(re.sub(r'[:|\s\*\?\'\\"]', '_', directory))
         if not self.directory.exists():
@@ -204,13 +210,11 @@ class WebFile(FileIOBase):
                 self.reload()
                 raise WebFileRequestError("Downloaded file size is wrong")
 
-        self.logger.debug("Removind temporary file")
+        self.logger.debug("Removing temporary file")
         filepath_tmp.rename(self.filepath)
 
     def download(self):
         """Read contents and save into a file."""
-        self.logger.info("Downloading {}".format(self.url))
-
         if self.filepath.exists():
             self.logger.warning("{} is already downloaded.".format(self.filepath))
             return
@@ -397,8 +401,6 @@ class WebFileCached(WebFile):
 
     def download(self):
         """Read contents and save into a file."""
-        self.logger.info("Downloading {}".format(self.url))
-
         if self.filepath.exists():
             self.logger.warning("{} is already downloaded.".format(self.filepath))
             return
