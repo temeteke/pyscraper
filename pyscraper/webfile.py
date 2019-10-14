@@ -71,7 +71,7 @@ class WebFile(FileIOBase):
             for k, v in cookies.items():
                 self.session.cookies.set(k, v)
 
-        self.directory = Path(re.sub(r'[:|\s\*\?\'\\"]', '_', directory))
+        self.directory = Path(re.sub(r'[:|\s\*\?\\"]', '_', directory))
         if not self.directory.exists():
             self.directory.mkdir(parents=True)
 
@@ -126,7 +126,7 @@ class WebFile(FileIOBase):
             filestem = unicodedata.normalize('NFC', self._filestem)
             while len(filestem.encode()) > 192:
                 filestem = filestem[:-1]
-            return re.sub(r'[/:|\s\*\.\?\'\\"]', '_', filestem)
+            return re.sub(r'[/:|\s\*\.\?\\"]', '_', filestem)
         elif self._filename:
             return Path(self._filename).stem
         else:
