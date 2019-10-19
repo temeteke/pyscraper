@@ -213,20 +213,28 @@ class WebPagePhantomJS(WebPageSelenium):
         self.webdriver.quit()
 
 class WebPageFirefox(WebPageSelenium):
-    def __init__(self, url, cookies_file=None):
+    def __init__(self, url, cookies_file=None, profile=None):
         super().__init__()
         self._url = url
         self._cookies_file = cookies_file
+        self._profile = profile
 
     def open(self):
         options = webdriver.firefox.options.Options()
         options.headless = True
-        self.webdriver = webdriver.Firefox(options=options, service_log_path=os.path.devnull)
+
+        if self._profile:
+            self.webdriver = webdriver.Firefox(options=options, service_log_path=os.path.devnull, firefox_profile=webdriver.FirefoxProfile(self._profile))
+        else:
+            self.webdriver = webdriver.Firefox(options=options, service_log_path=os.path.devnull)
+
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
+
         if self._cookies_file:
             self.set_cookies_from_file(self._cookies_file)
             self.webdriver.get(self._url)
+
         return self
 
     def close(self):
