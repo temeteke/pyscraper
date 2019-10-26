@@ -1,3 +1,4 @@
+# syntax = docker/dockerfile:experimental
 FROM python:3.8.0-alpine3.10
 
 RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt && \
@@ -8,7 +9,4 @@ RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt &
     curl -L https://github.com/mozilla/geckodriver/releases/download/v0.25.0/geckodriver-v0.25.0-linux64.tar.gz | tar xz -C /usr/local/bin/ && \
     apk del .geckodriver-deps
 
-WORKDIR /app
-COPY setup.py setup.cfg ./
-COPY pyscraper pyscraper/
-RUN python setup.py install
+RUN --mount=target=/tmp pip install /tmp
