@@ -248,8 +248,10 @@ class WebPageChrome(WebPageSelenium):
 
     def open(self):
         options = webdriver.chrome.options.Options()
-        options.set_headless(headless=True)
-        self.webdriver = webdriver.Chrome(chrome_options=options)
+        options.headless = True
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-gpu')
+        self.webdriver = webdriver.Chrome(options=options)
         logger.debug("Getting {}".format(self._url))
         self.webdriver.get(self._url)
         if self._cookies_file:
