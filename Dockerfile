@@ -9,4 +9,9 @@ RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt &
     curl -L https://github.com/mozilla/geckodriver/releases/download/v0.25.0/geckodriver-v0.25.0-linux64.tar.gz | tar xz -C /usr/local/bin/ && \
     apk del .geckodriver-deps
 
-RUN --mount=target=/tmp pip install /tmp
+COPY setup.py setup.cfg /app/
+COPY pyscraper /app/pyscraper/
+RUN pip install /app && \
+    rm -r /app/*
+
+#RUN --mount=target=/app pip install /app
