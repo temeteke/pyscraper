@@ -56,16 +56,25 @@ class WebPage(metaclass=ABCMeta):
 
     @debug
     def get_html(self, xpath):
-        return ''.join([lxml.html.tostring(i, encoding=self.encoding).decode() for i in self.html.xpath(xpath)])
+        if hasattr(self, 'encoding'):
+            return [lxml.html.tostring(x, encoding=self.encoding).decode().strip() for x in self.html.xpath(xpath)]
+        else:
+            return [lxml.html.tostring(x).decode().strip() for x in self.html.xpath(xpath)]
 
     @debug
     def get_innerhtml(self, xpath):
-        html = ''
+        htmls = []
         for element in self.html.xpath(xpath):
-            html += element.text
-            for e in element.getchildren():
-                html += lxml.html.tostring(e, encoding=self.encoding).decode()
-        return html
+            html = ''
+            if element.text:
+                html += element.text
+            for child in element.getchildren():
+                if hasattr(self, 'encoding'):
+                    html += lxml.html.tostring(child, encoding=self.encoding).decode()
+                else:
+                    html += lxml.html.tostring(child).decode()
+            htmls.append(html.strip())
+        return htmls
 
     @debug
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
