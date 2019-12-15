@@ -92,7 +92,7 @@ class WebPage(metaclass=ABCMeta):
 class WebPageRequests(WebPage):
     def __init__(self, url, session=None, headers={}, encoding=None):
         super().__init__()
-        self.url = url
+        self._url = url
 
         if session:
             self.session = session
@@ -107,13 +107,17 @@ class WebPageRequests(WebPage):
     @mproperty
     @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def response(self):
-        logger.debug("Getting {}".format(self.url))
+        logger.debug("Getting {}".format(self._url))
         logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.get(self.url, timeout=10)
+        r = self.session.get(self._url, timeout=10)
         logger.debug("Response Headers: " + str(r.headers))
         if self._encoding:
             r.encoding = self._encoding
         return r
+
+    @mproperty
+    def url(self):
+        return self.response.url
 
     @mproperty
     def content(self):
