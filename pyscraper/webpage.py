@@ -90,7 +90,7 @@ class WebPage(metaclass=ABCMeta):
             f.write(self.source)
 
 class WebPageRequests(WebPage):
-    def __init__(self, url, session=None, headers={}, encoding=None):
+    def __init__(self, url, session=None, headers={}, cookies={}, encoding=None):
         super().__init__()
         self._url = url
 
@@ -101,6 +101,9 @@ class WebPageRequests(WebPage):
 
         self.session.headers.update(HEADERS)
         self.session.headers.update(headers)
+
+        for k, v in cookies.items():
+            self.session.cookies.set(k, v)
 
         self._encoding = encoding
 
