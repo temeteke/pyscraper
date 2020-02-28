@@ -43,11 +43,18 @@ class FileIOBase():
             else:
                 break
 
-class WebFileRequestError(Exception):
+
+class WebFileError(Exception):
     pass
 
-class WebFileSizeError(Exception):
+
+class WebFileRequestError(WebFileError):
     pass
+
+
+class WebFileSizeError(WebFileError):
+    pass
+
 
 class WebFile(FileIOBase):
     def __init__(self, url, session=None, headers={}, cookies={}, cookies_file=None, directory='.', filename=None, filestem=None, filesuffix=None):
@@ -87,7 +94,11 @@ class WebFile(FileIOBase):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)
 
-        r = self.session.get(self.url, headers=headers, stream=True, timeout=10)
+        try:
+            r = self.session.get(self.url, headers=headers, stream=True, timeout=10)
+        except requests.exceptions.ConnectionError as e:
+            raise WebFileError(e)
+
         self.logger.debug("Request Headers: " + str(r.request.headers))
         self.logger.debug("Response Headers: " + str(r.headers))
 

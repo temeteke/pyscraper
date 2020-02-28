@@ -1,5 +1,5 @@
 import unittest
-from pyscraper import WebFile, WebFileCached
+from pyscraper import WebFile, WebFileCached, WebFileError
 from pyscraper.webfile import JoinedFile, JoinedFileReadError
 import requests
 from pathlib import Path
@@ -212,5 +212,5 @@ class TestJoinedFile(unittest.TestCase):
 
 class TestWebFileError(unittest.TestCase):
     def test_dnserror(self):
-        with self.assertRaises(requests.exceptions.ConnectionError):
+        with self.assertRaises(WebFileError):
             wf = WebFile('http://a.temeteke.com')
