@@ -208,3 +208,9 @@ class TestJoinedFile(unittest.TestCase):
         self.jf.join()
         self.jf.seek(0)
         self.assertEqual(b'abcdefgxyzxyzklmn', self.jf.read())
+
+
+class TestWebFileError(unittest.TestCase):
+    def test_dnserror(self):
+        with self.assertRaises(requests.exceptions.ConnectionError):
+            wf = WebFile('http://a.temeteke.com')

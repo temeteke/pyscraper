@@ -82,7 +82,7 @@ class WebFile(FileIOBase):
         self.response = self._get_response()
         self.response.raw.decode_content = True
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.Timeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    @retry((requests.exceptions.HTTPError, requests.exceptions.Timeout), tries=10, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def _get_response(self, headers={}):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)
