@@ -37,7 +37,10 @@ class TestWebPageFirefox(TestWebPageRequests):
         cls.wp = WebPageFirefox(cls.URL)
         cls.wp.open()
 
-class TestWebPageChrome(TestWebPageRequests):
+    def test_requests(self):
+        self.assertEqual("http://example.com/", self.wp.requests[0].path)
+
+class TestWebPageChrome(TestWebPageFirefox):
     @classmethod
     def setUpClass(cls):
         cls.wp = WebPageChrome(cls.URL)

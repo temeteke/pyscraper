@@ -3,7 +3,7 @@ from memoize import mproperty
 from retry import retry
 from abc import ABCMeta, abstractmethod
 import requests
-from selenium import webdriver
+from seleniumwire import webdriver
 from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, InvalidCookieDomainException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
@@ -216,6 +216,10 @@ class WebPageSelenium(WebPage):
         with Path('{}.html'.format(filestem)).open('w') as f:
             f.write(self.source)
         self.webdriver.save_screenshot(filestem+'.png')
+
+    @property
+    def requests(self):
+        return self.webdriver.requests
 
 
 class WebPagePhantomJS(WebPageSelenium):
