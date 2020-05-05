@@ -52,7 +52,7 @@ class WebPage(metaclass=ABCMeta):
 
     @debug
     def get(self, xpath):
-        return self.html.xpath(xpath)
+        return self.xpath(xpath)
 
     @debug
     def get_html(self, xpath):
@@ -84,6 +84,10 @@ class WebPage(metaclass=ABCMeta):
             return results
         else:
             raise WebPageNoSuchElementError
+
+    @debug
+    def xpath(self, xpath):
+        return self.html.xpath(xpath)
 
     def dump(self, filestem='dump'):
         with Path('{}.html'.format(filestem)).open('w') as f:

@@ -28,6 +28,9 @@ class TestWebPageRequests(unittest.TestCase):
             '<a href="https://www.iana.org/domains/example">More information...</a>'
         ], self.wp.get_innerhtml("//p"))
 
+    def test_xpath01(self):
+        self.assertEqual("Example Domain", self.wp.xpath("//h1/text()")[0])
+
 class TestWebPageFirefox(TestWebPageRequests):
     @classmethod
     def setUpClass(cls):
