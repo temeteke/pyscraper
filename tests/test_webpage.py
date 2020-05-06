@@ -1,5 +1,5 @@
 import unittest
-from pyscraper import WebPageRequests, WebPageFirefox, WebPageChrome, WebPageCurl
+from pyscraper import WebPageRequests, WebPageFirefox, WebPageChrome, WebPageFirefoxWire, WebPageChromeWire, WebPageCurl
 
 class TestWebPageRequests(unittest.TestCase):
     URL = 'http://example.com/'
@@ -31,20 +31,39 @@ class TestWebPageRequests(unittest.TestCase):
     def test_xpath01(self):
         self.assertEqual("Example Domain", self.wp.xpath("//h1/text()")[0])
 
+
+class SeleniumWireMixin():
+    def test_requests(self):
+        self.assertEqual("http://example.com/", self.wp.requests[0].path)
+
+
 class TestWebPageFirefox(TestWebPageRequests):
     @classmethod
     def setUpClass(cls):
         cls.wp = WebPageFirefox(cls.URL)
         cls.wp.open()
 
-    def test_requests(self):
-        self.assertEqual("http://example.com/", self.wp.requests[0].path)
+
+class TestWebPageFirefoxWire(SeleniumWireMixin, TestWebPageFirefox):
+    @classmethod
+    def setUpClass(cls):
+        cls.wp = WebPageFirefoxWire(cls.URL)
+        cls.wp.open()
+
 
 class TestWebPageChrome(TestWebPageFirefox):
     @classmethod
     def setUpClass(cls):
         cls.wp = WebPageChrome(cls.URL)
         cls.wp.open()
+
+
+class TestWebPageChromeWire(SeleniumWireMixin, TestWebPageChrome):
+    @classmethod
+    def setUpClass(cls):
+        cls.wp = WebPageChromeWire(cls.URL)
+        cls.wp.open()
+
 
 class TestWebPageCurl(TestWebPageRequests):
     @classmethod

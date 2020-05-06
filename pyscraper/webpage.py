@@ -3,7 +3,8 @@ from memoize import mproperty
 from retry import retry
 from abc import ABCMeta, abstractmethod
 import requests
-from seleniumwire import webdriver
+from selenium import webdriver
+from seleniumwire import webdriver as webdriver_wire
 from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, InvalidCookieDomainException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
@@ -20,8 +21,10 @@ logger = logging.getLogger(__name__)
 class WebPageError(Exception):
     pass
 
+
 class WebPageNoSuchElementError(WebPageError):
     pass
+
 
 class WebPage(metaclass=ABCMeta):
     def __enter__(self):
@@ -93,6 +96,7 @@ class WebPage(metaclass=ABCMeta):
         with Path('{}.html'.format(filestem)).open('w') as f:
             f.write(self.source)
 
+
 class WebPageRequests(WebPage):
     def __init__(self, url, session=None, headers={}, cookies={}, encoding=None):
         super().__init__()
@@ -139,21 +143,25 @@ class WebPageRequests(WebPage):
         return self.response.encoding
 
 
-class WebPageSelenium(WebPage):
+class SeleniumMixin():
+    @property
+    def webdriver(self):
+        return webdriver
+
     @property
     def url(self):
-        return self.webdriver.current_url
+        return self.driver.current_url
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def source(self):
-        return self.webdriver.page_source
+        return self.driver.page_source
 
     @property
     @debug
     def cookies(self):
         cookies = {}
-        for cookie in self.webdriver.get_cookies():
+        for cookie in self.driver.get_cookies():
             cookies[cookie['name']] = cookie['value']
         return cookies
 
@@ -162,7 +170,7 @@ class WebPageSelenium(WebPage):
         cookies.load()
         for cookie in cookies:
             try:
-                self.webdriver.add_cookie(cookie.__dict__)
+                self.driver.add_cookie(cookie.__dict__)
             except InvalidCookieDomainException:
                 pass
 
@@ -170,7 +178,7 @@ class WebPageSelenium(WebPage):
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def click(self, xpath):
         try:
-            self.webdriver.find_element_by_xpath(xpath).click()
+            self.driver.find_element_by_xpath(xpath).click()
         except (ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException) as e:
             raise WebPageNoSuchElementError(e)
 
@@ -178,8 +186,8 @@ class WebPageSelenium(WebPage):
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def move_to(self, xpath):
         try:
-            actions = ActionChains(self.webdriver)
-            actions.move_to_element(self.webdriver.find_element_by_xpath(xpath))
+            actions = ActionChains(self.driver)
+            actions.move_to_element(self.driver.find_element_by_xpath(xpath))
             actions.perform()
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
@@ -188,55 +196,62 @@ class WebPageSelenium(WebPage):
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def switch_to_frame(self, xpath):
         try:
-            iframe = self.webdriver.find_element_by_xpath(xpath)
+            iframe = self.driver.find_element_by_xpath(xpath)
             iframe_url = iframe.get_attribute('src')
-            self.webdriver.switch_to.frame(iframe)
+            self.driver.switch_to.frame(iframe)
             return iframe_url
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
 
     @debug
     def go(self, url):
-        self.webdriver.get(url)
+        self.driver.get(url)
 
     def forward(self):
-        self.webdriver.forward()
+        self.driver.forward()
 
     def back(self):
-        self.webdriver.back()
+        self.driver.back()
 
     def execute_script(self, script, *args):
-        return self.webdriver.execute_script(script, *args)
+        return self.driver.execute_script(script, *args)
 
     def execute_async_script(self, script, *args):
         print(args)
-        return self.webdriver.execute_async_script(script, *args)
+        return self.driver.execute_async_script(script, *args)
 
     def dump(self, filestem='dump'):
         with Path('{}.html'.format(filestem)).open('w') as f:
             f.write(self.source)
-        self.webdriver.save_screenshot(filestem+'.png')
+        self.driver.save_screenshot(filestem+'.png')
+
+
+class SeleniumWireMixin(SeleniumMixin):
+    @property
+    def webdriver(self):
+        return webdriver_wire
 
     @property
     def requests(self):
-        return self.webdriver.requests
+        return self.driver.requests
 
 
-class WebPagePhantomJS(WebPageSelenium):
+class WebPagePhantomJS(SeleniumMixin, WebPage):
     def __init__(self, url):
         super().__init__()
         self._url = url
 
     def open(self):
-        self.webdriver = webdriver.PhantomJS()
+        self.driver = self.webdriver.PhantomJS()
         logger.debug("Getting {}".format(self._url))
-        self.webdriver.get(self._url)
+        self.driver.get(self._url)
         return self
 
     def close(self):
-        self.webdriver.quit()
+        self.driver.quit()
 
-class WebPageFirefox(WebPageSelenium):
+
+class WebPageFirefox(SeleniumMixin, WebPage):
     def __init__(self, url, cookies_file=None, profile=None):
         super().__init__()
         self._url = url
@@ -244,47 +259,57 @@ class WebPageFirefox(WebPageSelenium):
         self._profile = profile
 
     def open(self):
-        options = webdriver.firefox.options.Options()
+        options = self.webdriver.firefox.options.Options()
         options.headless = True
 
         if self._profile:
-            self.webdriver = webdriver.Firefox(options=options, service_log_path=os.path.devnull, firefox_profile=webdriver.FirefoxProfile(self._profile))
+            self.driver = self.webdriver.Firefox(options=options, service_log_path=os.path.devnull, firefox_profile=self.webdriver.FirefoxProfile(self._profile))
         else:
-            self.webdriver = webdriver.Firefox(options=options, service_log_path=os.path.devnull)
+            self.driver = self.webdriver.Firefox(options=options, service_log_path=os.path.devnull)
 
         logger.debug("Getting {}".format(self._url))
-        self.webdriver.get(self._url)
+        self.driver.get(self._url)
 
         if self._cookies_file:
             self.set_cookies_from_file(self._cookies_file)
-            self.webdriver.get(self._url)
+            self.driver.get(self._url)
 
         return self
 
     def close(self):
-        self.webdriver.quit()
+        self.driver.quit()
 
-class WebPageChrome(WebPageSelenium):
+
+class WebPageFirefoxWire(SeleniumWireMixin, WebPageFirefox):
+    pass
+
+
+class WebPageChrome(SeleniumMixin, WebPage):
     def __init__(self, url, cookies_file=None):
         super().__init__()
         self._url = url
         self._cookies_file = cookies_file
 
     def open(self):
-        options = webdriver.chrome.options.Options()
+        options = self.webdriver.chrome.options.Options()
         options.headless = True
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-gpu')
-        self.webdriver = webdriver.Chrome(options=options)
+        self.driver = self.webdriver.Chrome(options=options)
         logger.debug("Getting {}".format(self._url))
-        self.webdriver.get(self._url)
+        self.driver.get(self._url)
         if self._cookies_file:
             self.set_cookies_from_file(self._cookies_file)
-            self.webdriver.get(self._url)
+            self.driver.get(self._url)
         return self
 
     def close(self):
-        self.webdriver.quit()
+        self.driver.quit()
+
+
+class WebPageChromeWire(SeleniumWireMixin, WebPageChrome):
+    pass
+
 
 class WebPageCurl(WebPage):
     def __init__(self, url):
