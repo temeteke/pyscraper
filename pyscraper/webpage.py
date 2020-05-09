@@ -223,7 +223,15 @@ class SeleniumMixin():
     def dump(self, filestem='dump'):
         with Path('{}.html'.format(filestem)).open('w') as f:
             f.write(self.source)
-        self.driver.save_screenshot(filestem+'.png')
+
+        scroll_height = self.driver.execute_script("return document.body.scrollHeight")
+        inner_height = self.driver.execute_script("return window.innerHeight")
+
+        scroll = 0
+        while scroll < scroll_height:
+            self.driver.execute_script(f"window.scrollTo(0, {scroll})")
+            self.driver.save_screenshot(filestem+f'_{scroll}.png')
+            scroll += inner_height
 
 
 class SeleniumWireMixin(SeleniumMixin):

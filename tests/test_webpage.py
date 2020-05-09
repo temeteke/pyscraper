@@ -1,5 +1,6 @@
 import unittest
 from pyscraper import WebPageRequests, WebPageFirefox, WebPageChrome, WebPageFirefoxWire, WebPageChromeWire, WebPageCurl
+from pathlib import Path
 
 class TestWebPageRequests(unittest.TestCase):
     URL = 'http://example.com/'
@@ -31,6 +32,11 @@ class TestWebPageRequests(unittest.TestCase):
     def test_xpath01(self):
         self.assertEqual("Example Domain", self.wp.xpath("//h1/text()")[0])
 
+    def test_dump01(self):
+        self.wp.dump('dump')
+        self.assertTrue(Path('dump.html').exists())
+        Path('dump.html').unlink()
+
 
 class SeleniumWireMixin():
     def test_requests(self):
@@ -42,6 +48,14 @@ class TestWebPageFirefox(TestWebPageRequests):
     def setUpClass(cls):
         cls.wp = WebPageFirefox(cls.URL)
         cls.wp.open()
+
+    def test_dump01(self):
+        self.wp.dump('dump')
+        self.assertTrue(Path('dump.html').exists())
+        self.assertTrue(Path('dump_0.png').exists())
+        Path('dump.html').unlink()
+        for x in Path('.').glob('dump_*.png'):
+            x.unlink()
 
 
 class TestWebPageFirefoxWire(SeleniumWireMixin, TestWebPageFirefox):
