@@ -210,17 +210,16 @@ class WebFile(FileIOBase):
         except requests.exceptions.HTTPError as e:
             self.logger.warning(e)
             if e.response.status_code == 416 and filepath_tmp.exists():
-                self.logger.warning("Removing downloaded file")
                 filepath_tmp.unlink()
-                raise WebFileRequestError()
+                raise WebFileRequestError("Range Not Satisfiable. Removed downloaded file.")
             else:
                 raise
 
         if not 'gzip' in self.response.headers.get('Content-Encoding', ''):
             self.logger.debug("Comparing file size {} {}".format(filepath_tmp.stat().st_size, self.size))
             if filepath_tmp.stat().st_size != self.size:
-                self.reload()
-                raise WebFileRequestError("Downloaded file size is wrong")
+                filepath_tmp.unlink()
+                raise WebFileRequestError("Downloaded file size is wrong. Removed downloaded file.")
 
         self.logger.debug("Removing temporary file")
         filepath_tmp.rename(self.filepath)
