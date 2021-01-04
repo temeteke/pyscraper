@@ -1,5 +1,5 @@
 # syntax = docker/dockerfile:experimental
-FROM python:3.8.0-alpine3.10
+FROM python:3.9-alpine
 
 RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt && \
     apk add --no-cache --virtual .lxml-deps gcc libc-dev libxslt-dev && \
