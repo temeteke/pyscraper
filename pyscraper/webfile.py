@@ -52,7 +52,7 @@ class WebFileRequestError(WebFileError):
     pass
 
 
-class WebFileSizeError(WebFileError):
+class WebFileSeekError(WebFileError):
     pass
 
 
@@ -207,17 +207,18 @@ class WebFile(FileIOBase):
                     for chunk in self.read_in_chunks(1024, downloaded_file_size):
                         f.write(chunk)
                         pbar.update(len(chunk))
-        except WebFileRequestError as e:
+        except requests.exceptions.HTTPError as e:
             self.logger.warning(e)
             if e.response.status_code == 416 and filepath_tmp.exists():
                 self.logger.warning("Removing downloaded file")
                 filepath_tmp.unlink()
-            raise
+                raise WebFileRequestError()
+            else:
+                raise
 
         if not 'gzip' in self.response.headers.get('Content-Encoding', ''):
             self.logger.debug("Comparing file size {} {}".format(filepath_tmp.stat().st_size, self.size))
             if filepath_tmp.stat().st_size != self.size:
-                self.logger.debug("Downloaded file size is wrong")
                 self.reload()
                 raise WebFileRequestError("Downloaded file size is wrong")
 
@@ -249,9 +250,6 @@ class WebFile(FileIOBase):
             Path(str(self.filepath) + '.part').unlink()
         except FileNotFoundError as e:
             pass
-
-class WebFileSeekError(Exception):
-    pass
 
 class JoinedFile(FileIOBase):
     def __init__(self, filepath):

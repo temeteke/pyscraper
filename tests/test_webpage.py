@@ -40,7 +40,7 @@ class TestWebPageRequests(unittest.TestCase):
 
 class SeleniumWireMixin():
     def test_requests(self):
-        self.assertIn("http://example.com/", [x.path for x in self.wp.requests])
+        self.assertIn("http://example.com/", [x.url for x in self.wp.requests])
 
 
 class TestWebPageFirefox(TestWebPageRequests):
