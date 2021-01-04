@@ -214,6 +214,11 @@ class WebFile(FileIOBase):
                 raise WebFileRequestError("Range Not Satisfiable. Removed downloaded file.")
             else:
                 raise
+        except WebFileSeekError as e:
+            self.logger.warning(e)
+            filepath_tmp.unlink()
+            raise WebFileRequestError()
+
 
         if not 'gzip' in self.response.headers.get('Content-Encoding', ''):
             self.logger.debug("Comparing file size {} {}".format(filepath_tmp.stat().st_size, self.size))
