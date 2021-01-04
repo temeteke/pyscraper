@@ -4,10 +4,7 @@ FROM python:3.9-alpine
 RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt && \
     apk add --no-cache --virtual .lxml-deps gcc libc-dev libxslt-dev && \
     pip install lxml && \
-    apk del .lxml-deps && \
-    apk add --no-cache --virtual .geckodriver-deps tar && \
-    curl -L https://github.com/mozilla/geckodriver/releases/download/v0.25.0/geckodriver-v0.25.0-linux64.tar.gz | tar xz -C /usr/local/bin/ && \
-    apk del .geckodriver-deps
+    apk del .lxml-deps
 
 WORKDIR /app
 COPY setup.py setup.cfg ./
