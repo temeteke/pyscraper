@@ -217,7 +217,7 @@ class WebFile(FileIOBase):
         except WebFileSeekError as e:
             self.logger.warning(e)
             filepath_tmp.unlink()
-            raise WebFileRequestError()
+            raise WebFileRequestError("Seek Error. Removed downloaded file.")
 
 
         if not 'gzip' in self.response.headers.get('Content-Encoding', ''):
