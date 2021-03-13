@@ -1,5 +1,5 @@
 import unittest
-from pyscraper import WebPageRequests, WebPageFirefox, WebPageChrome, WebPageFirefoxWire, WebPageChromeWire, WebPageCurl
+from pyscraper import WebPageRequests, WebPageFirefox, WebPageChrome, WebPageCurl
 from pathlib import Path
 
 class TestWebPageRequests(unittest.TestCase):
@@ -38,11 +38,6 @@ class TestWebPageRequests(unittest.TestCase):
         Path('dump.html').unlink()
 
 
-class SeleniumWireMixin():
-    def test_requests(self):
-        self.assertIn("http://example.com/", [x.url for x in self.wp.requests])
-
-
 class TestWebPageFirefox(TestWebPageRequests):
     @classmethod
     def setUpClass(cls):
@@ -58,24 +53,10 @@ class TestWebPageFirefox(TestWebPageRequests):
             x.unlink()
 
 
-class TestWebPageFirefoxWire(SeleniumWireMixin, TestWebPageFirefox):
-    @classmethod
-    def setUpClass(cls):
-        cls.wp = WebPageFirefoxWire(cls.URL)
-        cls.wp.open()
-
-
 class TestWebPageChrome(TestWebPageFirefox):
     @classmethod
     def setUpClass(cls):
         cls.wp = WebPageChrome(cls.URL)
-        cls.wp.open()
-
-
-class TestWebPageChromeWire(SeleniumWireMixin, TestWebPageChrome):
-    @classmethod
-    def setUpClass(cls):
-        cls.wp = WebPageChromeWire(cls.URL)
         cls.wp.open()
 
 

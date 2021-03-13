@@ -4,7 +4,6 @@ from retry import retry
 from abc import ABCMeta, abstractmethod
 import requests
 from selenium import webdriver
-from seleniumwire import webdriver as webdriver_wire
 from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, InvalidCookieDomainException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
@@ -234,16 +233,6 @@ class SeleniumMixin():
             scroll += inner_height
 
 
-class SeleniumWireMixin(SeleniumMixin):
-    @property
-    def webdriver(self):
-        return webdriver_wire
-
-    @property
-    def requests(self):
-        return self.driver.requests
-
-
 class WebPagePhantomJS(SeleniumMixin, WebPage):
     def __init__(self, url):
         super().__init__()
@@ -288,10 +277,6 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         self.driver.quit()
 
 
-class WebPageFirefoxWire(SeleniumWireMixin, WebPageFirefox):
-    pass
-
-
 class WebPageChrome(SeleniumMixin, WebPage):
     def __init__(self, url, cookies_file=None):
         super().__init__()
@@ -313,10 +298,6 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
     def close(self):
         self.driver.quit()
-
-
-class WebPageChromeWire(SeleniumWireMixin, WebPageChrome):
-    pass
 
 
 class WebPageCurl(WebPage):
