@@ -1,5 +1,6 @@
 from functools import wraps
 import logging
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -19,3 +20,17 @@ def debug(f):
             logger.debug("{} -> {}".format(f.__name__, result))
         return result
     return wrapper
+
+
+class RequestsMixin():
+    def init_session(self, session, headers, cookies):
+        if session:
+            self.session = session
+        else:
+            self.session = requests.Session()
+
+        self.session.headers.update(HEADERS)
+        self.session.headers.update(headers)
+
+        for k, v in cookies.items():
+            self.session.cookies.set(k, v)

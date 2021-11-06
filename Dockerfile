@@ -1,7 +1,7 @@
 # syntax = docker/dockerfile:experimental
 FROM python:3.9-alpine
 
-RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt && \
+RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt ffmpeg && \
     apk add --no-cache --virtual .lxml-deps gcc libc-dev libxslt-dev && \
     pip install lxml && \
     apk del .lxml-deps && \

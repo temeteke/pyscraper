@@ -255,6 +255,10 @@ class WebFile(FileIOBase):
         except FileNotFoundError as e:
             pass
 
+    def exists(self):
+        return self.filepath.exists()
+
+
 class JoinedFile(FileIOBase):
     def __init__(self, filepath):
         super().__init__()
