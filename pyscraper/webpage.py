@@ -8,7 +8,7 @@ from selenium.common.exceptions import ElementNotInteractableException, NoSuchEl
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
 import lxml.html
-from .utils import debug, HEADERS
+from .utils import debug, HEADERS, RequestsMixin
 from pathlib import Path
 from http.client import RemoteDisconnected
 import os
@@ -88,21 +88,12 @@ class WebPage(metaclass=ABCMeta):
             f.write(self.source)
 
 
-class WebPageRequests(WebPage):
+class WebPageRequests(RequestsMixin, WebPage):
     def __init__(self, url, session=None, headers={}, cookies={}, encoding=None):
         super().__init__()
         self._url = url
 
-        if session:
-            self.session = session
-        else:
-            self.session = requests.Session()
-
-        self.session.headers.update(HEADERS)
-        self.session.headers.update(headers)
-
-        for k, v in cookies.items():
-            self.session.cookies.set(k, v)
+        self.init_session(session, headers, cookies)
 
         self._encoding = encoding
 

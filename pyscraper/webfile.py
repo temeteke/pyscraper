@@ -7,10 +7,8 @@ from pathlib import Path
 import re
 import requests
 import urllib3
-from .utils import debug, HEADERS
-from functools import reduce
+from .utils import debug, RequestsMixin
 import unicodedata
-from http.cookiejar import MozillaCookieJar
 
 logger = logging.getLogger(__name__)
 
@@ -56,27 +54,13 @@ class WebFileSeekError(WebFileError):
     pass
 
 
-class WebFile(FileIOBase):
-    def __init__(self, url, session=None, headers={}, cookies={}, cookies_file=None, directory='.', filename=None, filestem=None, filesuffix=None):
+class WebFile(RequestsMixin, FileIOBase):
+    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
         super().__init__()
 
         self.url = url
 
-        if session:
-            self.session = session
-        else:
-            self.session = requests.Session()
-
-        self.session.headers.update(HEADERS)
-        self.session.headers.update(headers)
-
-        if cookies_file:
-            cookies = MozillaCookieJar(cookies_file)
-            cookies.load()
-            self.session.cookies = cookies
-        else:
-            for k, v in cookies.items():
-                self.session.cookies.set(k, v)
+        self.init_session(session, headers, cookies)
 
         self.directory = Path(re.sub(r'[:|\s\*\?\\"]', '_', directory))
         if not self.directory.exists():
