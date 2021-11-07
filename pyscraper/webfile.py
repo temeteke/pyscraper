@@ -9,8 +9,10 @@ import requests
 import urllib3
 from .utils import debug, RequestsMixin
 import unicodedata
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+
 
 class FileIOBase():
     def __init__(self):
@@ -54,14 +56,8 @@ class WebFileSeekError(WebFileError):
     pass
 
 
-class WebFile(RequestsMixin, FileIOBase):
-    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
-        super().__init__()
-
-        self.url = url
-
-        self.init_session(session, headers, cookies)
-
+class WebFileMixin():
+    def set_path(self, directory, filename=None, filestem=None, filesuffix=None):
         self.directory = Path(re.sub(r'[:|\s\*\?\\"]', '_', directory))
         if not self.directory.exists():
             self.directory.mkdir(parents=True)
@@ -69,6 +65,66 @@ class WebFile(RequestsMixin, FileIOBase):
         self._filename = filename
         self._filestem = filestem
         self._filesuffix = filesuffix
+
+    @lru_cache
+    @debug
+    def get_filename(self):
+        return urlparse(self.url).path.split('/').pop()
+
+    @mproperty
+    @debug
+    def filestem(self):
+        if self._filestem:
+            filestem = unicodedata.normalize('NFC', self._filestem)
+            while len(filestem.encode()) > 192:
+                filestem = filestem[:-1]
+            return re.sub(r'[/:|\s\*\.\?\\"]', '_', filestem)
+        elif self._filename:
+            return Path(self._filename).stem
+        else:
+            return Path(self.get_filename()).stem
+
+    @mproperty
+    @debug
+    def filesuffix(self):
+        if self._filesuffix:
+            return self._filesuffix
+        elif self._filename:
+            return Path(self._filename).suffix
+        else:
+            return Path(self.get_filename()).suffix
+
+    @mproperty
+    @debug
+    def filename(self):
+        return self.filestem + self.filesuffix
+
+    @mproperty
+    @debug
+    def filepath(self):
+        return Path(self.directory, self.filename)
+
+    def unlink(self):
+        try:
+            self.filepath.unlink()
+        except FileNotFoundError as e:
+            pass
+
+    def exists(self):
+        return self.filepath.exists()
+
+
+class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
+    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
+        super().__init__()
+
+        self.logger.debug(url)
+
+        self.url = url
+
+        self.init_session(session, headers, cookies)
+
+        self.set_path(directory, filename, filestem, filesuffix)
 
         self.response = self._get_response()
         self.response.raw.decode_content = True
@@ -104,28 +160,15 @@ class WebFile(RequestsMixin, FileIOBase):
         except KeyError:
             return None
 
-    @mproperty
+    @lru_cache
     @debug
-    def _filename_auto(self):
+    def get_filename(self):
         if 'Content-Disposition' in self.response.headers:
-            m = re.search('filename="(.+)"', self.response.headers['Content-Disposition'])
+            m = re.search('filename="?(.+)"?', self.response.headers['Content-Disposition'])
             if m:
                 return m.group(1)
-
-        return urlparse(self.response.url).path.split('/').pop()
-
-    @mproperty
-    @debug
-    def filestem(self):
-        if self._filestem:
-            filestem = unicodedata.normalize('NFC', self._filestem)
-            while len(filestem.encode()) > 192:
-                filestem = filestem[:-1]
-            return re.sub(r'[/:|\s\*\.\?\\"]', '_', filestem)
-        elif self._filename:
-            return Path(self._filename).stem
         else:
-            return Path(self._filename_auto).stem
+            super().get_filename()
 
     @mproperty
     @debug
@@ -137,17 +180,7 @@ class WebFile(RequestsMixin, FileIOBase):
         elif 'Content-Type' in self.response.headers and self.response.headers['Content-Type'] == 'video/mp4':
             return '.mp4'
         else:
-            return Path(self._filename_auto).suffix
-
-    @mproperty
-    @debug
-    def filename(self):
-        return self.filestem + self.filesuffix
-
-    @mproperty
-    @debug
-    def filepath(self):
-        return Path(self.directory, self.filename)
+            return Path(self.get_filename()).suffix
 
     def seek(self, offset, force=False):
         if offset >= self.size:
@@ -229,18 +262,12 @@ class WebFile(RequestsMixin, FileIOBase):
                     f.write(chunk)
 
     def unlink(self):
-        try:
-            self.filepath.unlink()
-        except FileNotFoundError as e:
-            pass
+        super().unlink()
 
         try:
             Path(str(self.filepath) + '.part').unlink()
         except FileNotFoundError as e:
             pass
-
-    def exists(self):
-        return self.filepath.exists()
 
 
 class JoinedFile(FileIOBase):
@@ -408,7 +435,7 @@ class WebFileCached(WebFile):
 
         self.logger.info("Filepath is {}".format(self.filepath))
 
-        with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+        with tqdm(total=self.size, initial=0, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             for chunk in self.read_in_chunks(1024):
                 pbar.update(len(chunk))
 

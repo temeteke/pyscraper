@@ -17,14 +17,14 @@ class TestWebFile(unittest.TestCase):
     URL = 'https://httpbin.org/range/1024'
 
     @classmethod
-    def _get_webfile(cls, url):
-        return WebFile(url)
+    def _get_webfile(cls, url, filename):
+        return WebFile(url, filename=filename)
 
     @classmethod
     def setUpClass(cls):
         logger.debug('setUpClass')
         cls.content = requests.get(cls.URL).content
-        cls.wf = cls._get_webfile(cls.URL)
+        cls.wf = cls._get_webfile(cls.URL, filename='test.txt')
 
     def test_read01(self):
         logger.debug('test_read01')
@@ -46,10 +46,30 @@ class TestWebFile(unittest.TestCase):
         self.wf.seek(256)
         self.assertEqual(self.content[256:], self.wf.read())
 
+    def test_download_unlink(self):
+        logger.debug('test_download')
+        self.wf.download()
+        self.assertTrue(self.wf.exists())
+
+        self.wf.unlink()
+        self.assertFalse(self.wf.exists())
+
+    def test_filestem(self):
+        logger.debug('test_filestem')
+        self.assertEqual('test', self.wf.filestem)
+
+    def test_filesuffix(self):
+        logger.debug('test_filesuffix')
+        self.assertEqual('.txt', self.wf.filesuffix)
+
+    def test_filename(self):
+        logger.debug('test_filename')
+        self.assertEqual('test.txt', self.wf.filename)
+
 class TestWebFileCached(TestWebFile):
     @classmethod
-    def _get_webfile(cls, url):
-        return WebFileCached(url)
+    def _get_webfile(cls, url, filename):
+        return WebFileCached(url, filename=filename)
 
     @classmethod
     def tearDownClass(cls):
@@ -79,7 +99,7 @@ class TestWebFileCached(TestWebFile):
         logger.debug('test_join01')
         self.wf.seek(128)
         self.wf.read(128)
-        with Path('1024').open('rb') as f:
+        with self.wf.filepath.open('rb') as f:
             actual = f.read()
         self.assertEqual(self.content, actual)
 

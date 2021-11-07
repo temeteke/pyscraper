@@ -5,9 +5,9 @@ import logging
 from memoize import mproperty
 from pathlib import Path
 from functools import lru_cache
-from pyscraper import WebFile
 import m3u8
 import shutil
+from .webfile import WebFile, WebFileMixin
 from .utils import debug, HEADERS, RequestsMixin
 
 logger = logging.getLogger(__name__)
@@ -17,29 +17,19 @@ class HlsFileError(Exception):
     pass
 
 
-class HlsFileMixin():
-    @mproperty
-    def _filename_auto(self):
-        return urlparse(self.url).path.split('/').pop()
-
+class HlsFileMixin(WebFileMixin):
     @mproperty
     def filesuffix(self):
         return '.mp4'
 
 
-class HlsFileFfmpeg(HlsFileMixin, WebFile):
+class HlsFileFfmpeg(HlsFileMixin):
     def __init__(self, url, headers={}, directory='.', filename=None, filestem=None, filesuffix=None):
         self.url = url
         self.headers = headers
         self.headers.update(HEADERS)
 
-        self.directory = Path(directory)
-        if not self.directory.exists():
-            self.directory.mkdir()
-
-        self._filename = filename
-        self._filestem = filestem
-        self._filesuffix = filesuffix
+        self.set_path(directory, filename, filestem, filesuffix)
 
     def download(self):
         logger.info("Downloading {}".format(self.url))
@@ -65,19 +55,13 @@ class HlsFileFfmpeg(HlsFileMixin, WebFile):
             raise HlsFileError from None
 
 
-class HlsFileRequests(HlsFileMixin, RequestsMixin, WebFile):
+class HlsFileRequests(HlsFileMixin, RequestsMixin):
     def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
         self.url = url
 
-        self.directory = Path(directory)
-        if not self.directory.exists():
-            self.directory.mkdir()
-
-        self._filename = filename
-        self._filestem = filestem
-        self._filesuffix = filesuffix
-
         self.init_session(session, headers, cookies)
+
+        self.set_path(directory, filename, filestem, filesuffix)
 
     def download(self):
         logger.info("Downloading {}".format(self.url))
