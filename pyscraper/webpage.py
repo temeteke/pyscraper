@@ -195,9 +195,11 @@ class SeleniumMixin():
     def back(self):
         self.driver.back()
 
+    @debug
     def execute_script(self, script, *args):
         return self.driver.execute_script(script, *args)
 
+    @debug
     def execute_async_script(self, script, *args):
         print(args)
         return self.driver.execute_async_script(script, *args)
