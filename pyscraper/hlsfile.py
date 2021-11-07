@@ -43,6 +43,9 @@ class HlsFileFfmpeg(HlsFileMixin):
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
+        if self.tempfile.exists():
+            self.tempfile.unlink()
+
         try:
             ff = ffmpy.FFmpeg(
                 global_options="-headers '" + '\r\n'.join(['{}: {}'.format(k, v) for k, v in self.headers.items()]) + "'",
