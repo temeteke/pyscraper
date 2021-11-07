@@ -1,5 +1,4 @@
 import logging
-from memoize import mproperty
 from retry import retry
 from abc import ABCMeta, abstractmethod
 import requests
@@ -13,6 +12,7 @@ from http.client import RemoteDisconnected
 import os
 import subprocess
 from http.cookiejar import MozillaCookieJar
+from functools import cached_property
 
 logger = logging.getLogger(__name__)
 
@@ -52,25 +52,25 @@ class WebPage(metaclass=ABCMeta):
         else:
             return lxml.html.fromstring(self.source)
 
-    @debug
+    @debug(logger)
     def get(self, xpath):
         return self.xpath(xpath)
 
-    @debug
+    @debug(logger)
     def get_html(self, xpath):
         if hasattr(self, 'encoding'):
             return [lxml.html.tostring(x, method='html', encoding=self.encoding).decode().strip() for x in self.html.xpath(xpath)]
         else:
             return [lxml.html.tostring(x, method='html').decode().strip() for x in self.html.xpath(xpath)]
 
-    @debug
+    @debug(logger)
     def get_innerhtml(self, xpath):
         if hasattr(self, 'encoding'):
             return [lxml.html.tostring(x, method='text', encoding=self.encoding).decode().strip() for x in self.html.xpath(xpath)]
         else:
             return [lxml.html.tostring(x, method='text').decode().strip() for x in self.html.xpath(xpath)]
 
-    @debug
+    @debug(logger)
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def get_with_retry(self, xpath):
         results = self.get(xpath)
@@ -79,7 +79,7 @@ class WebPage(metaclass=ABCMeta):
         else:
             raise WebPageNoSuchElementError
 
-    @debug
+    @debug(logger)
     def xpath(self, xpath):
         return self.html.xpath(xpath)
 
@@ -97,7 +97,7 @@ class WebPageRequests(RequestsMixin, WebPage):
 
         self._encoding = encoding
 
-    @mproperty
+    @cached_property
     @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def response(self):
         logger.debug("Getting {}".format(self._url))
@@ -108,19 +108,19 @@ class WebPageRequests(RequestsMixin, WebPage):
             r.encoding = self._encoding
         return r
 
-    @mproperty
+    @cached_property
     def url(self):
         return self.response.url
 
-    @mproperty
+    @cached_property
     def content(self):
         return self.response.content
 
-    @mproperty
+    @cached_property
     def source(self):
         return self.response.text
 
-    @mproperty
+    @cached_property
     def encoding(self):
         return self.response.encoding
 
@@ -140,7 +140,7 @@ class SeleniumMixin():
         return self.driver.page_source
 
     @property
-    @debug
+    @debug(logger)
     def cookies(self):
         cookies = {}
         for cookie in self.driver.get_cookies():
@@ -156,7 +156,7 @@ class SeleniumMixin():
             except InvalidCookieDomainException:
                 pass
 
-    @debug
+    @debug(logger)
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def click(self, xpath):
         try:
@@ -164,7 +164,7 @@ class SeleniumMixin():
         except (ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException) as e:
             raise WebPageNoSuchElementError(e)
 
-    @debug
+    @debug(logger)
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def move_to(self, xpath):
         try:
@@ -174,7 +174,7 @@ class SeleniumMixin():
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
 
-    @debug
+    @debug(logger)
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def switch_to_frame(self, xpath):
         try:
@@ -185,7 +185,7 @@ class SeleniumMixin():
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
 
-    @debug
+    @debug(logger)
     def go(self, url):
         self.driver.get(url)
 
@@ -195,11 +195,11 @@ class SeleniumMixin():
     def back(self):
         self.driver.back()
 
-    @debug
+    @debug(logger)
     def execute_script(self, script, *args):
         return self.driver.execute_script(script, *args)
 
-    @debug
+    @debug(logger)
     def execute_async_script(self, script, *args):
         print(args)
         return self.driver.execute_async_script(script, *args)
@@ -290,6 +290,6 @@ class WebPageCurl(WebPage):
         super().__init__()
         self.url = url
 
-    @mproperty
+    @cached_property
     def source(self):
         return subprocess.run(['curl', self.url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()

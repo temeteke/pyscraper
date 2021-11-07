@@ -1,5 +1,4 @@
 import logging
-from memoize import mproperty
 from retry import retry
 from tqdm import tqdm
 from urllib.parse import urlparse
@@ -9,7 +8,7 @@ import requests
 import urllib3
 from .utils import debug, RequestsMixin
 import unicodedata
-from functools import lru_cache
+from functools import cache, cached_property
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +65,13 @@ class WebFileMixin():
         self._filestem = filestem
         self._filesuffix = filesuffix
 
-    @lru_cache
-    @debug
+    @cache
+    @debug(logger)
     def get_filename(self):
         return urlparse(self.url).path.split('/').pop()
 
-    @mproperty
-    @debug
+    @cached_property
+    @debug(logger)
     def filestem(self):
         if self._filestem:
             filestem = unicodedata.normalize('NFC', self._filestem)
@@ -84,8 +83,8 @@ class WebFileMixin():
         else:
             return Path(self.get_filename()).stem
 
-    @mproperty
-    @debug
+    @cached_property
+    @debug(logger)
     def filesuffix(self):
         if self._filesuffix:
             return self._filesuffix
@@ -94,13 +93,13 @@ class WebFileMixin():
         else:
             return Path(self.get_filename()).suffix
 
-    @mproperty
-    @debug
+    @cached_property
+    @debug(logger)
     def filename(self):
         return self.filestem + self.filesuffix
 
-    @mproperty
-    @debug
+    @cached_property
+    @debug(logger)
     def filepath(self):
         return Path(self.directory, self.filename)
 
@@ -152,16 +151,16 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         return r
 
-    @mproperty
-    @debug
+    @cached_property
+    @debug(logger)
     def size(self):
         try:
             return int(self.response.headers['Content-Length'])
         except KeyError:
             return None
 
-    @lru_cache
-    @debug
+    @cache
+    @debug(logger)
     def get_filename(self):
         if 'Content-Disposition' in self.response.headers:
             m = re.search('filename="?(.+)"?', self.response.headers['Content-Disposition'])
@@ -170,8 +169,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         else:
             super().get_filename()
 
-    @mproperty
-    @debug
+    @cached_property
+    @debug(logger)
     def filesuffix(self):
         if self._filesuffix:
             return self._filesuffix
@@ -181,6 +180,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return '.mp4'
         else:
             return Path(self.get_filename()).suffix
+
+    @cached_property
+    def tempfile(self):
+        return self.filepath.with_name(self.filepath.name + '.part')
 
     def seek(self, offset, force=False):
         if offset >= self.size:
@@ -212,46 +215,45 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     @retry(WebFileRequestError, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download_and_check_size(self):
         """Download file and check downloaded file size"""
-        filepath_tmp = Path(str(self.filepath) + '.part')
-        if filepath_tmp.exists():
-            downloaded_file_size = filepath_tmp.stat().st_size
+        if self.tempfile.exists():
+            downloaded_file_size = self.tempfile.stat().st_size
         else:
             downloaded_file_size = 0
 
         try:
             with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
-                with filepath_tmp.open('ab') as f:
+                with self.tempfile.open('ab') as f:
                     for chunk in self.read_in_chunks(1024, downloaded_file_size):
                         f.write(chunk)
                         pbar.update(len(chunk))
         except requests.exceptions.HTTPError as e:
             self.logger.warning(e)
-            if e.response.status_code == 416 and filepath_tmp.exists():
-                filepath_tmp.unlink()
+            if e.response.status_code == 416 and self.tempfile.exists():
+                self.tempfile.unlink()
                 raise WebFileRequestError("Range Not Satisfiable. Removed downloaded file.")
             else:
                 raise
         except WebFileSeekError as e:
             self.logger.warning(e)
-            filepath_tmp.unlink()
+            self.tempfile.unlink()
             raise WebFileRequestError("Seek Error. Removed downloaded file.")
 
         if 'gzip' not in self.response.headers.get('Content-Encoding', ''):
-            self.logger.debug("Comparing file size {} {}".format(filepath_tmp.stat().st_size, self.size))
-            if filepath_tmp.stat().st_size != self.size:
-                filepath_tmp.unlink()
+            self.logger.debug("Comparing file size {} {}".format(self.tempfile.stat().st_size, self.size))
+            if self.tempfile.stat().st_size != self.size:
+                self.tempfile.unlink()
                 raise WebFileRequestError("Downloaded file size is wrong. Removed downloaded file.")
 
         self.logger.debug("Removing temporary file")
-        filepath_tmp.rename(self.filepath)
+        self.tempfile.rename(self.filepath)
 
     def download(self):
         """Read contents and save into a file."""
         if self.filepath.exists():
-            self.logger.warning("{} is already downloaded.".format(self.filepath))
+            self.logger.warning(f"{self.filepath} is already downloaded.")
             return
 
-        self.logger.info("Filepath is {}".format(self.filepath))
+        self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
         if self.size:
             self.download_and_check_size()
@@ -264,7 +266,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         super().unlink()
 
         try:
-            Path(str(self.filepath) + '.part').unlink()
+            self.tempfile.unlink()
         except FileNotFoundError:
             pass
 
@@ -431,10 +433,10 @@ class WebFileCached(WebFile):
     def download(self):
         """Read contents and save into a file."""
         if self.filepath.exists():
-            self.logger.warning("{} is already downloaded.".format(self.filepath))
+            self.logger.warning(f"{self.filepath} is already downloaded.")
             return
 
-        self.logger.info("Filepath is {}".format(self.filepath))
+        self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
         with tqdm(total=self.size, initial=0, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             for chunk in self.read_in_chunks(1024):
