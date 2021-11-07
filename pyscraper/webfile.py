@@ -167,7 +167,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             if m:
                 return m.group(1)
         else:
-            super().get_filename()
+            return super().get_filename()
 
     @cached_property
     @debug(logger)
