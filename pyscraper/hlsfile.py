@@ -4,11 +4,10 @@ import ffmpy
 import logging
 from memoize import mproperty
 from pathlib import Path
-from functools import lru_cache
 import m3u8
 import shutil
 from .webfile import WebFile, WebFileMixin
-from .utils import debug, HEADERS, RequestsMixin
+from .utils import HEADERS, RequestsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +78,12 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
 
         # m3u8のリンクが含まれていた場合は選択する
         m3u8_obj = m3u8.loads(r.text)
-        try:
-            m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x:x.stream_info.bandwidth)[-1]
+        if m3u8_obj.playlists:
+            m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
             m3u8_playlist_url = urljoin(self.url, m3u8_playlist.uri)
             logger.debug(m3u8_playlist_url)
-        except:
+        else:
             m3u8_playlist_url = self.url
-
 
         m3u8_file = WebFile(m3u8_playlist_url, session=self.session, directory=str(self.directory / Path(self.filestem)), filename='hls.m3u8')
         if m3u8_file.filepath.exists():
@@ -108,9 +106,9 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
             f.write('\n'.join(temp))
 
         ff = ffmpy.FFmpeg(
-                inputs={str(m3u8_file.filepath): None},
-                outputs={str(self.filepath): '-c copy'},
-            )
+            inputs={str(m3u8_file.filepath): None},
+            outputs={str(self.filepath): '-c copy'},
+        )
         logger.debug(ff)
         ff.run()
 

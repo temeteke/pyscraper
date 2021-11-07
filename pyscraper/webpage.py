@@ -5,10 +5,9 @@ from abc import ABCMeta, abstractmethod
 import requests
 from selenium import webdriver
 from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, InvalidCookieDomainException
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.action_chains import ActionChains
 import lxml.html
-from .utils import debug, HEADERS, RequestsMixin
+from .utils import debug, RequestsMixin
 from pathlib import Path
 from http.client import RemoteDisconnected
 import os
@@ -16,6 +15,7 @@ import subprocess
 from http.cookiejar import MozillaCookieJar
 
 logger = logging.getLogger(__name__)
+
 
 class WebPageError(Exception):
     pass
@@ -212,7 +212,7 @@ class SeleniumMixin():
         scroll = 0
         while scroll < scroll_height:
             self.driver.execute_script(f"window.scrollTo(0, {scroll})")
-            self.driver.save_screenshot(filestem+f'_{scroll}.png')
+            self.driver.save_screenshot(filestem + f'_{scroll}.png')
             scroll += inner_height
 
 

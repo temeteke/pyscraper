@@ -33,8 +33,8 @@ class FileIOBase():
     def read_in_chunks(self, chunk_size, start=0, stop=None):
         self.seek(start)
         while True:
-            if stop and stop-self.tell() < chunk_size:
-                chunk_size = stop-self.tell()
+            if stop and stop - self.tell() < chunk_size:
+                chunk_size = stop - self.tell()
                 self.logger.debug('Read last chunk(size:{})'.format(chunk_size))
 
             chunk = self.read(chunk_size)
@@ -107,7 +107,7 @@ class WebFileMixin():
     def unlink(self):
         try:
             self.filepath.unlink()
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             pass
 
     def exists(self):
@@ -184,7 +184,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     def seek(self, offset, force=False):
         if offset >= self.size:
-            raise WebFileSeekError('{} is out of range 0-{}'.format(offset, self.size-1))
+            raise WebFileSeekError('{} is out of range 0-{}'.format(offset, self.size - 1))
 
         if not force and offset == self.position:
             return self.position
@@ -236,8 +236,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             filepath_tmp.unlink()
             raise WebFileRequestError("Seek Error. Removed downloaded file.")
 
-
-        if not 'gzip' in self.response.headers.get('Content-Encoding', ''):
+        if 'gzip' not in self.response.headers.get('Content-Encoding', ''):
             self.logger.debug("Comparing file size {} {}".format(filepath_tmp.stat().st_size, self.size))
             if filepath_tmp.stat().st_size != self.size:
                 filepath_tmp.unlink()
@@ -266,7 +265,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         try:
             Path(str(self.filepath) + '.part').unlink()
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             pass
 
 
@@ -278,7 +277,7 @@ class JoinedFile(FileIOBase):
     @property
     def filepaths(self):
         """Return a list of files."""
-        return sorted(self.filepath.parent.glob('{}.part*'.format(self.filepath.name)), key=lambda x:int(re.findall(r'\d+$', x.suffix)[0]))
+        return sorted(self.filepath.parent.glob('{}.part*'.format(self.filepath.name)), key=lambda x: int(re.findall(r'\d+$', x.suffix)[0]))
 
     @property
     def size(self):
@@ -314,7 +313,7 @@ class JoinedFile(FileIOBase):
                 self.logger.debug('Read from cached file {} from {} to {}'.format(filepath, start_in_partfile, stop_in_partfile))
                 with filepath.open('rb') as f:
                     f.seek(start_in_partfile)
-                    read_data = f.read(stop_in_partfile-start_in_partfile)
+                    read_data = f.read(stop_in_partfile - start_in_partfile)
 
                 if size >= 0:
                     size -= len(read_data)
@@ -335,10 +334,10 @@ class JoinedFile(FileIOBase):
             start = int(re.findall(r'\d+$', filepath.suffix)[0])
             stop = start + filepath.stat().st_size
 
-            if self.tell() in range(start, stop+1):
+            if self.tell() in range(start, stop + 1):
                 self.logger.debug('Saving data to {}'.format(filepath))
                 with filepath.open('r+b') as f:
-                    f.seek(self.tell()-start)
+                    f.seek(self.tell() - start)
                     f.write(b)
                 self.position += len(b)
                 return len(b)
@@ -380,8 +379,10 @@ class JoinedFile(FileIOBase):
             except FileNotFoundError:
                 pass
 
+
 class JoinedFileReadError(Exception):
     pass
+
 
 class WebFileCached(WebFile):
     def seek(self, offset):
@@ -403,22 +404,22 @@ class WebFileCached(WebFile):
 
         joined_files.seek(self.tell())
         cached_data = joined_files.read(size)
-        self.seek(self.tell()+len(cached_data))
+        self.seek(self.tell() + len(cached_data))
 
         try:
             super().seek(joined_files.tell())
-        except WebFileSeekError as e:
+        except WebFileSeekError:
             return cached_data
 
         if not size or size < 0 or size > len(cached_data):
             if not size or size < 0:
                 new_data = super().read()
                 joined_files.write(new_data)
-                self.seek(self.tell()+len(new_data))
+                self.seek(self.tell() + len(new_data))
             elif size > len(cached_data):
-                new_data = super().read(size-len(cached_data))
+                new_data = super().read(size - len(cached_data))
                 joined_files.write(new_data)
-                self.seek(self.tell()+len(new_data))
+                self.seek(self.tell() + len(new_data))
         else:
             new_data = b''
 
