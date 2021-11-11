@@ -75,7 +75,7 @@ class WebFileMixin():
     def filestem(self):
         if self._filestem:
             filestem = unicodedata.normalize('NFC', self._filestem)
-            while len(filestem.encode()) > 192:
+            while len(filestem.encode()) > 255 - 10:
                 filestem = filestem[:-1]
             return re.sub(r'[/:|\s\*\.\?\\"]', '_', filestem)
         elif self._filename:
