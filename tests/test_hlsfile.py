@@ -23,10 +23,12 @@ class TestHlsFileFfmpeg(unittest.TestCase):
         cls.hf = HlsFileFfmpeg(URL)
 
     def test_download_unlink(self):
-        self.hf.download()
+        f = self.hf.download()
+        self.assertTrue(f.exists())
         self.assertTrue(self.hf.exists())
 
         self.hf.unlink()
+        self.assertFalse(f.exists())
         self.assertFalse(self.hf.exists())
 
 

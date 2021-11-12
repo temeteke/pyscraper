@@ -62,6 +62,8 @@ class HlsFileFfmpeg(HlsFileMixin):
 
         self.tempfile.rename(self.filepath)
 
+        return self.filepath
+
     def unlink(self):
         super().unlink()
 
@@ -130,3 +132,5 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         ff.run()
 
         shutil.rmtree(str(self.directory / Path(self.filestem)))
+
+        return self.filepath

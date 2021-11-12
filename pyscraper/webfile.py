@@ -262,6 +262,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                 for chunk in self.response.iter_content():
                     f.write(chunk)
 
+        return self.filepath
+
     def unlink(self):
         super().unlink()
 
@@ -441,6 +443,8 @@ class WebFileCached(WebFile):
         with tqdm(total=self.size, initial=0, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
             for chunk in self.read_in_chunks(1024):
                 pbar.update(len(chunk))
+
+        return self.filepath
 
     def unlink(self):
         JoinedFile(self.filepath).unlink()

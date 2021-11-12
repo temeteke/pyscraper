@@ -48,10 +48,12 @@ class TestWebFile(unittest.TestCase):
 
     def test_download_unlink(self):
         logger.debug('test_download')
-        self.wf.download()
+        f = self.wf.download()
+        self.assertTrue(f.exists())
         self.assertTrue(self.wf.exists())
 
         self.wf.unlink()
+        self.assertFalse(f.exists())
         self.assertFalse(self.wf.exists())
 
     def test_filestem(self):
