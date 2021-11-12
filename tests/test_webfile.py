@@ -14,48 +14,8 @@ fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)8s %(message
 logger.addHandler(fh)
 
 
-class TestWebFile(unittest.TestCase):
+class TestWebFileMixin():
     URL = 'https://httpbin.org/range/1024'
-
-    @classmethod
-    def _get_webfile(cls, url, filename):
-        return WebFile(url, filename=filename)
-
-    @classmethod
-    def setUpClass(cls):
-        logger.debug('setUpClass')
-        cls.content = requests.get(cls.URL).content
-        cls.wf = cls._get_webfile(cls.URL, filename='test.txt')
-
-    def test_read01(self):
-        logger.debug('test_read01')
-        self.wf.seek(0)
-        self.assertEqual(self.content[:128], self.wf.read(128))
-
-    def test_read02(self):
-        logger.debug('test_read02')
-        self.wf.seek(512)
-        self.assertEqual(self.content[512:640], self.wf.read(128))
-
-    def test_read03(self):
-        logger.debug('test_read03')
-        self.wf.seek(576)
-        self.assertEqual(self.content[576:704], self.wf.read(128))
-
-    def test_read04(self):
-        logger.debug('test_read04')
-        self.wf.seek(256)
-        self.assertEqual(self.content[256:], self.wf.read())
-
-    def test_download_unlink(self):
-        logger.debug('test_download')
-        f = self.wf.download()
-        self.assertTrue(f.exists())
-        self.assertTrue(self.wf.exists())
-
-        self.wf.unlink()
-        self.assertFalse(f.exists())
-        self.assertFalse(self.wf.exists())
 
     def test_filestem(self):
         logger.debug('test_filestem')
@@ -69,38 +29,82 @@ class TestWebFile(unittest.TestCase):
         logger.debug('test_filename')
         self.assertEqual('test.txt', self.wf.filename)
 
+    def test_read_0(self):
+        logger.debug('test_read_0')
+        self.wf.seek(0)
+        self.assertEqual(self.content[:128], self.wf.read(128))
 
-class TestWebFileCached(TestWebFile):
+    def test_read_512(self):
+        logger.debug('test_read_512')
+        self.wf.seek(512)
+        self.assertEqual(self.content[512:512 + 128], self.wf.read(128))
+
+    def test_read_576(self):
+        logger.debug('test_read_576')
+        self.wf.seek(576)
+        self.assertEqual(self.content[576:576 + 128], self.wf.read(128))
+
+    def test_read_256(self):
+        logger.debug('test_read_256')
+        self.wf.seek(256)
+        self.assertEqual(self.content[256:], self.wf.read())
+
+    def test_download_unlink(self):
+        logger.debug('test_download')
+        f = self.wf.download()
+        self.assertTrue(f.exists())
+        self.assertTrue(self.wf.exists())
+
+        self.wf.unlink()
+        self.assertFalse(f.exists())
+        self.assertFalse(self.wf.exists())
+
+
+class TestWebFile(TestWebFileMixin, unittest.TestCase):
     @classmethod
-    def _get_webfile(cls, url, filename):
-        return WebFileCached(url, filename=filename)
+    def setUpClass(cls):
+        logger.debug('setUpClass')
+        cls.content = requests.get(cls.URL).content
+        cls.wf = WebFile(cls.URL, filename='test.txt')
 
     @classmethod
     def tearDownClass(cls):
         cls.wf.unlink()
 
-    def test_read05(self):
-        logger.debug('test_read05')
+
+class TestWebFileCached(TestWebFileMixin, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        logger.debug('setUpClass')
+        cls.content = requests.get(cls.URL).content
+        cls.wf = WebFileCached(cls.URL, filename='test.txt')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.wf.unlink()
+
+    def test_read_0_2(self):
+        logger.debug('test_read_0_2')
         self.wf.seek(0)
         self.assertEqual(self.content[:128], self.wf.read(128))
 
-    def test_read06(self):
-        logger.debug('test_read06')
+    def test_read_512_2(self):
+        logger.debug('test_read_512_2')
         self.wf.seek(512)
-        self.assertEqual(self.content[512:640], self.wf.read(128))
+        self.assertEqual(self.content[512:512 + 128], self.wf.read(128))
 
-    def test_read07(self):
-        logger.debug('test_read07')
+    def test_read_576_2(self):
+        logger.debug('test_read_576_2')
         self.wf.seek(576)
-        self.assertEqual(self.content[576:704], self.wf.read(128))
+        self.assertEqual(self.content[576:576 + 128], self.wf.read(128))
 
-    def test_read08(self):
-        logger.debug('test_read08')
+    def test_read_256_2(self):
+        logger.debug('test_read_256_2')
         self.wf.seek(256)
         self.assertEqual(self.content[256:], self.wf.read())
 
-    def test_read09(self):
-        logger.debug('test_join01')
+    def test_read_join(self):
+        logger.debug('test_read_join')
         self.wf.seek(128)
         self.wf.read(128)
         with self.wf.filepath.open('rb') as f:

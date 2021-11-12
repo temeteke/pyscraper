@@ -13,6 +13,7 @@ import os
 import subprocess
 from http.cookiejar import MozillaCookieJar
 from functools import cached_property
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,6 @@ class WebPage(metaclass=ABCMeta):
         else:
             return lxml.html.fromstring(self.source)
 
-    @debug(logger)
     def get(self, xpath):
         return self.xpath(xpath)
 
@@ -70,7 +70,6 @@ class WebPage(metaclass=ABCMeta):
         else:
             return [lxml.html.tostring(x, method='text').decode().strip() for x in self.html.xpath(xpath)]
 
-    @debug(logger)
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def get_with_retry(self, xpath):
         results = self.get(xpath)
@@ -83,9 +82,15 @@ class WebPage(metaclass=ABCMeta):
     def xpath(self, xpath):
         return self.html.xpath(xpath)
 
-    def dump(self, filestem='dump'):
-        with Path('{}.html'.format(filestem)).open('w') as f:
+    def dump(self, filestem=None):
+        if not filestem:
+            filestem = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        filepath = Path(filestem + '.html')
+        with filepath.open('w') as f:
             f.write(self.source)
+
+        return filepath
 
 
 class WebPageRequests(RequestsMixin, WebPage):
@@ -204,9 +209,14 @@ class SeleniumMixin():
         print(args)
         return self.driver.execute_async_script(script, *args)
 
-    def dump(self, filestem='dump'):
-        with Path('{}.html'.format(filestem)).open('w') as f:
+    def dump(self, filestem=None):
+        if not filestem:
+            filestem = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        filepath = Path(filestem + '.html')
+        with filepath.open('w') as f:
             f.write(self.source)
+        files = [filepath]
 
         scroll_height = self.driver.execute_script("return document.body.scrollHeight")
         inner_height = self.driver.execute_script("return window.innerHeight")
@@ -214,8 +224,12 @@ class SeleniumMixin():
         scroll = 0
         while scroll < scroll_height:
             self.driver.execute_script(f"window.scrollTo(0, {scroll})")
-            self.driver.save_screenshot(filestem + f'_{scroll}.png')
+            filepath = Path(filestem + f'_{scroll}.png')
+            self.driver.save_screenshot(str(filepath))
+            files.append(filepath)
             scroll += inner_height
+
+        return files
 
 
 class WebPagePhantomJS(SeleniumMixin, WebPage):
