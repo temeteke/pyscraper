@@ -1,6 +1,6 @@
 import unittest
 from pyscraper import WebFile, WebFileCached, WebFileError
-from pyscraper.webfile import JoinedFile, JoinedFileReadError
+from pyscraper.webfile import JoinedFile
 import requests
 from pathlib import Path
 
@@ -12,6 +12,7 @@ logger.setLevel(logging.DEBUG)
 fh = logging.FileHandler(filename='test_pyscraper.log')
 fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)8s %(message)s"))
 logger.addHandler(fh)
+
 
 class TestWebFile(unittest.TestCase):
     URL = 'https://httpbin.org/range/1024'
@@ -68,6 +69,7 @@ class TestWebFile(unittest.TestCase):
         logger.debug('test_filename')
         self.assertEqual('test.txt', self.wf.filename)
 
+
 class TestWebFileCached(TestWebFile):
     @classmethod
     def _get_webfile(cls, url, filename):
@@ -104,6 +106,7 @@ class TestWebFileCached(TestWebFile):
         with self.wf.filepath.open('rb') as f:
             actual = f.read()
         self.assertEqual(self.content, actual)
+
 
 class TestJoinedFile(unittest.TestCase):
     TEST_FILE = 'test_joined_file'
@@ -235,4 +238,4 @@ class TestJoinedFile(unittest.TestCase):
 class TestWebFileError(unittest.TestCase):
     def test_dnserror(self):
         with self.assertRaises(WebFileError):
-            wf = WebFile('http://a.temeteke.com')
+            WebFile('http://a.temeteke.com')

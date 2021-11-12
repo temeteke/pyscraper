@@ -26,6 +26,7 @@ def debug(logger=None):
 
     return dectator
 
+
 class RequestsMixin():
     def init_session(self, session, headers, cookies):
         if session:

@@ -2,6 +2,7 @@ import unittest
 from pyscraper import WebPageRequests, WebPageFirefox, WebPageChrome, WebPageCurl
 from pathlib import Path
 
+
 class TestWebPageRequests(unittest.TestCase):
     URL = 'https://temeteke.github.io/pyscraper/tests/testdata/test.html'
 

@@ -1,12 +1,6 @@
 import unittest
 from pyscraper.hlsfile import HlsFileFfmpeg, HlsFileRequests
-from pathlib import Path
-import threading
-from multiprocessing import Process, Pool, TimeoutError
-
 import logging
-
-from time import sleep
 
 logger = logging.getLogger('pyscraper')
 logger.setLevel(logging.DEBUG)
@@ -16,6 +10,7 @@ fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)8s %(message
 logger.addHandler(fh)
 
 URL = 'https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video.m3u8'
+
 
 class TestHlsFileFfmpeg(unittest.TestCase):
     @classmethod
