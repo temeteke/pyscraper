@@ -259,9 +259,9 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         options.headless = True
 
         if self._profile:
-            self.driver = self.webdriver.Firefox(options=options, service_log_path=os.path.devnull, firefox_profile=self.webdriver.FirefoxProfile(self._profile))
+            self.driver = self.webdriver.Firefox(options=options, firefox_profile=self.webdriver.FirefoxProfile(self._profile))
         else:
-            self.driver = self.webdriver.Firefox(options=options, service_log_path=os.path.devnull)
+            self.driver = self.webdriver.Firefox(options=options)
 
         logger.debug("Getting {}".format(self._url))
         self.driver.get(self._url)
