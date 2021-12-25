@@ -65,10 +65,18 @@ class WebPage(metaclass=ABCMeta):
 
     @debug(logger)
     def get_innerhtml(self, xpath):
-        if hasattr(self, 'encoding'):
-            return [lxml.html.tostring(x, method='text', encoding=self.encoding).decode().strip() for x in self.html.xpath(xpath)]
-        else:
-            return [lxml.html.tostring(x, method='text').decode().strip() for x in self.html.xpath(xpath)]
+        htmls = []
+        for element in self.html.xpath(xpath):
+            html = ''
+            if element.text:
+                html += element.text
+            for child in element.getchildren():
+                if hasattr(self, 'encoding'):
+                    html += lxml.html.tostring(child, encoding=self.encoding).decode()
+                else:
+                    html += lxml.html.tostring(child).decode()
+            htmls.append(html.strip())
+        return htmls
 
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def get_with_retry(self, xpath):

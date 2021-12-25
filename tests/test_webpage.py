@@ -8,16 +8,16 @@ class TestWebPageMxin():
     def test_get01(self):
         self.assertEqual("Header", self.wp.get("//h1/text()")[0])
 
-#   def test_get_html01(self):
-#       self.assertEqual([
-#           '<p>paragraph 1</p>',
-#           '<p>paragraph 2</p>'
-#       ], self.wp.get_html("//p"))
+    def test_get_html01(self):
+        self.assertEqual([
+            '<p>paragraph 1<a>link 1</a></p>',
+            '<p>paragraph 2<a>link 2</a></p>'
+        ], self.wp.get_html("//p"))
 
     def test_get_innerhtml01(self):
         self.assertEqual([
-            'paragraph 1',
-            'paragraph 2'
+            'paragraph 1<a>link 1</a>',
+            'paragraph 2<a>link 2</a>'
         ], self.wp.get_innerhtml("//p"))
 
     def test_xpath01(self):
