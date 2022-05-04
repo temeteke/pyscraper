@@ -1,14 +1,16 @@
 import logging
-from retry import retry
-from tqdm import tqdm
-from urllib.parse import urlparse
-from pathlib import Path
 import re
-import requests
-import urllib3
-from .utils import debug, RequestsMixin
 import unicodedata
 from functools import cache, cached_property
+from pathlib import Path
+from urllib.parse import urlparse
+
+import requests
+import urllib3
+from retry import retry
+from tqdm import tqdm
+
+from .utils import RequestsMixin, debug
 
 logger = logging.getLogger(__name__)
 

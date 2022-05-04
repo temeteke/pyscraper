@@ -1,10 +1,10 @@
+import logging
 import unittest
-from pyscraper import WebFile, WebFileCached, WebFileError
-from pyscraper.webfile import JoinedFile
-import requests
 from pathlib import Path
 
-import logging
+import requests
+from pyscraper import WebFile, WebFileCached, WebFileError
+from pyscraper.webfile import JoinedFile
 
 logger = logging.getLogger('pyscraper')
 logger.setLevel(logging.DEBUG)

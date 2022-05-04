@@ -1,13 +1,15 @@
-import re
-from urllib.parse import urljoin, urlparse
-import ffmpy
 import logging
-from pathlib import Path
-import m3u8
+import re
 import shutil
 from functools import cached_property
-from .webfile import WebFile, WebFileMixin
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+import ffmpy
+import m3u8
+
 from .utils import HEADERS, RequestsMixin
+from .webfile import WebFile, WebFileMixin
 
 logger = logging.getLogger(__name__)
 

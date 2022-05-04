@@ -1,19 +1,24 @@
 import logging
-from retry import retry
-from abc import ABCMeta, abstractmethod
-import requests
-from selenium import webdriver
-from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, InvalidCookieDomainException
-from selenium.webdriver.common.action_chains import ActionChains
-import lxml.html
-from .utils import debug, RequestsMixin
-from pathlib import Path
-from http.client import RemoteDisconnected
-import os
 import subprocess
-from http.cookiejar import MozillaCookieJar
-from functools import cached_property
+from abc import ABCMeta, abstractmethod
 from datetime import datetime
+from functools import cached_property
+from http.client import RemoteDisconnected
+from http.cookiejar import MozillaCookieJar
+from pathlib import Path
+
+import lxml.html
+import requests
+from retry import retry
+from selenium import webdriver
+from selenium.common.exceptions import (ElementClickInterceptedException,
+                                        ElementNotInteractableException,
+                                        InvalidCookieDomainException,
+                                        NoSuchElementException,
+                                        StaleElementReferenceException)
+from selenium.webdriver.common.action_chains import ActionChains
+
+from .utils import RequestsMixin, debug
 
 logger = logging.getLogger(__name__)
 

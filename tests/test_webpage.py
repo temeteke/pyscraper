@@ -1,5 +1,7 @@
 import unittest
-from pyscraper import WebPageRequests, WebPageFirefox, WebPageChrome, WebPageCurl
+
+from pyscraper import (WebPageChrome, WebPageCurl, WebPageFirefox,
+                       WebPageRequests)
 
 
 class TestWebPageMxin():

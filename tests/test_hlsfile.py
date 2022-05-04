@@ -1,6 +1,7 @@
-import unittest
-from pyscraper.hlsfile import HlsFileFfmpeg, HlsFileRequests
 import logging
+import unittest
+
+from pyscraper.hlsfile import HlsFileFfmpeg, HlsFileRequests
 
 logger = logging.getLogger('pyscraper')
 logger.setLevel(logging.DEBUG)
