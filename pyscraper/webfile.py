@@ -1,7 +1,7 @@
 import logging
 import re
 import unicodedata
-from functools import cache, cached_property
+from functools import cached_property
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -58,6 +58,14 @@ class WebFileSeekError(WebFileError):
 
 
 class WebFileMixin():
+    def __str__(self):
+        return self.url
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return self.url == other.url
+
     def set_path(self, directory, filename=None, filestem=None, filesuffix=None):
         self.directory = Path(re.sub(r'[:|\s\*\?\\"]', '_', directory))
         if not self.directory.exists():
@@ -67,7 +75,6 @@ class WebFileMixin():
         self._filestem = filestem
         self._filesuffix = filesuffix
 
-    @cache
     @debug(logger)
     def get_filename(self):
         return urlparse(self.url).path.split('/').pop()
@@ -161,7 +168,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         except KeyError:
             return None
 
-    @cache
     @debug(logger)
     def get_filename(self):
         if 'Content-Disposition' in self.response.headers:

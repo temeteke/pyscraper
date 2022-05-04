@@ -7,77 +7,61 @@ from pyscraper import (WebPageChrome, WebPageCurl, WebPageFirefox,
 class TestWebPageMxin():
     URL = 'https://temeteke.github.io/pyscraper/tests/testdata/test.html'
 
+    @classmethod
+    def setUpClass(cls):
+        cls.webpage = cls.webpage_class(cls.URL)
+        cls.webpage.open()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.webpage.close()
+
+    def test_eq01(self):
+        self.assertEqual(self.webpage, self.webpage_class(self.URL))
+
     def test_get01(self):
-        self.assertEqual("Header", self.wp.get("//h1/text()")[0])
+        self.assertEqual("Header", self.webpage.get("//h1/text()")[0])
 
     def test_get_html01(self):
         self.assertEqual([
             '<p>paragraph 1<a>link 1</a></p>',
             '<p>paragraph 2<a>link 2</a></p>'
-        ], self.wp.get_html("//p"))
+        ], self.webpage.get_html("//p"))
 
     def test_get_innerhtml01(self):
         self.assertEqual([
             'paragraph 1<a>link 1</a>',
             'paragraph 2<a>link 2</a>'
-        ], self.wp.get_innerhtml("//p"))
+        ], self.webpage.get_innerhtml("//p"))
 
     def test_xpath01(self):
-        self.assertEqual("Header", self.wp.xpath("//h1/text()")[0])
+        self.assertEqual("Header", self.webpage.xpath("//h1/text()")[0])
 
 
 class TestWebPageSeleniumMxin():
     def test_dump01(self):
-        files = self.wp.dump()
+        files = self.webpage.dump()
         for f in files:
             self.assertTrue(f.exists())
             f.unlink()
 
 
 class TestWebPageRequests(TestWebPageMxin, unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.wp = WebPageRequests(cls.URL)
-        cls.wp.open()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.wp.close()
+    webpage_class = WebPageRequests
 
     def test_dump01(self):
-        f = self.wp.dump()
+        f = self.webpage.dump()
         self.assertTrue(f.exists())
         f.unlink()
 
 
 class TestWebPageFirefox(TestWebPageMxin, TestWebPageSeleniumMxin, unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.wp = WebPageFirefox(cls.URL)
-        cls.wp.open()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.wp.close()
+    webpage_class = WebPageFirefox
 
 
 class TestWebPageChrome(TestWebPageMxin, TestWebPageSeleniumMxin, unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.wp = WebPageChrome(cls.URL)
-        cls.wp.open()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.wp.close()
+    webpage_class = WebPageChrome
 
 
 class TestWebPageCurl(TestWebPageMxin, unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.wp = WebPageCurl(cls.URL)
-        cls.wp.open()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.wp.close()
+    webpage_class = WebPageCurl

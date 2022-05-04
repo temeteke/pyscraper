@@ -32,6 +32,14 @@ class WebPageNoSuchElementError(WebPageError):
 
 
 class WebPage(metaclass=ABCMeta):
+    def __str__(self):
+        return self.url
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return self.url == other.url
+
     def __enter__(self):
         self.open()
         return self
@@ -128,7 +136,10 @@ class WebPageRequests(RequestsMixin, WebPage):
 
     @cached_property
     def url(self):
-        return self.response.url
+        if 'response' in self.__dict__:
+            return self.response.url
+        else:
+            return self._url
 
     @cached_property
     def content(self):
@@ -150,7 +161,10 @@ class SeleniumMixin():
 
     @property
     def url(self):
-        return self.driver.current_url
+        if hasattr(self, 'driver'):
+            return self.driver.current_url
+        else:
+            return self._url
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
