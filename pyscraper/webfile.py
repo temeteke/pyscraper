@@ -118,9 +118,6 @@ class WebFileMixin():
         except FileNotFoundError:
             pass
 
-    def exists(self):
-        return self.filepath.exists()
-
 
 class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
@@ -133,9 +130,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.init_session(session, headers, cookies)
 
         self.set_path(directory, filename, filestem, filesuffix)
-
-        self.response = self._get_response()
-        self.response.raw.decode_content = True
 
     @retry((requests.exceptions.HTTPError, requests.exceptions.Timeout), tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def _get_response(self, headers={}):
@@ -159,6 +153,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                 raise
 
         return r
+
+    @cached_property
+    def response(self):
+        return self._get_response()
 
     @cached_property
     @debug(logger)
@@ -216,6 +214,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError, urllib3.exceptions.ReadTimeoutError, urllib3.exceptions.ProtocolError), tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
         """Read and return contents."""
+        self.response.raw.decode_content = True
         chunk = self.response.raw.read(size)
         self.position += len(chunk)
         return chunk
@@ -279,6 +278,12 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             self.tempfile.unlink()
         except FileNotFoundError:
             pass
+
+    def exists(self):
+        try:
+            return self.response.ok
+        except WebFileRequestError:
+            return False
 
 
 class JoinedFile(FileIOBase):

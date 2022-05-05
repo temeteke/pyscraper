@@ -66,15 +66,19 @@ class TestWebFileMixin():
         logger.debug('test_download')
         f = self.webfile.download()
         self.assertTrue(f.exists())
-        self.assertTrue(self.webfile.exists())
 
         self.webfile.unlink()
         self.assertFalse(f.exists())
-        self.assertFalse(self.webfile.exists())
 
 
 class TestWebFile(TestWebFileMixin, unittest.TestCase):
     webfile_class = WebFile
+
+    def test_exists(self):
+        self.assertTrue(self.webfile_class('https://httpbin.org/status/200').exists())
+
+    def test_not_exists(self):
+        self.assertFalse(self.webfile_class('https://httpbin.org/status/404').exists())
 
 
 class TestWebFileCached(TestWebFileMixin, unittest.TestCase):
@@ -239,4 +243,4 @@ class TestJoinedFile(unittest.TestCase):
 class TestWebFileError(unittest.TestCase):
     def test_dnserror(self):
         with self.assertRaises(WebFileError):
-            WebFile('http://a.temeteke.com')
+            WebFile('http://a.temeteke.com').read()

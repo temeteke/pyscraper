@@ -41,7 +41,7 @@ class HlsFileFfmpeg(HlsFileMixin):
     def download(self):
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
-            return
+            return self.filepath
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 

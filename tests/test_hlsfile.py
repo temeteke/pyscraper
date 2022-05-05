@@ -17,11 +17,9 @@ class TestHlsFileMixin():
     def test_download_unlink(self):
         f = self.hf.download()
         self.assertTrue(f.exists())
-        self.assertTrue(self.hf.exists())
 
         self.hf.unlink()
         self.assertFalse(f.exists())
-        self.assertFalse(self.hf.exists())
 
 
 class TestHlsFileFfmpeg(TestHlsFileMixin, unittest.TestCase):
