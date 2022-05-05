@@ -9,9 +9,9 @@ RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt f
     apk del .geckodriver-deps
 
 # No module named 'setuptools_rust'を回避するため
-RUN pip install -U setuptools
-
-RUN apk add --no-cache --virtual .python-deps build-base libffi-dev
+RUN apk add --no-cache --virtual .python-deps gcc musl-dev python3-dev libffi-dev openssl-dev cargo && \
+    pip install cryptography && \
+    apk del .python-deps
 
 WORKDIR /app
 COPY setup.py setup.cfg ./
@@ -19,6 +19,6 @@ COPY pyscraper pyscraper/
 RUN python setup.py install -n && \
     rm -r *
 
-RUN apk del .python-deps
+# RUN apk del .python-deps
 
 RUN apk add --no-cache git
