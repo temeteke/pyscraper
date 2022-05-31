@@ -1,4 +1,3 @@
-# syntax = docker/dockerfile:experimental
 FROM python:3.9-alpine
 
 RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt ffmpeg && \
@@ -19,7 +18,3 @@ COPY setup.py setup.cfg ./
 COPY pyscraper pyscraper/
 RUN python setup.py install -n && \
     rm -r *
-
-#RUN apk del .python-deps
-
-#RUN --mount=target=/app pip install /app

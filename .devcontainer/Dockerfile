@@ -19,6 +19,4 @@ COPY pyscraper pyscraper/
 RUN python setup.py install -n && \
     rm -r *
 
-# RUN apk del .python-deps
-
 RUN apk add --no-cache git
