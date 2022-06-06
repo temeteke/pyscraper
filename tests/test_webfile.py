@@ -14,7 +14,7 @@ fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)8s %(message
 logger.addHandler(fh)
 
 
-class TestWebFileMixin():
+class MixinTestWebFile:
     URL = 'https://httpbin.org/range/1024'
 
     @classmethod
@@ -71,7 +71,7 @@ class TestWebFileMixin():
         self.assertFalse(f.exists())
 
 
-class TestWebFile(TestWebFileMixin, unittest.TestCase):
+class TestWebFile(MixinTestWebFile, unittest.TestCase):
     webfile_class = WebFile
 
     def test_exists(self):
@@ -81,7 +81,7 @@ class TestWebFile(TestWebFileMixin, unittest.TestCase):
         self.assertFalse(self.webfile_class('https://httpbin.org/status/404').exists())
 
 
-class TestWebFileCached(TestWebFileMixin, unittest.TestCase):
+class TestWebFileCached(MixinTestWebFile, unittest.TestCase):
     webfile_class = WebFileCached
 
     def test_read_0_2(self):

@@ -13,7 +13,7 @@ logger.addHandler(fh)
 URL = 'https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video.m3u8'
 
 
-class TestHlsFileMixin():
+class MixinTestHlsFile:
     def test_download_unlink(self):
         f = self.hf.download()
         self.assertTrue(f.exists())
@@ -22,13 +22,13 @@ class TestHlsFileMixin():
         self.assertFalse(f.exists())
 
 
-class TestHlsFileFfmpeg(TestHlsFileMixin, unittest.TestCase):
+class TestHlsFileFfmpeg(MixinTestHlsFile, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.hf = HlsFileFfmpeg(URL)
 
 
-class TestHlsFileRequests(TestHlsFileMixin, unittest.TestCase):
+class TestHlsFileRequests(MixinTestHlsFile, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.hf = HlsFileRequests(URL)

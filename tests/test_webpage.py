@@ -4,7 +4,7 @@ from pyscraper import (WebPageChrome, WebPageCurl, WebPageFirefox,
                        WebPageRequests)
 
 
-class TestWebPageMxin():
+class MixinTestWebPage:
     URL = 'https://temeteke.github.io/pyscraper/tests/testdata/test.html'
 
     @classmethod
@@ -38,7 +38,7 @@ class TestWebPageMxin():
         self.assertEqual("Header", self.webpage.xpath("//h1/text()")[0])
 
 
-class TestWebPageSeleniumMxin():
+class MixinTestWebPageSelenium:
     def test_dump01(self):
         files = self.webpage.dump()
         for f in files:
@@ -46,7 +46,7 @@ class TestWebPageSeleniumMxin():
             f.unlink()
 
 
-class TestWebPageRequests(TestWebPageMxin, unittest.TestCase):
+class TestWebPageRequests(MixinTestWebPage, unittest.TestCase):
     webpage_class = WebPageRequests
 
     def test_dump01(self):
@@ -55,13 +55,13 @@ class TestWebPageRequests(TestWebPageMxin, unittest.TestCase):
         f.unlink()
 
 
-class TestWebPageFirefox(TestWebPageMxin, TestWebPageSeleniumMxin, unittest.TestCase):
+class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium, unittest.TestCase):
     webpage_class = WebPageFirefox
 
 
-class TestWebPageChrome(TestWebPageMxin, TestWebPageSeleniumMxin, unittest.TestCase):
+class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium, unittest.TestCase):
     webpage_class = WebPageChrome
 
 
-class TestWebPageCurl(TestWebPageMxin, unittest.TestCase):
+class TestWebPageCurl(MixinTestWebPage, unittest.TestCase):
     webpage_class = WebPageCurl
