@@ -1,4 +1,3 @@
-import logging
 import unittest
 from pathlib import Path
 
@@ -6,20 +5,12 @@ import requests
 from pyscraper import WebFile, WebFileCached, WebFileError
 from pyscraper.webfile import JoinedFile
 
-logger = logging.getLogger('pyscraper')
-logger.setLevel(logging.DEBUG)
-
-fh = logging.FileHandler(filename='test_pyscraper.log')
-fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)8s %(message)s"))
-logger.addHandler(fh)
-
 
 class MixinTestWebFile:
     URL = 'https://httpbin.org/range/1024'
 
     @classmethod
     def setUpClass(cls):
-        logger.debug('setUpClass')
         cls.content = requests.get(cls.URL).content
         cls.webfile = cls.webfile_class(cls.URL, filename='test.txt')
 
@@ -28,89 +19,76 @@ class MixinTestWebFile:
         cls.webfile.unlink()
 
     def test_eq01(self):
-        self.assertEqual(self.webfile, self.webfile_class(self.URL))
+        assert self.webfile_class(self.URL) == self.webfile
 
     def test_filestem(self):
-        logger.debug('test_filestem')
-        self.assertEqual('test', self.webfile.filestem)
+        assert self.webfile.filestem == 'test'
 
     def test_filesuffix(self):
-        logger.debug('test_filesuffix')
-        self.assertEqual('.txt', self.webfile.filesuffix)
+        assert self.webfile.filesuffix == '.txt'
 
     def test_filename(self):
-        logger.debug('test_filename')
-        self.assertEqual('test.txt', self.webfile.filename)
+        assert self.webfile.filename == 'test.txt'
 
     def test_read_0(self):
-        logger.debug('test_read_0')
         self.webfile.seek(0)
-        self.assertEqual(self.content[:128], self.webfile.read(128))
+        assert self.webfile.read(128) == self.content[:128]
 
     def test_read_512(self):
-        logger.debug('test_read_512')
         self.webfile.seek(512)
-        self.assertEqual(self.content[512:512 + 128], self.webfile.read(128))
+        assert self.webfile.read(128) == self.content[512:512 + 128]
 
     def test_read_576(self):
-        logger.debug('test_read_576')
         self.webfile.seek(576)
-        self.assertEqual(self.content[576:576 + 128], self.webfile.read(128))
+        assert self.webfile.read(128) == self.content[576:576 + 128]
 
     def test_read_256(self):
-        logger.debug('test_read_256')
         self.webfile.seek(256)
-        self.assertEqual(self.content[256:], self.webfile.read())
+        assert self.webfile.read() == self.content[256:]
 
     def test_download_unlink(self):
-        logger.debug('test_download')
         f = self.webfile.download()
-        self.assertTrue(f.exists())
+        assert f.exists() is True
 
         self.webfile.unlink()
-        self.assertFalse(f.exists())
+        assert f.exists() is False
 
 
 class TestWebFile(MixinTestWebFile, unittest.TestCase):
     webfile_class = WebFile
 
     def test_exists(self):
-        self.assertTrue(self.webfile_class('https://httpbin.org/status/200').exists())
+        assert self.webfile_class('https://httpbin.org/status/200').exists() is True
 
     def test_not_exists(self):
-        self.assertFalse(self.webfile_class('https://httpbin.org/status/404').exists())
+        assert self.webfile_class('https://httpbin.org/status/404').exists() is False
 
 
 class TestWebFileCached(MixinTestWebFile, unittest.TestCase):
     webfile_class = WebFileCached
 
     def test_read_0_2(self):
-        logger.debug('test_read_0_2')
         self.webfile.seek(0)
-        self.assertEqual(self.content[:128], self.webfile.read(128))
+        assert self.webfile.read(128) == self.content[:128]
 
     def test_read_512_2(self):
-        logger.debug('test_read_512_2')
         self.webfile.seek(512)
-        self.assertEqual(self.content[512:512 + 128], self.webfile.read(128))
+        assert self.webfile.read(128) == self.content[512:512 + 128]
 
     def test_read_576_2(self):
-        logger.debug('test_read_576_2')
         self.webfile.seek(576)
-        self.assertEqual(self.content[576:576 + 128], self.webfile.read(128))
+        assert self.webfile.read(128) == self.content[576:576 + 128]
 
     def test_read_256_2(self):
-        logger.debug('test_read_256_2')
         self.webfile.seek(256)
-        self.assertEqual(self.content[256:], self.webfile.read())
+        assert self.webfile.read() == self.content[256:]
 
     def test_read_join(self):
-        logger.debug('test_read_join')
         self.webfile.seek(128)
         self.webfile.read(128)
         with self.webfile.filepath.open('rb') as f:
             actual = f.read()
-        self.assertEqual(self.content, actual)
+        assert actual == self.content
 
 
 class TestJoinedFile(unittest.TestCase):
@@ -127,87 +105,87 @@ class TestJoinedFile(unittest.TestCase):
         self.jf.unlink()
 
     def test_size01(self):
-        self.assertEqual(7, self.jf.size)
+        assert self.jf.size == 7
 
     def test_size02(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
-        self.assertEqual(17, self.jf.size)
+        assert self.jf.size == 17
 
     def test_read01(self):
         self.jf.seek(0)
-        self.assertEqual(b'abcdefg', self.jf.read(7))
+        assert self.jf.read(7) == b'abcdefg'
 
     def test_read02(self):
         self.jf.seek(10)
-        self.assertEqual(b'hijklmn', self.jf.read(7))
+        assert self.jf.read(7) == b'hijklmn'
 
     def test_read03(self):
         self.jf.seek(0)
-        self.assertEqual(b'abcdefg', self.jf.read(20))
+        assert self.jf.read(20) == b'abcdefg'
 
     def test_read04(self):
         self.jf.seek(0)
-        self.assertEqual(b'abcdefg', self.jf.read())
+        assert self.jf.read() == b'abcdefg'
 
     def test_read05(self):
         self.jf.seek(8)
-        self.assertEqual(b'', self.jf.read())
+        assert self.jf.read() == b''
 
     def test_write_read01(self):
         self.jf.seek(0)
         self.jf.write(b'xyz')
         self.jf.seek(0)
-        self.assertEqual(b'xyzdefg', self.jf.read())
+        assert self.jf.read() == b'xyzdefg'
 
     def test_write_read02(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
         self.jf.seek(0)
-        self.assertEqual(b'abcdefgxyzhijklmn', self.jf.read())
+        assert self.jf.read() == b'abcdefgxyzhijklmn'
 
     def test_writ_reade03(self):
         self.jf.seek(7)
         self.jf.write(b'xyzxyz')
         self.jf.seek(0)
-        self.assertEqual(b'abcdefgxyzxyzklmn', self.jf.read())
+        assert self.jf.read() == b'abcdefgxyzxyzklmn'
 
     def test_write_read04(self):
         self.jf.seek(3)
         self.jf.write(b'xyz')
         self.jf.seek(0)
-        self.assertEqual(b'abcxyzg', self.jf.read())
+        assert self.jf.read() == b'abcxyzg'
 
     def test_write_read05(self):
         self.jf.seek(13)
         self.jf.write(b'xyz')
         self.jf.seek(10)
-        self.assertEqual(b'hijxyzn', self.jf.read())
+        assert self.jf.read() == b'hijxyzn'
 
     def test_write_partfile01(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
         with Path('{}.part0'.format(self.TEST_FILE)).open('rb') as f:
             actual = f.read()
-        self.assertEqual(b'abcdefgxyz', actual)
+        assert actual == b'abcdefgxyz'
 
     def test_join_partfile01(self):
         self.jf.join()
         with Path(self.TEST_FILE).open('rb') as f:
             actual = f.read()
-        self.assertEqual(b'abcdefg', actual)
+        assert actual == b'abcdefg'
 
     def test_join_read01(self):
         self.jf.join()
         self.jf.seek(0)
-        self.assertEqual(b'abcdefg', self.jf.read())
+        assert self.jf.read() == b'abcdefg'
 
     def test_join_write_read01(self):
         self.jf.join()
         self.jf.seek(0)
         self.jf.write(b'xyz')
         self.jf.seek(0)
-        self.assertEqual(b'xyzdefg', self.jf.read())
+        assert self.jf.read() == b'xyzdefg'
 
     def test_write_join_partfile01(self):
         self.jf.seek(7)
@@ -215,7 +193,7 @@ class TestJoinedFile(unittest.TestCase):
         self.jf.join()
         with Path(self.TEST_FILE).open('rb') as f:
             actual = f.read()
-        self.assertEqual(b'abcdefgxyzhijklmn', actual)
+        assert actual == b'abcdefgxyzhijklmn'
 
     def test_write_join_partfile02(self):
         self.jf.seek(7)
@@ -223,21 +201,21 @@ class TestJoinedFile(unittest.TestCase):
         self.jf.join()
         with Path(self.TEST_FILE).open('rb') as f:
             actual = f.read()
-        self.assertEqual(b'abcdefgxyzxyzklmn', actual)
+        assert actual == b'abcdefgxyzxyzklmn'
 
     def test_write_join_read01(self):
         self.jf.seek(7)
         self.jf.write(b'xyz')
         self.jf.join()
         self.jf.seek(0)
-        self.assertEqual(b'abcdefgxyzhijklmn', self.jf.read())
+        assert self.jf.read() == b'abcdefgxyzhijklmn'
 
     def test_write_join_read02(self):
         self.jf.seek(7)
         self.jf.write(b'xyzxyz')
         self.jf.join()
         self.jf.seek(0)
-        self.assertEqual(b'abcdefgxyzxyzklmn', self.jf.read())
+        assert self.jf.read() == b'abcdefgxyzxyzklmn'
 
 
 class TestWebFileError(unittest.TestCase):
