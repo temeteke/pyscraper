@@ -6,6 +6,7 @@ from functools import cached_property
 from http.client import RemoteDisconnected
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import lxml.html
 import requests
@@ -32,6 +33,12 @@ class WebPageNoSuchElementError(WebPageError):
 
 
 class WebPage(metaclass=ABCMeta):
+    def __init__(self, url, params={}):
+        parsed_url = urlparse(url)
+        parsed_qs = parse_qs(parsed_url.query)
+        parsed_qs.update(params)
+        self._url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
+
     def __str__(self):
         return self.url
 
@@ -115,9 +122,8 @@ class WebPage(metaclass=ABCMeta):
 
 
 class WebPageRequests(RequestsMixin, WebPage):
-    def __init__(self, url, session=None, headers={}, cookies={}, encoding=None):
-        super().__init__()
-        self._url = url
+    def __init__(self, url, params={}, session=None, headers={}, cookies={}, encoding=None):
+        super().__init__(url, params)
 
         self.init_session(session, headers, cookies)
 
@@ -259,25 +265,9 @@ class SeleniumMixin():
         return files
 
 
-class WebPagePhantomJS(SeleniumMixin, WebPage):
-    def __init__(self, url):
-        super().__init__()
-        self._url = url
-
-    def open(self):
-        self.driver = self.webdriver.PhantomJS()
-        logger.debug("Getting {}".format(self._url))
-        self.driver.get(self._url)
-        return self
-
-    def close(self):
-        self.driver.quit()
-
-
 class WebPageFirefox(SeleniumMixin, WebPage):
-    def __init__(self, url, cookies_file=None, profile=None):
-        super().__init__()
-        self._url = url
+    def __init__(self, url, params={}, cookies_file=None, profile=None):
+        super().__init__(url, params)
         self._cookies_file = cookies_file
         self._profile = profile
 
@@ -304,9 +294,8 @@ class WebPageFirefox(SeleniumMixin, WebPage):
 
 
 class WebPageChrome(SeleniumMixin, WebPage):
-    def __init__(self, url, cookies_file=None):
-        super().__init__()
-        self._url = url
+    def __init__(self, url, params={}, cookies_file=None):
+        super().__init__(url, params)
         self._cookies_file = cookies_file
 
     def open(self):
@@ -327,9 +316,9 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
 
 class WebPageCurl(WebPage):
-    def __init__(self, url):
-        super().__init__()
-        self.url = url
+    def __init__(self, url, params={}):
+        super().__init__(url, params)
+        self.url = self._url
 
     @cached_property
     def source(self):

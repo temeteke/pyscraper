@@ -1,67 +1,78 @@
 import unittest
 
+import pytest
+
 from pyscraper import (WebPageChrome, WebPageCurl, WebPageFirefox,
                        WebPageRequests)
 
 
+@pytest.fixture
+def url():
+    return 'https://temeteke.github.io/pyscraper/tests/testdata/test.html'
+
+
 class MixinTestWebPage:
-    URL = 'https://temeteke.github.io/pyscraper/tests/testdata/test.html'
+    def test_get01(self, webpage):
+        assert webpage.get("//h1/text()")[0] == "Header"
 
-    @classmethod
-    def setUpClass(cls):
-        cls.webpage = cls.webpage_class(cls.URL)
-        cls.webpage.open()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.webpage.close()
-
-    def test_eq01(self):
-        self.assertEqual(self.webpage, self.webpage_class(self.URL))
-
-    def test_get01(self):
-        self.assertEqual("Header", self.webpage.get("//h1/text()")[0])
-
-    def test_get_html01(self):
-        self.assertEqual([
+    def test_get_html01(self, webpage):
+        assert webpage.get_html("//p") == [
             '<p>paragraph 1<a>link 1</a></p>',
             '<p>paragraph 2<a>link 2</a></p>'
-        ], self.webpage.get_html("//p"))
+        ]
 
-    def test_get_innerhtml01(self):
-        self.assertEqual([
+    def test_get_innerhtml01(self, webpage):
+        assert webpage.get_innerhtml("//p") == [
             'paragraph 1<a>link 1</a>',
             'paragraph 2<a>link 2</a>'
-        ], self.webpage.get_innerhtml("//p"))
+        ]
 
-    def test_xpath01(self):
-        self.assertEqual("Header", self.webpage.xpath("//h1/text()")[0])
+    def test_xpath01(self, webpage):
+        assert webpage.xpath("//h1/text()")[0] == "Header"
 
 
 class MixinTestWebPageSelenium:
-    def test_dump01(self):
-        files = self.webpage.dump()
+    def test_dump01(self, webpage):
+        files = webpage.dump()
         for f in files:
-            self.assertTrue(f.exists())
+            assert f.exists()
             f.unlink()
 
 
-class TestWebPageRequests(MixinTestWebPage, unittest.TestCase):
-    webpage_class = WebPageRequests
+class TestWebPageRequests(MixinTestWebPage):
+    @pytest.fixture
+    def webpage(self, url):
+        with WebPageRequests(url) as wp:
+            yield wp
 
-    def test_dump01(self):
-        f = self.webpage.dump()
-        self.assertTrue(f.exists())
+    def test_eq01(self, webpage, url):
+        assert webpage == WebPageRequests(url)
+    
+    def test_params01(self, url):
+        assert WebPageRequests(url, params={'param1': 1}).url == url + '?param1=1'
+
+    def test_dump01(self, webpage):
+        f = webpage.dump()
+        assert f.exists()
         f.unlink()
 
 
-class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium, unittest.TestCase):
-    webpage_class = WebPageFirefox
+class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium):
+    @pytest.fixture
+    def webpage(self, url):
+        with WebPageFirefox(url) as wp:
+            yield wp
 
 
-class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium, unittest.TestCase):
-    webpage_class = WebPageChrome
+class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium):
+    @pytest.fixture
+    def webpage(self, url):
+        with WebPageChrome(url) as wp:
+            yield wp
 
 
-class TestWebPageCurl(MixinTestWebPage, unittest.TestCase):
-    webpage_class = WebPageCurl
+class TestWebPageCurl(MixinTestWebPage):
+    @pytest.fixture
+    def webpage(self, url):
+        with WebPageCurl(url) as wp:
+            yield wp

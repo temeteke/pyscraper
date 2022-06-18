@@ -3,12 +3,10 @@ from .utils import HEADERS
 from .webfile import (WebFile, WebFileCached, WebFileError,
                       WebFileRequestError, WebFileSeekError)
 from .webpage import (WebPageChrome, WebPageCurl, WebPageError, WebPageFirefox,
-                      WebPageNoSuchElementError, WebPagePhantomJS,
-                      WebPageRequests)
+                      WebPageNoSuchElementError, WebPageRequests)
 
 __all__ = [
     'WebPageRequests',
-    'WebPagePhantomJS',
     'WebPageFirefox',
     'WebPageChrome',
     'WebPageCurl',
