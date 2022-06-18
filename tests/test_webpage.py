@@ -1,9 +1,9 @@
-import unittest
-
 import pytest
+import requests
 
 from pyscraper import (WebPageChrome, WebPageCurl, WebPageFirefox,
                        WebPageRequests)
+from pyscraper.webpage import WebPageParser
 
 
 @pytest.fixture
@@ -11,7 +11,15 @@ def url():
     return 'https://temeteke.github.io/pyscraper/tests/testdata/test.html'
 
 
-class MixinTestWebPage:
+class TestWebPageParser:
+    @pytest.fixture
+    def source(self, url):
+        return requests.get(url).text
+    
+    @pytest.fixture
+    def webpage(self, source):
+        return WebPageParser(source=source)
+
     def test_get01(self, webpage):
         assert webpage.get("//h1/text()")[0] == "Header"
 
@@ -29,6 +37,11 @@ class MixinTestWebPage:
 
     def test_xpath01(self, webpage):
         assert webpage.xpath("//h1/text()")[0] == "Header"
+
+
+class MixinTestWebPage:
+    def test_get01(self, webpage):
+        assert webpage.get("//h1/text()")[0] == "Header"
 
 
 class MixinTestWebPageSelenium:

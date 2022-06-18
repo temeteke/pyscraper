@@ -1,6 +1,6 @@
 import logging
 import subprocess
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
 from http.client import RemoteDisconnected
@@ -32,38 +32,9 @@ class WebPageNoSuchElementError(WebPageError):
     pass
 
 
-class WebPage(metaclass=ABCMeta):
-    def __init__(self, url, params={}):
-        parsed_url = urlparse(url)
-        parsed_qs = parse_qs(parsed_url.query)
-        parsed_qs.update(params)
-        self._url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
-
-    def __str__(self):
-        return self.url
-
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return NotImplemented
-        return self.url == other.url
-
-    def __enter__(self):
-        self.open()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    def open(self):
-        pass
-
-    def close(self):
-        pass
-
-    @property
-    @abstractmethod
-    def source(self):
-        pass
+class WebPageParser:
+    def __init__(self, source):
+        self.source = source
 
     @property
     def html(self):
@@ -120,6 +91,40 @@ class WebPage(metaclass=ABCMeta):
 
         return filepath
 
+
+class WebPage(WebPageParser, ABC):
+    def __init__(self, url, params={}):
+        parsed_url = urlparse(url)
+        parsed_qs = parse_qs(parsed_url.query)
+        parsed_qs.update(params)
+        self._url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
+
+    def __str__(self):
+        return self.url
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return self.url == other.url
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
+
+    @property
+    @abstractmethod
+    def source(self):
+        pass
+        
 
 class WebPageRequests(RequestsMixin, WebPage):
     def __init__(self, url, params={}, session=None, headers={}, cookies={}, encoding=None):
