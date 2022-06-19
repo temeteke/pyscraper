@@ -32,13 +32,13 @@ class RequestsMixin():
     def init_session(self, session, headers, cookies):
         if session:
             self.session = session
+            # sessionのheadersにない項目はデフォルトのHEADERSを設定する
+            for k, v in HEADERS.items():
+                self.session.headers.setdefault(k, v)
         else:
             self.session = requests.Session()
+            self.session.headers.update(HEADERS)
 
-        # sessionのheadersにない項目はデフォルトのHEADERSを設定する
-        for k, v in HEADERS.items():
-            self.session.headers.setdefault(k, v)
-         
         # headersで上書きする
         self.session.headers.update(headers)
 
