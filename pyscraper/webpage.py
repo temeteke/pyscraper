@@ -91,6 +91,19 @@ class WebPageParser:
 
         return filepath
 
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
+
 
 class WebPage(WebPageParser, ABC):
     def __init__(self, url, params={}):
@@ -106,19 +119,6 @@ class WebPage(WebPageParser, ABC):
         if not isinstance(other, self.__class__):
             return NotImplemented
         return self.url == other.url
-
-    def __enter__(self):
-        self.open()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    def open(self):
-        pass
-
-    def close(self):
-        pass
 
     @property
     @abstractmethod
