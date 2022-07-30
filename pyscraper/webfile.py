@@ -68,8 +68,7 @@ class WebFileMixin():
 
     def set_path(self, directory, filename=None, filestem=None, filesuffix=None):
         self.directory = Path(re.sub(r'[:|\s\*\?\\"]', '_', directory))
-        if not self.directory.exists():
-            self.directory.mkdir(parents=True)
+        self.directory.mkdir(parents=True, exist_ok=False)
 
         self._filename = filename
         self._filestem = filestem
