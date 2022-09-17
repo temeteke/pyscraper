@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyscraper-deployment
+  labels:
+    app: pyscraper
+spec:
+  selector:
+    matchLabels:
+      app: pyscraper
+  template:
+    metadata:
+      labels:
+        app: pyscraper
+    spec:
+      containers:
+      - name: pyscraper
+        image: temeteke/pyscraper
+        env:
+        - name: SELENIUM_FIREFOX_URL
+          value: http://selenium-firefox-selenium:4444/wd/hub
+        - name: SELENIUM_CHROME_URL
+          value: http://selenium-chrome-selenium:4444/wd/hub
+        command: ["sh", "-c", "tail -f /dev/null"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenium-firefox-deployment
+  labels:
+    app: selenium-firefox
+spec:
+  selector:
+    matchLabels:
+      app: selenium-firefox
+  template:
+    metadata:
+      labels:
+        app: selenium-firefox
+    spec:
+      containers:
+      - name: selenium-firefox
+        image: selenium/standalone-firefox
+        ports:
+        - containerPort: 4444
+        - containerPort: 7900
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenium-chrome-deployment
+  labels:
+    app: selenium-chrome
+spec:
+  selector:
+    matchLabels:
+      app: selenium-chrome
+  template:
+    metadata:
+      labels:
+        app: selenium-chrome
+    spec:
+      containers:
+      - name: selenium-chrome
+        image: selenium/standalone-chrome
+        ports:
+        - containerPort: 4444
+        - containerPort: 7900
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium-firefox-selenium
+spec:
+  selector:
+    app: selenium-firefox
+  ports:
+  - port: 4444
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium-chrome-selenium
+spec:
+  selector:
+    app: selenium-chrome
+  ports:
+  - port: 4444
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium-firefox-vnc
+spec:
+  type: NodePort
+  selector:
+    app: selenium-firefox
+  ports:
+  - port: 7900
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium-chrome-vnc
+spec:
+  type: NodePort
+  selector:
+    app: selenium-chrome
+  ports:
+  - port: 7900

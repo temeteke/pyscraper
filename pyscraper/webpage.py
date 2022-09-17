@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -277,13 +278,15 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         self._profile = profile
 
     def open(self):
-        options = self.webdriver.firefox.options.Options()
-        options.headless = True
-
-        if self._profile:
-            self.driver = self.webdriver.Firefox(options=options, firefox_profile=self.webdriver.FirefoxProfile(self._profile))
+        if url := os.environ.get('SELENIUM_FIREFOX_URL'):
+            self.driver = self.webdriver.Remote(command_executor=url, options=webdriver.FirefoxOptions())
         else:
-            self.driver = self.webdriver.Firefox(options=options)
+            options = self.webdriver.firefox.options.Options()
+            options.headless = True
+            if self._profile:
+                self.driver = self.webdriver.Firefox(options=options, firefox_profile=self.webdriver.FirefoxProfile(self._profile))
+            else:
+                self.driver = self.webdriver.Firefox(options=options)
 
         logger.debug("Getting {}".format(self._url))
         self.driver.get(self._url)
@@ -304,11 +307,15 @@ class WebPageChrome(SeleniumMixin, WebPage):
         self._cookies_file = cookies_file
 
     def open(self):
-        options = self.webdriver.chrome.options.Options()
-        options.headless = True
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-gpu')
-        self.driver = self.webdriver.Chrome(options=options)
+        if url := os.environ.get('SELENIUM_CHROME_URL'):
+            self.driver = self.webdriver.Remote(command_executor=url, options=webdriver.ChromeOptions())
+        else:
+            options = self.webdriver.chrome.options.Options()
+            options.headless = True
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-gpu')
+            self.driver = self.webdriver.Chrome(options=options)
+
         logger.debug("Getting {}".format(self._url))
         self.driver.get(self._url)
         if self._cookies_file:
