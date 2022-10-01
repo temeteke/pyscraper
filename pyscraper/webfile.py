@@ -6,7 +6,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
-import urllib3
 from tqdm import tqdm
 
 from .utils import RequestsMixin, debug
