@@ -20,3 +20,4 @@ RUN python setup.py install -n && \
     rm -r *
 
 RUN apk add --no-cache git
+RUN pip install flake8 pytest

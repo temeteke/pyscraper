@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 import requests
 import urllib3
-from retry import retry
 from tqdm import tqdm
 
 from .utils import RequestsMixin, debug
@@ -130,7 +129,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         self.set_path(directory, filename, filestem, filesuffix)
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.Timeout), tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def _get_response(self, headers={}):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)
@@ -210,7 +208,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.logger.debug("Reloading")
         self.seek(self.tell(), force=True)
 
-    @retry((requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError, urllib3.exceptions.ReadTimeoutError, urllib3.exceptions.ProtocolError), tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def read(self, size=None):
         """Read and return contents."""
         self.response.raw.decode_content = True
@@ -218,7 +215,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.position += len(chunk)
         return chunk
 
-    @retry(WebFileRequestError, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def download_and_check_size(self):
         """Download file and check downloaded file size"""
         if self.tempfile.exists():
