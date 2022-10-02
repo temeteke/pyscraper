@@ -165,7 +165,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     @debug(logger)
     def get_filename(self):
         if 'Content-Disposition' in self.response.headers:
-            m = re.search('filename="?(.+)"?', self.response.headers['Content-Disposition'])
+            m = re.search('filename="?([^"]+)"?', self.response.headers['Content-Disposition'])
             if m:
                 return m.group(1)
         else:
