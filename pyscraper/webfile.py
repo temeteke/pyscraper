@@ -117,12 +117,13 @@ class WebFileMixin():
 
 
 class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
-    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
+    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None, timeout=None):
         super().__init__()
 
         self.logger.debug(url)
 
         self.url = url
+        self.timeout = timeout
 
         self.init_session(session, headers, cookies)
 
@@ -133,7 +134,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         headers_all.update(headers)
 
         try:
-            r = self.session.get(self.url, headers=headers, stream=True, timeout=10)
+            r = self.session.get(self.url, headers=headers, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
             raise WebFileError(e)
 
