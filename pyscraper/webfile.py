@@ -117,7 +117,7 @@ class WebFileMixin():
 
 
 class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
-    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None, timeout=None):
+    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None, timeout=30):
         super().__init__()
 
         self.logger.debug(url)
