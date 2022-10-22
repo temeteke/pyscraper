@@ -279,7 +279,11 @@ class WebPageFirefox(SeleniumMixin, WebPage):
 
     def open(self):
         if url := os.environ.get('SELENIUM_FIREFOX_URL'):
-            self.driver = self.webdriver.Remote(command_executor=url, options=webdriver.FirefoxOptions())
+            options=webdriver.FirefoxOptions()
+            if profile := os.environ.get('SELENIUM_FIREFOX_PROFILE'):
+                options.add_argument('-profile')
+                options.add_argument(profile)
+            self.driver = self.webdriver.Remote(command_executor=url, options=options)
         else:
             options = self.webdriver.firefox.options.Options()
             options.headless = True

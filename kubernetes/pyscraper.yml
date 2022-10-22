@@ -21,6 +21,8 @@ spec:
           value: http://selenium-firefox-selenium/wd/hub
         - name: SELENIUM_CHROME_URL
           value: http://selenium-chrome-selenium/wd/hub
+        - name: SELENIUM_FIREFOX_PROFILE
+          value: /tmp/firefox-profile
         command: ["sh", "-c", "tail -f /dev/null"]
 ---
 apiVersion: apps/v1
@@ -44,6 +46,14 @@ spec:
         ports:
         - containerPort: 4444
         - containerPort: 7900
+        volumeMounts:
+        - mountPath: /tmp/firefox-profile
+          name: profile
+      volumes:
+      - name: profile
+        hostPath:
+          path: /run/desktop/mnt/host/c/kubernetes/pyscraper-firefox-profile
+          type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: Deployment
