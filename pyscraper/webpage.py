@@ -239,6 +239,9 @@ class SeleniumMixin():
     def back(self):
         self.driver.back()
 
+    def refresh(self):
+        self.driver.refresh()
+
     @debug(logger)
     def execute_script(self, script, *args):
         return self.driver.execute_script(script, *args)
