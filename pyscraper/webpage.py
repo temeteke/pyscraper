@@ -19,6 +19,7 @@ from selenium.common.exceptions import (ElementClickInterceptedException,
                                         NoSuchElementException,
                                         StaleElementReferenceException)
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.by import By
 
 from .utils import RequestsMixin, debug
 
@@ -204,7 +205,7 @@ class SeleniumMixin():
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def click(self, xpath):
         try:
-            self.driver.find_element_by_xpath(xpath).click()
+            self.driver.find_element(By.XPATH, xpath).click()
         except (ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException) as e:
             raise WebPageNoSuchElementError(e)
 
@@ -213,7 +214,7 @@ class SeleniumMixin():
     def move_to(self, xpath):
         try:
             actions = ActionChains(self.driver)
-            actions.move_to_element(self.driver.find_element_by_xpath(xpath))
+            actions.move_to_element(self.driver.find_element(By.XPATH, xpath))
             actions.perform()
         except (ElementNotInteractableException, NoSuchElementException):
             raise WebPageNoSuchElementError
@@ -222,7 +223,7 @@ class SeleniumMixin():
     @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def switch_to_frame(self, xpath):
         try:
-            iframe = self.driver.find_element_by_xpath(xpath)
+            iframe = self.driver.find_element(By.XPATH, xpath)
             iframe_url = iframe.get_attribute('src')
             self.driver.switch_to.frame(iframe)
             return iframe_url
