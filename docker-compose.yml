@@ -1,0 +1,20 @@
+version: '3'
+services:
+  python:
+    build:
+      context: .
+      dockerfile: Dockerfile.debian
+    environment:
+      - SELENIUM_FIREFOX_URL=http://firefox:4444/wd/hub
+      - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
+
+  firefox:
+    image: selenium/standalone-firefox
+    ports:
+      - 4444:4444
+      - 7900:7900
+    volumes:
+      - firefox-profile:/tmp/firefox-profile
+
+volumes:
+  firefox-profile:
