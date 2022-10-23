@@ -31,9 +31,20 @@ class WebPageNoSuchElementError(WebPageError):
     pass
 
 
-class WebPageParser:
-    def __init__(self, source):
+class WebPageParser(ABC):
+    def __init__(self, source, encoding=None):
         self.source = source
+        self._encoding = encoding
+
+    @property
+    @abstractmethod
+    def content(self):
+        pass
+
+    @property
+    @abstractmethod
+    def encoding(self):
+        pass
 
     @property
     def html(self):
@@ -118,6 +129,11 @@ class WebPage(WebPageParser, ABC):
         if not isinstance(other, self.__class__):
             return NotImplemented
         return self.url == other.url
+
+    @property
+    @abstractmethod
+    def url(self):
+        return self._url
 
     @property
     @abstractmethod
