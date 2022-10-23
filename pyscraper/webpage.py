@@ -139,7 +139,7 @@ class WebPage(WebPageParser, ABC):
     @abstractmethod
     def source(self):
         pass
-        
+
 
 class WebPageRequests(RequestsMixin, WebPage):
     def __init__(self, url, params={}, session=None, headers={}, cookies={}, encoding=None):
@@ -281,7 +281,7 @@ class WebPageFirefox(SeleniumMixin, WebPage):
 
     def open(self):
         if url := os.environ.get('SELENIUM_FIREFOX_URL'):
-            options=webdriver.FirefoxOptions()
+            options = webdriver.FirefoxOptions()
             if profile := os.environ.get('SELENIUM_FIREFOX_PROFILE'):
                 options.add_argument('-profile')
                 options.add_argument(profile)
