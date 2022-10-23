@@ -13,13 +13,10 @@ import lxml.html
 import requests
 from retry import retry
 from selenium import webdriver
-from selenium.common.exceptions import (ElementClickInterceptedException,
-                                        ElementNotInteractableException,
-                                        InvalidCookieDomainException,
-                                        NoSuchElementException,
-                                        StaleElementReferenceException)
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 from .utils import RequestsMixin, debug
 
@@ -196,39 +193,24 @@ class SeleniumMixin():
         cookies = MozillaCookieJar(cookies_file)
         cookies.load()
         for cookie in cookies:
-            try:
-                self.driver.add_cookie(cookie.__dict__)
-            except InvalidCookieDomainException:
-                pass
+            self.driver.add_cookie(cookie.__dict__)
 
     @debug(logger)
-    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
-    def click(self, xpath):
-        try:
-            self.driver.find_element(By.XPATH, xpath).click()
-        except (ElementNotInteractableException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException) as e:
-            raise WebPageNoSuchElementError(e)
+    def click(self, xpath, timeout=10):
+        WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable((By.XPATH, xpath))).click()
 
     @debug(logger)
-    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def move_to(self, xpath):
-        try:
-            actions = ActionChains(self.driver)
-            actions.move_to_element(self.driver.find_element(By.XPATH, xpath))
-            actions.perform()
-        except (ElementNotInteractableException, NoSuchElementException):
-            raise WebPageNoSuchElementError
+        actions = ActionChains(self.driver)
+        actions.move_to_element(self.driver.find_element(By.XPATH, xpath))
+        actions.perform()
 
     @debug(logger)
-    @retry(WebPageNoSuchElementError, tries=10, delay=1, logger=logger)
     def switch_to_frame(self, xpath):
-        try:
-            iframe = self.driver.find_element(By.XPATH, xpath)
-            iframe_url = iframe.get_attribute('src')
-            self.driver.switch_to.frame(iframe)
-            return iframe_url
-        except (ElementNotInteractableException, NoSuchElementException):
-            raise WebPageNoSuchElementError
+        iframe = self.driver.find_element(By.XPATH, xpath)
+        iframe_url = iframe.get_attribute('src')
+        self.driver.switch_to.frame(iframe)
+        return iframe_url
 
     @debug(logger)
     def go(self, url):
