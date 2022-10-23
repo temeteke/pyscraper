@@ -3,7 +3,7 @@ services:
   python:
     build:
       context: .
-      dockerfile: Dockerfile.debian
+      dockerfile: Dockerfile
     environment:
       - SELENIUM_FIREFOX_URL=http://firefox:4444/wd/hub
       - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
