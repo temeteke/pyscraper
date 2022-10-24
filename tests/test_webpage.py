@@ -15,7 +15,7 @@ class TestWebPageParser:
     @pytest.fixture
     def source(self, url):
         return requests.get(url).text
-    
+
     @pytest.fixture
     def webpage(self, source):
         return WebPageParser(source=source)
@@ -45,6 +45,10 @@ class MixinTestWebPage:
 
 
 class MixinTestWebPageSelenium:
+    def test_click01(self, webpage):
+        webpage.click("//a[@id='link']")
+        assert webpage.url.endswith('test2.html')
+
     def test_dump01(self, webpage):
         files = webpage.dump()
         for f in files:
@@ -60,7 +64,7 @@ class TestWebPageRequests(MixinTestWebPage):
 
     def test_eq01(self, webpage, url):
         assert webpage == WebPageRequests(url)
-    
+
     def test_params01(self, url):
         assert WebPageRequests(url, params={'param1': 1}).url == url + '?param1=1'
 
