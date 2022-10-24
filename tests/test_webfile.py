@@ -10,13 +10,16 @@ from pyscraper.webfile import JoinedFile
 def url():
     return 'https://httpbin.org/range/1024'
 
+
 @pytest.fixture(scope='session')
 def filename():
     return 'test.txt'
 
+
 @pytest.fixture(scope='session')
 def content(url):
     return requests.get(url).content
+
 
 class MixinTestWebFile:
     def test_filestem(self, webfile):
