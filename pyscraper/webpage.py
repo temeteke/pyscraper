@@ -15,6 +15,8 @@ from retry import retry
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 from .utils import RequestsMixin, debug
 
@@ -200,10 +202,10 @@ class SeleniumMixin():
             self.driver.add_cookie(cookie.__dict__)
 
     @debug(logger)
-    def click(self, xpath):
+    def click(self, xpath, timeout=10):
         element = self.driver.find_element(By.XPATH, xpath)
         self.driver.execute_script("arguments[0].scrollIntoView();", element)
-        element.click()
+        WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable(element)).click()
 
     @debug(logger)
     def move_to(self, xpath):
