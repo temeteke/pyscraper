@@ -49,6 +49,14 @@ class MixinTestWebPageSelenium:
         webpage.click("//a[@id='link']")
         assert webpage.url.endswith('test2.html')
 
+    def test_go01(self, webpage):
+        webpage.go("https://temeteke.github.io/pyscraper/tests/testdata/test2.html")
+        assert webpage.url == "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
+
+    def test_go02(self, webpage):
+        webpage.go("https://temeteke.github.io/pyscraper/tests/testdata/test2.html", params={'param': 'value'})
+        assert webpage.url == "https://temeteke.github.io/pyscraper/tests/testdata/test2.html?param=value"
+
     def test_dump01(self, webpage):
         files = webpage.dump()
         for f in files:

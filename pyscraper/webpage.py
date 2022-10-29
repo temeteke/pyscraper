@@ -221,8 +221,11 @@ class SeleniumMixin():
         return iframe_url
 
     @debug(logger)
-    def go(self, url):
-        self.driver.get(url)
+    def go(self, url, params={}):
+        parsed_url = urlparse(url)
+        parsed_qs = parse_qs(parsed_url.query)
+        parsed_qs.update(params)
+        self.driver.get(urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True))))
 
     def forward(self):
         self.driver.forward()
