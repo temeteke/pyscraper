@@ -13,6 +13,7 @@ import lxml.html
 import requests
 from retry import retry
 from selenium import webdriver
+from selenium.webdriver.common import proxy
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -280,7 +281,34 @@ class WebPageFirefox(SeleniumMixin, WebPage):
             if profile := os.environ.get('SELENIUM_FIREFOX_PROFILE'):
                 options.add_argument('-profile')
                 options.add_argument(profile)
+
+            # get and delete proxy of environment variables
+            http_proxy = os.environ.pop('HTTP_PROXY', None)
+            https_proxy = os.environ.pop('HTTPS_PROXY', None)
+
+            # set proxy option for Firefox
+            if http_proxy or https_proxy:
+                proxy_dict = {
+                    'proxyType': proxy.ProxyType.MANUAL
+                }
+                if http_proxy:
+                    proxy_dict['httpProxy'] = http_proxy
+                if https_proxy:
+                    proxy_dict['sslProxy'] = https_proxy
+            else:
+                proxy_dict = {
+                    'proxyType': proxy.ProxyType.DIRECT
+                }
+            options.proxy = proxy.Proxy(proxy_dict)
+
             self.driver = self.webdriver.Remote(command_executor=url, options=options)
+
+            # restore proxy of environment variables
+            if http_proxy:
+                os.environ['HTTP_PROXY'] = http_proxy
+            if https_proxy:
+                os.environ['HTTPS_PROXY'] = https_proxy
+
         else:
             options = self.webdriver.firefox.options.Options()
             options.headless = True
