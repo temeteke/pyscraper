@@ -285,9 +285,10 @@ class WebPageFirefox(SeleniumMixin, WebPage):
             # get and delete proxy of environment variables
             http_proxy = os.environ.pop('HTTP_PROXY', None)
             https_proxy = os.environ.pop('HTTPS_PROXY', None)
+            no_proxy = os.environ.pop('NO_PROXY', None)
 
             # set proxy option for Firefox
-            if http_proxy or https_proxy:
+            if http_proxy or https_proxy or no_proxy:
                 proxy_dict = {
                     'proxyType': proxy.ProxyType.MANUAL
                 }
@@ -295,6 +296,8 @@ class WebPageFirefox(SeleniumMixin, WebPage):
                     proxy_dict['httpProxy'] = http_proxy
                 if https_proxy:
                     proxy_dict['sslProxy'] = https_proxy
+                if no_proxy:
+                    proxy_dict['noProxy'] = no_proxy
             else:
                 proxy_dict = {
                     'proxyType': proxy.ProxyType.DIRECT
@@ -308,6 +311,8 @@ class WebPageFirefox(SeleniumMixin, WebPage):
                 os.environ['HTTP_PROXY'] = http_proxy
             if https_proxy:
                 os.environ['HTTPS_PROXY'] = https_proxy
+            if no_proxy:
+                os.environ['NO_PROXY'] = no_proxy
 
         else:
             options = self.webdriver.firefox.options.Options()
