@@ -169,8 +169,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             m = re.search('filename="?([^"]+)"?', self.response.headers['Content-Disposition'])
             if m:
                 return m.group(1)
-        else:
-            return super().get_filename()
+        return super().get_filename()
 
     @cached_property
     @debug(logger)
