@@ -47,7 +47,11 @@ class WebFileError(Exception):
     pass
 
 
-class WebFileRequestError(WebFileError):
+class WebFileClientError(WebFileError):
+    pass
+
+
+class WebFileServerError(WebFileError):
     pass
 
 
@@ -136,7 +140,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         try:
             r = self.session.get(self.url, headers=headers, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
-            raise WebFileError(e)
+            raise WebFileError from e
 
         self.logger.debug("Request Headers: " + str(r.request.headers))
         self.logger.debug("Response Headers: " + str(r.headers))
@@ -145,9 +149,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
             if 400 <= e.response.status_code < 500:
-                raise WebFileRequestError(e)
+                raise WebFileClientError from e
+            elif 500 <= e.response.status_code < 600:
+                raise WebFileServerError from e
             else:
-                raise
+                raise WebFileError from e
 
         return r
 
@@ -231,19 +237,19 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             self.logger.warning(e)
             if e.response.status_code == 416 and self.tempfile.exists():
                 self.tempfile.unlink()
-                raise WebFileRequestError("Range Not Satisfiable. Removed downloaded file.")
+                raise WebFileClientError("Range Not Satisfiable. Removed downloaded file.") from e
             else:
-                raise
+                raise WebFileError from e
         except WebFileSeekError as e:
             self.logger.warning(e)
             self.tempfile.unlink()
-            raise WebFileRequestError("Seek Error. Removed downloaded file.")
+            raise WebFileClientError("Seek Error. Removed downloaded file.") from e
 
         if 'gzip' not in self.response.headers.get('Content-Encoding', ''):
             self.logger.debug("Comparing file size {} {}".format(self.tempfile.stat().st_size, self.size))
             if self.tempfile.stat().st_size != self.size:
                 self.tempfile.unlink()
-                raise WebFileRequestError("Downloaded file size is wrong. Removed downloaded file.")
+                raise WebFileError("Downloaded file size is wrong. Removed downloaded file.")
 
         self.logger.debug("Removing temporary file")
         self.tempfile.rename(self.filepath)
@@ -276,7 +282,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def exists(self):
         try:
             return self.response.ok
-        except WebFileRequestError:
+        except WebFileClientError:
             return False
 
 
