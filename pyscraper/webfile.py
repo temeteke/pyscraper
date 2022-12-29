@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import requests
 from tqdm import tqdm
+from urllib3.exceptions import ProtocolError
 
 from .utils import RequestsMixin, debug
 
@@ -44,6 +45,10 @@ class FileIOBase():
 
 
 class WebFileError(Exception):
+    pass
+
+
+class WebFileConnectionError(WebFileError):
     pass
 
 
@@ -140,7 +145,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         try:
             r = self.session.get(self.url, headers=headers, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
-            raise WebFileError from e
+            raise WebFileConnectionError(e) from e
 
         self.logger.debug("Request Headers: " + str(r.request.headers))
         self.logger.debug("Response Headers: " + str(r.headers))
@@ -149,11 +154,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
             if 400 <= e.response.status_code < 500:
-                raise WebFileClientError from e
+                raise WebFileClientError(e) from e
             elif 500 <= e.response.status_code < 600:
-                raise WebFileServerError from e
+                raise WebFileServerError(e) from e
             else:
-                raise WebFileError from e
+                raise WebFileError(e) from e
 
         return r
 
@@ -216,7 +221,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def read(self, size=None):
         """Read and return contents."""
         self.response.raw.decode_content = True
-        chunk = self.response.raw.read(size)
+        try:
+            chunk = self.response.raw.read(size)
+        except ProtocolError as e:
+            raise WebFileConnectionError(e) from e
         self.position += len(chunk)
         return chunk
 
@@ -239,7 +247,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                 self.tempfile.unlink()
                 raise WebFileClientError("Range Not Satisfiable. Removed downloaded file.") from e
             else:
-                raise WebFileError from e
+                raise WebFileError(e) from e
         except WebFileSeekError as e:
             self.logger.warning(e)
             self.tempfile.unlink()
