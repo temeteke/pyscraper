@@ -124,7 +124,7 @@ class WebPage(WebPageParser, ABC):
     @property
     @abstractmethod
     def url(self):
-        return self._url
+        pass
 
     @property
     @abstractmethod
@@ -362,9 +362,9 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
 
 class WebPageCurl(WebPage):
-    def __init__(self, url, params={}):
-        super().__init__(url, params)
-        self.url = self._url
+    @property
+    def url(self):
+        return self._url
 
     @cached_property
     def source(self):
