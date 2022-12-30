@@ -261,9 +261,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         if 'gzip' not in self.response.headers.get('Content-Encoding', ''):
             self.logger.debug("Comparing file size {} {}".format(self.tempfile.stat().st_size, self.size))
-            if self.tempfile.stat().st_size != self.size:
+            if self.tempfile.stat().st_size > self.size:
                 self.tempfile.unlink()
-                raise WebFileError("Downloaded file size is wrong. Removed downloaded file.")
+                raise WebFileError("Downloaded file size is larger than expected. Removed downloaded file.")
+            elif self.tempfile.stat().st_size < self.size:
+                raise WebFileError("Downloaded file size is smaller than expected.")
 
         self.logger.debug("Removing temporary file")
         self.tempfile.rename(self.filepath)
