@@ -52,6 +52,10 @@ class WebFileConnectionError(WebFileError):
     pass
 
 
+class WebFileTimeoutError(WebFileError):
+    pass
+
+
 class WebFileClientError(WebFileError):
     pass
 
@@ -146,6 +150,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             r = self.session.get(self.url, headers=headers, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
             raise WebFileConnectionError(e) from e
+        except requests.exceptions.Timeout as e:
+            raise WebFileTimeoutError(e) from e
 
         self.logger.debug("Request Headers: " + str(r.request.headers))
         self.logger.debug("Response Headers: " + str(r.headers))
