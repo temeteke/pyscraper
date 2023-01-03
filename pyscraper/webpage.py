@@ -305,10 +305,11 @@ class WebPageFirefox(SeleniumMixin, WebPage):
             options.proxy = proxy.Proxy(proxy_dict)
 
             # set NO_PROXY not to use proxy for accessing selenium
+            netloc = urlparse(url).netloc
             if not no_proxy:
-                os.environ['NO_PROXY'] = url
-            elif url not in no_proxy:
-                os.environ['NO_PROXY'] += ';' + url
+                os.environ['NO_PROXY'] = netloc
+            elif netloc not in no_proxy:
+                os.environ['NO_PROXY'] += ';' + netloc
 
             self.driver = self.webdriver.Remote(command_executor=url, options=options)
 
@@ -342,10 +343,11 @@ class WebPageChrome(SeleniumMixin, WebPage):
         if url := os.environ.get('SELENIUM_CHROME_URL'):
             # set NO_PROXY not to use proxy for accessing selenium
             no_proxy = os.environ.get('NO_PROXY')
+            netloc = urlparse(url).netloc
             if not no_proxy:
-                os.environ['NO_PROXY'] = url
-            elif url not in no_proxy:
-                os.environ['NO_PROXY'] += ';' + url
+                os.environ['NO_PROXY'] = netloc
+            elif netloc not in no_proxy:
+                os.environ['NO_PROXY'] += ';' + netloc
 
             self.driver = self.webdriver.Remote(command_executor=url, options=webdriver.ChromeOptions())
         else:
