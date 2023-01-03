@@ -282,10 +282,10 @@ class WebPageFirefox(SeleniumMixin, WebPage):
                 options.add_argument('-profile')
                 options.add_argument(profile)
 
-            # get and delete proxy of environment variables
-            http_proxy = os.environ.pop('HTTP_PROXY', None)
-            https_proxy = os.environ.pop('HTTPS_PROXY', None)
-            no_proxy = os.environ.pop('NO_PROXY', None)
+            # get proxy settings from environment variables
+            http_proxy = os.environ.get('HTTP_PROXY')
+            https_proxy = os.environ.get('HTTPS_PROXY')
+            no_proxy = os.environ.get('NO_PROXY')
 
             # set proxy option for Firefox
             if http_proxy or https_proxy or no_proxy:
@@ -304,15 +304,13 @@ class WebPageFirefox(SeleniumMixin, WebPage):
                 }
             options.proxy = proxy.Proxy(proxy_dict)
 
-            self.driver = self.webdriver.Remote(command_executor=url, options=options)
+            # set NO_PROXY not to use proxy for accessing selenium
+            if not no_proxy:
+                os.environ['NO_PROXY'] = url
+            elif url not in no_proxy:
+                os.environ['NO_PROXY'] += ';' + url
 
-            # restore proxy of environment variables
-            if http_proxy:
-                os.environ['HTTP_PROXY'] = http_proxy
-            if https_proxy:
-                os.environ['HTTPS_PROXY'] = https_proxy
-            if no_proxy:
-                os.environ['NO_PROXY'] = no_proxy
+            self.driver = self.webdriver.Remote(command_executor=url, options=options)
 
         else:
             options = self.webdriver.firefox.options.Options()
@@ -342,6 +340,13 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
     def open(self):
         if url := os.environ.get('SELENIUM_CHROME_URL'):
+            # set NO_PROXY not to use proxy for accessing selenium
+            no_proxy = os.environ.get('NO_PROXY')
+            if not no_proxy:
+                os.environ['NO_PROXY'] = url
+            elif url not in no_proxy:
+                os.environ['NO_PROXY'] += ';' + url
+
             self.driver = self.webdriver.Remote(command_executor=url, options=webdriver.ChromeOptions())
         else:
             options = self.webdriver.chrome.options.Options()
