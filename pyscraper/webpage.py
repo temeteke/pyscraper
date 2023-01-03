@@ -297,7 +297,7 @@ class WebPageFirefox(SeleniumMixin, WebPage):
                 if https_proxy:
                     proxy_dict['sslProxy'] = https_proxy
                 if no_proxy:
-                    proxy_dict['noProxy'] = no_proxy
+                    proxy_dict['noProxy'] = no_proxy.split(',')
             else:
                 proxy_dict = {
                     'proxyType': proxy.ProxyType.DIRECT

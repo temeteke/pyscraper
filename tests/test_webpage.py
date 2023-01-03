@@ -92,6 +92,16 @@ class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium):
     def test_proxy_01(self, url):
         os.environ['HTTP_PROXY'] = 'proxy_url'
         os.environ['HTTPS_PROXY'] = 'proxy_url'
+        os.environ['NO_PROXY'] = 'no_proxy_01'
+        with WebPageFirefox(url):
+            pass
+        del os.environ['HTTP_PROXY']
+        del os.environ['HTTPS_PROXY']
+        del os.environ['NO_PROXY']
+
+    def test_proxy_02(self, url):
+        os.environ['HTTP_PROXY'] = 'proxy_url'
+        os.environ['HTTPS_PROXY'] = 'proxy_url'
         os.environ['NO_PROXY'] = 'no_proxy_01,no_proxy_02'
         with WebPageFirefox(url):
             pass
@@ -107,6 +117,16 @@ class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium):
             yield wp
 
     def test_proxy_01(self, url):
+        os.environ['HTTP_PROXY'] = 'proxy_url'
+        os.environ['HTTPS_PROXY'] = 'proxy_url'
+        os.environ['NO_PROXY'] = 'no_proxy_01'
+        with WebPageChrome(url):
+            pass
+        del os.environ['HTTP_PROXY']
+        del os.environ['HTTPS_PROXY']
+        del os.environ['NO_PROXY']
+
+    def test_proxy_02(self, url):
         os.environ['HTTP_PROXY'] = 'proxy_url'
         os.environ['HTTPS_PROXY'] = 'proxy_url'
         os.environ['NO_PROXY'] = 'no_proxy_01,no_proxy_02'
