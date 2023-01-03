@@ -1,3 +1,4 @@
+import os
 import pytest
 import requests
 
@@ -88,12 +89,32 @@ class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium):
         with WebPageFirefox(url) as wp:
             yield wp
 
+    def test_proxy_01(self, url):
+        os.environ['HTTP_PROXY'] = 'proxy_url'
+        os.environ['HTTPS_PROXY'] = 'proxy_url'
+        os.environ['NO_PROXY'] = 'temeteke.github.io'
+        with WebPageFirefox(url):
+            pass
+        del os.environ['HTTP_PROXY']
+        del os.environ['HTTPS_PROXY']
+        del os.environ['NO_PROXY']
+
 
 class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium):
     @pytest.fixture
     def webpage(self, url):
         with WebPageChrome(url) as wp:
             yield wp
+
+    def test_proxy_01(self, url):
+        os.environ['HTTP_PROXY'] = 'proxy_url'
+        os.environ['HTTPS_PROXY'] = 'proxy_url'
+        os.environ['NO_PROXY'] = 'temeteke.github.io'
+        with WebPageChrome(url):
+            pass
+        del os.environ['HTTP_PROXY']
+        del os.environ['HTTPS_PROXY']
+        del os.environ['NO_PROXY']
 
 
 class TestWebPageCurl(MixinTestWebPage):
