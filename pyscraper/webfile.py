@@ -6,8 +6,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+import urllib3.exceptions
 from tqdm import tqdm
-from urllib3.exceptions import ProtocolError
 
 from .utils import RequestsMixin, debug
 
@@ -229,8 +229,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.response.raw.decode_content = True
         try:
             chunk = self.response.raw.read(size)
-        except ProtocolError as e:
+        except urllib3.exceptions.ProtocolError as e:
             raise WebFileConnectionError(e) from e
+        except urllib3.exceptions.ReadTimeoutError as e:
+            raise WebFileTimeoutError(e) from e
         self.position += len(chunk)
         return chunk
 
