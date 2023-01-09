@@ -202,10 +202,13 @@ class SeleniumMixin():
         for cookie in cookies:
             self.driver.add_cookie(cookie.__dict__)
 
+    def wait(self, xpath, timeout=10):
+        WebDriverWait(self.driver, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+
     @debug(logger)
     def click(self, xpath, timeout=10):
         element = self.driver.find_element(By.XPATH, xpath)
-        self.driver.execute_script("arguments[0].scrollIntoView();", element)
+        # self.driver.execute_script("arguments[0].scrollIntoView();", element)
         WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable(element)).click()
 
     @debug(logger)
