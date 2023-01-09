@@ -1,10 +1,11 @@
 import os
+
 import pytest
 import requests
 
 from pyscraper import (WebPageChrome, WebPageCurl, WebPageFirefox,
                        WebPageRequests)
-from pyscraper.webpage import WebPageParser
+from pyscraper.webpage import WebPageNoSuchElementError, WebPageParser
 
 
 @pytest.fixture
@@ -52,6 +53,10 @@ class MixinTestWebPageSelenium:
     def test_click_01(self, webpage):
         webpage.click("//a[@id='link']")
         assert webpage.url.endswith('test2.html')
+
+    def test_click_02(self, webpage):
+        with pytest.raises(WebPageNoSuchElementError):
+            webpage.click("//a[@id='link_']")
 
     def test_go_01(self, webpage):
         webpage.go("https://temeteke.github.io/pyscraper/tests/testdata/test2.html")

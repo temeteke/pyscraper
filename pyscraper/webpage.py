@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import lxml.html
 import requests
+import selenium.common.exceptions
 from retry import retry
 from selenium import webdriver
 from selenium.webdriver.common import proxy
@@ -207,9 +208,12 @@ class SeleniumMixin():
 
     @debug(logger)
     def click(self, xpath, timeout=10):
-        element = self.driver.find_element(By.XPATH, xpath)
-        # self.driver.execute_script("arguments[0].scrollIntoView();", element)
-        WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable(element)).click()
+        try:
+            element = self.driver.find_element(By.XPATH, xpath)
+            # self.driver.execute_script("arguments[0].scrollIntoView();", element)
+            WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable(element)).click()
+        except selenium.common.exceptions.NoSuchElementException as e:
+            raise WebPageNoSuchElementError from e
 
     @debug(logger)
     def move_to(self, xpath):

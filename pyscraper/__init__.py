@@ -1,13 +1,12 @@
 from .hlsfile import HlsFileError, HlsFileFfmpeg, HlsFileRequests
 from .utils import HEADERS
-from .webfile import (WebFile, WebFileCached, WebFileError,
-                      WebFileClientError, WebFileSeekError)
+from .webfile import (WebFile, WebFileCached, WebFileClientError,
+                      WebFileConnectionError, WebFileError, WebFileSeekError,
+                      WebFileServerError, WebFileTimeoutError)
 from .webpage import (WebPageChrome, WebPageCurl, WebPageError, WebPageFirefox,
-                      WebPageNoSuchElementError, WebPageParser,
-                      WebPageRequests)
+                      WebPageNoSuchElementError, WebPageRequests)
 
 __all__ = [
-    'WebPageParser',
     'WebPageRequests',
     'WebPageFirefox',
     'WebPageChrome',
@@ -17,7 +16,10 @@ __all__ = [
     'WebFile',
     'WebFileCached',
     'WebFileError',
+    'WebFileConnectionError',
+    'WebFileTimeoutError',
     'WebFileClientError',
+    'WebFileServerError',
     'WebFileSeekError',
     'HlsFileFfmpeg',
     'HlsFileRequests',
