@@ -20,7 +20,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from .utils import RequestsMixin, debug
+from .utils import RequestsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -94,14 +94,12 @@ class WebPageParser:
     def get(self, xpath):
         return [WebPageElement(element) for element in self.xpath(xpath)]
 
-    @debug(logger)
     def get_html(self, xpath):
         if hasattr(self, 'encoding'):
             return [lxml.html.tostring(x, method='html', encoding=self.encoding).decode().strip() for x in self.lxml_html.xpath(xpath)]
         else:
             return [lxml.html.tostring(x, method='html').decode().strip() for x in self.lxml_html.xpath(xpath)]
 
-    @debug(logger)
     def get_innerhtml(self, xpath):
         htmls = []
         for element in self.lxml_html.xpath(xpath):
@@ -124,7 +122,6 @@ class WebPageParser:
         else:
             raise WebPageNoSuchElementError
 
-    @debug(logger)
     def xpath(self, xpath):
         return self.lxml_html.xpath(xpath)
 
@@ -275,7 +272,6 @@ class SeleniumMixin:
         return self.driver.page_source
 
     @property
-    @debug(logger)
     def cookies(self):
         cookies = {}
         for cookie in self.driver.get_cookies():
@@ -301,7 +297,6 @@ class SeleniumMixin:
             pass
         return [SeleniumWebPageElement(element) for element in self.driver.find_elements(By.XPATH, xpath)]
 
-    @debug(logger)
     def click(self, xpath, timeout=10):
         try:
             element = self.driver.find_element(By.XPATH, xpath)
@@ -310,20 +305,17 @@ class SeleniumMixin:
         except selenium.common.exceptions.NoSuchElementException as e:
             raise WebPageNoSuchElementError from e
 
-    @debug(logger)
     def move_to(self, xpath):
         actions = ActionChains(self.driver)
         actions.move_to_element(self.driver.find_element(By.XPATH, xpath))
         actions.perform()
 
-    @debug(logger)
     def switch_to_frame(self, xpath):
         iframe = self.driver.find_element(By.XPATH, xpath)
         iframe_url = iframe.get_attribute('src')
         self.driver.switch_to.frame(iframe)
         return iframe_url
 
-    @debug(logger)
     def go(self, url, params={}):
         parsed_url = urlparse(url)
         parsed_qs = parse_qs(parsed_url.query)
@@ -339,14 +331,11 @@ class SeleniumMixin:
     def refresh(self):
         self.driver.refresh()
 
-    @debug(logger)
-    def execute_script(self, script, *args):
-        return self.driver.execute_script(script, *args)
+    def execute_script(self, *args, **kwargs):
+        return self.driver.execute_script(*args, **kwargs)
 
-    @debug(logger)
-    def execute_async_script(self, script, *args):
-        print(args)
-        return self.driver.execute_async_script(script, *args)
+    def execute_async_script(self, *args, **kwargs):
+        return self.driver.execute_async_script(*args, **kwargs)
 
     def dump(self, filestem=None):
         if not filestem:
