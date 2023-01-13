@@ -3,9 +3,9 @@ import os
 import pytest
 import requests
 
-from pyscraper import (WebPageChrome, WebPageCurl, WebPageFirefox,
-                       WebPageRequests)
-from pyscraper.webpage import WebPageNoSuchElementError, WebPageParser
+from pyscraper.webpage import (WebPageChrome, WebPageCurl, WebPageFirefox,
+                               WebPageNoSuchElementError, WebPageParser,
+                               WebPageRequests, WebPageTimeoutError)
 
 
 @pytest.fixture
@@ -82,6 +82,10 @@ class MixinTestWebPageSelenium:
 
     def test_get_timeout_02(self, webpage):
         assert webpage.get("//a[@id='link_']", timeout=0) == []
+
+    def test_get_timeout_03(self, webpage):
+        with pytest.raises(WebPageTimeoutError):
+            webpage.get("//a[@id='link_']", timeout=1)
 
     def test_get_wait_01(self, webpage):
         webpage.get("//body")[0].wait("a[@id='link']")

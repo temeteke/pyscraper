@@ -240,11 +240,9 @@ class SeleniumWebPageElement(WebPageElement):
         except selenium.common.exceptions.TimeoutException as e:
             raise WebPageTimeoutError from e
 
-    def get(self, xpath, timeout=10):
-        try:
+    def get(self, xpath, timeout=0):
+        if timeout:
             self.wait(xpath, timeout)
-        except WebPageTimeoutError:
-            pass
         return [SeleniumWebPageElement(element) for element in self.element.find_elements(By.XPATH, xpath)]
 
     def click(self):
@@ -290,11 +288,9 @@ class SeleniumMixin:
         except selenium.common.exceptions.TimeoutException as e:
             raise WebPageTimeoutError from e
 
-    def get(self, xpath, timeout=10):
-        try:
+    def get(self, xpath, timeout=0):
+        if timeout:
             self.wait(xpath, timeout)
-        except WebPageTimeoutError:
-            pass
         return [SeleniumWebPageElement(element) for element in self.driver.find_elements(By.XPATH, xpath)]
 
     def click(self, xpath, timeout=10):
