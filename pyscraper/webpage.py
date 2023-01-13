@@ -29,37 +29,82 @@ class WebPageError(Exception):
     pass
 
 
+class WebPageTimeoutError(WebPageError):
+    pass
+
+
 class WebPageNoSuchElementError(WebPageError):
     pass
 
 
-class WebPageParser():
-    def __init__(self, source, encoding=None):
-        self.source = source
-        self._encoding = encoding
+class WebPageElement:
+    def __init__(self, element):
+        self.lxml_html = element
 
     @property
     def html(self):
+        return lxml.html.tostring(self.lxml_html, method='html').decode().strip()
+
+    @property
+    def inner_html(self):
+        html = ''
+        if self.lxml_html.text:
+            html += self.lxml_html.text
+        for child in self.lxml_html.getchildren():
+            html += lxml.html.tostring(child).decode()
+        return html.strip()
+
+    @property
+    def text(self):
+        return self.lxml_html.text
+
+    @property
+    def inner_text(self):
+        text = ''
+        if self.lxml_html.text:
+            text += self.lxml_html.text
+        for child in self.lxml_html.getchildren():
+            text += child.text
+        return text.strip()
+
+    @property
+    def attrib(self):
+        return self.lxml_html.attrib
+
+    def get(self, xpath):
+        return [WebPageElement(element) for element in self.lxml_html.xpath(xpath)]
+
+    def xpath(self, xpath):
+        return self.lxml_html.xpath(xpath)
+
+
+class WebPageParser:
+    def __init__(self, html, encoding=None):
+        self.html = html
+        self._encoding = encoding
+
+    @property
+    def lxml_html(self):
         # エンコードしていないcontentがあり、encodingが指定されていない場合、contentを処理する
         if hasattr(self, 'content') and not self._encoding:
             return lxml.html.fromstring(self.content)
         else:
-            return lxml.html.fromstring(self.source)
+            return lxml.html.fromstring(self.html)
 
     def get(self, xpath):
-        return self.xpath(xpath)
+        return [WebPageElement(element) for element in self.xpath(xpath)]
 
     @debug(logger)
     def get_html(self, xpath):
         if hasattr(self, 'encoding'):
-            return [lxml.html.tostring(x, method='html', encoding=self.encoding).decode().strip() for x in self.html.xpath(xpath)]
+            return [lxml.html.tostring(x, method='html', encoding=self.encoding).decode().strip() for x in self.lxml_html.xpath(xpath)]
         else:
-            return [lxml.html.tostring(x, method='html').decode().strip() for x in self.html.xpath(xpath)]
+            return [lxml.html.tostring(x, method='html').decode().strip() for x in self.lxml_html.xpath(xpath)]
 
     @debug(logger)
     def get_innerhtml(self, xpath):
         htmls = []
-        for element in self.html.xpath(xpath):
+        for element in self.lxml_html.xpath(xpath):
             html = ''
             if element.text:
                 html += element.text
@@ -81,7 +126,7 @@ class WebPageParser():
 
     @debug(logger)
     def xpath(self, xpath):
-        return self.html.xpath(xpath)
+        return self.lxml_html.xpath(xpath)
 
     def dump(self, filestem=None):
         if not filestem:
@@ -89,7 +134,7 @@ class WebPageParser():
 
         filepath = Path(filestem + '.html')
         with filepath.open('w') as f:
-            f.write(self.source)
+            f.write(self.html)
 
         return filepath
 
@@ -129,7 +174,7 @@ class WebPage(WebPageParser, ABC):
 
     @property
     @abstractmethod
-    def source(self):
+    def html(self):
         pass
 
 
@@ -164,7 +209,7 @@ class WebPageRequests(RequestsMixin, WebPage):
         return self.response.content
 
     @cached_property
-    def source(self):
+    def html(self):
         return self.response.text
 
     @cached_property
@@ -172,7 +217,34 @@ class WebPageRequests(RequestsMixin, WebPage):
         return self.response.encoding
 
 
-class SeleniumMixin():
+class SeleniumWebPageElement(WebPageElement):
+    def __init__(self, element):
+        self.element = element
+
+    @property
+    def lxml_html(self):
+        return lxml.html.fromstring(self.html)
+
+    @property
+    def html(self):
+        return self.element.get_attribute('outerHTML')
+
+    @property
+    def inner_html(self):
+        return self.element.get_attribute('innerHTML')
+
+    @property
+    def inner_text(self):
+        return self.element.get_attribute('innerText')
+
+    def get(self, xpath):
+        return [SeleniumWebPageElement(element) for element in self.element.find_elements(By.XPATH, xpath)]
+
+    def click(self):
+        self.element.click()
+
+
+class SeleniumMixin:
     @property
     def webdriver(self):
         return webdriver
@@ -186,7 +258,7 @@ class SeleniumMixin():
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
-    def source(self):
+    def html(self):
         return self.driver.page_source
 
     @property
@@ -204,7 +276,17 @@ class SeleniumMixin():
             self.driver.add_cookie(cookie.__dict__)
 
     def wait(self, xpath, timeout=10):
-        WebDriverWait(self.driver, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+        try:
+            WebDriverWait(self.driver, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+        except selenium.common.exceptions.TimeoutException as e:
+            raise WebPageTimeoutError from e
+
+    def get(self, xpath, timeout=10):
+        try:
+            self.wait(xpath, timeout)
+        except WebPageTimeoutError:
+            pass
+        return [SeleniumWebPageElement(element) for element in self.driver.find_elements(By.XPATH, xpath)]
 
     @debug(logger)
     def click(self, xpath, timeout=10):
@@ -259,7 +341,7 @@ class SeleniumMixin():
 
         filepath = Path(filestem + '.html')
         with filepath.open('w') as f:
-            f.write(self.source)
+            f.write(self.html)
         files = [filepath]
 
         scroll_height = self.driver.execute_script("return document.body.scrollHeight")
@@ -381,5 +463,5 @@ class WebPageCurl(WebPage):
         return self._url
 
     @cached_property
-    def source(self):
+    def html(self):
         return subprocess.run(['curl', self.url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()

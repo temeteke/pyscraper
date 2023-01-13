@@ -15,40 +15,77 @@ def url():
 
 class TestWebPageParser:
     @pytest.fixture
-    def source(self, url):
+    def html(self, url):
         return requests.get(url).text
 
     @pytest.fixture
-    def webpage(self, source):
-        return WebPageParser(source=source)
+    def webpage(self, html):
+        return WebPageParser(html=html)
 
-    def test_get01(self, webpage):
-        assert webpage.get("//h1/text()")[0] == "Header"
-
-    def test_get_html01(self, webpage):
+    def test_get_html_01(self, webpage):
         assert webpage.get_html("//p") == [
             '<p>paragraph 1<a>link 1</a></p>',
             '<p>paragraph 2<a>link 2</a></p>'
         ]
 
-    def test_get_innerhtml01(self, webpage):
+    def test_get_innerhtml_01(self, webpage):
         assert webpage.get_innerhtml("//p") == [
             'paragraph 1<a>link 1</a>',
             'paragraph 2<a>link 2</a>'
         ]
 
-    def test_xpath01(self, webpage):
+    def test_xpath_01(self, webpage):
         assert webpage.xpath("//h1/text()")[0] == "Header"
 
 
 class MixinTestWebPage:
     def test_get_01(self, webpage):
-        assert webpage.get("//h1/text()")[0] == "Header"
+        assert webpage.get("//a[@id='link']")
+
+    def test_get_02(self, webpage):
+        assert webpage.get("//a[@id='link_']") == []
+
+    def test_get_html_01(self, webpage):
+        assert webpage.get("//p")[0].html == '<p>paragraph 1<a>link 1</a></p>'
+
+    def test_get_inner_html_01(self, webpage):
+        assert webpage.get("//p")[0].inner_html == 'paragraph 1<a>link 1</a>'
+
+    def test_get_text_01(self, webpage):
+        assert webpage.get("//p")[0].text == 'paragraph 1'
+
+    def test_get_inner_text_01(self, webpage):
+        assert webpage.get("//p")[0].inner_text == 'paragraph 1link 1'
+
+    def test_get_atrib_01(self, webpage):
+        assert webpage.get("//a[@id='link']")[0].attrib['id'] == 'link'
+
+    def test_get_get_01(self, webpage):
+        assert webpage.get("//body")[0].get("a[@id='link']")
+
+    def test_get_get_text_01(self, webpage):
+        assert webpage.get("//body")[0].get("a[@id='link']")[0].text == 'test2'
+
+    def test_get_xpath_01(self, webpage):
+        assert webpage.get("//a[@id='link']")[0].xpath("@href") == ['test2.html']
+
+    def test_xpath_01(self, webpage):
+        assert webpage.xpath("//h1/text()")[0] == "Header"
 
 
 class MixinTestWebPageSelenium:
     def test_wait_01(self, webpage):
         webpage.wait("//h1")
+
+    def test_get_timeout_01(self, webpage):
+        assert webpage.get("//a[@id='link']", timeout=0)
+
+    def test_get_timeout_02(self, webpage):
+        assert webpage.get("//a[@id='link_']", timeout=0) == []
+
+    def test_get_click_01(self, webpage):
+        webpage.get("//a[@id='link']")[0].click()
+        assert webpage.url.endswith('test2.html')
 
     def test_click_01(self, webpage):
         webpage.click("//a[@id='link']")
