@@ -253,8 +253,8 @@ class SeleniumWebPageElement(WebPageElement):
     def click(self):
         self.element.click()
 
-    def scroll(self):
-        self.element.parent.execute_script("arguments[0].scrollIntoView();", self.element)
+    def scroll(self, block='start', inline='nearest'):
+        self.element.parent.execute_script(f"arguments[0].scrollIntoView({{block: '{block}', inline: '{inline}'}});", self.element)
 
 
 class SeleniumMixin:
