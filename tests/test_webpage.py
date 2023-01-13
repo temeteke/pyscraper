@@ -83,9 +83,15 @@ class MixinTestWebPageSelenium:
     def test_get_timeout_02(self, webpage):
         assert webpage.get("//a[@id='link_']", timeout=0) == []
 
+    def test_get_wait_01(self, webpage):
+        webpage.get("//body")[0].wait("a[@id='link']")
+
     def test_get_click_01(self, webpage):
         webpage.get("//a[@id='link']")[0].click()
         assert webpage.url.endswith('test2.html')
+
+    def test_get_scroll_01(self, webpage):
+        webpage.get("//a[@id='link']")[0].scroll()
 
     def test_click_01(self, webpage):
         webpage.click("//a[@id='link']")

@@ -237,11 +237,24 @@ class SeleniumWebPageElement(WebPageElement):
     def inner_text(self):
         return self.element.get_attribute('innerText')
 
-    def get(self, xpath):
+    def wait(self, xpath, timeout=10):
+        try:
+            WebDriverWait(self.element, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+        except selenium.common.exceptions.TimeoutException as e:
+            raise WebPageTimeoutError from e
+
+    def get(self, xpath, timeout=10):
+        try:
+            self.wait(xpath, timeout)
+        except WebPageTimeoutError:
+            pass
         return [SeleniumWebPageElement(element) for element in self.element.find_elements(By.XPATH, xpath)]
 
     def click(self):
         self.element.click()
+
+    def scroll(self):
+        self.element.parent.execute_script("arguments[0].scrollIntoView();", self.element)
 
 
 class SeleniumMixin:
