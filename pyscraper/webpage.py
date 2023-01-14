@@ -253,7 +253,12 @@ class SeleniumWebPageElement(WebPageElement):
             self.wait(xpath, timeout)
         return [SeleniumWebPageElement(element) for element in self.element.find_elements(By.XPATH, xpath)]
 
-    def click(self):
+    def click(self, timeout=0):
+        if timeout:
+            try:
+                WebDriverWait(self.element, timeout).until(EC.element_to_be_clickable(self.element))
+            except selenium.common.exceptions.TimeoutException as e:
+                raise WebPageTimeoutError from e
         self.element.click()
 
     def scroll(self, block='start', inline='nearest'):
