@@ -64,7 +64,8 @@ class WebPageElement:
         if self.lxml_html.text:
             text += self.lxml_html.text
         for child in self.lxml_html.getchildren():
-            text += child.text
+            if child.text:
+                text += child.text
         return text.strip()
 
     @property
