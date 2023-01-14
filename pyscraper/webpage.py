@@ -261,6 +261,11 @@ class SeleniumWebPageElement(WebPageElement):
                 raise WebPageTimeoutError from e
         self.element.click()
 
+    def mouse_over(self):
+        actions = ActionChains(self.element.parent)
+        actions.move_to_element(self.element)
+        actions.perform()
+
     def scroll(self, block='start', inline='nearest'):
         self.element.parent.execute_script(f"arguments[0].scrollIntoView({{block: '{block}', inline: '{inline}'}});", self.element)
 

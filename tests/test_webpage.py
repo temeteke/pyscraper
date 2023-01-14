@@ -100,6 +100,9 @@ class MixinTestWebPageSelenium:
     def test_get_click_timeout_02(self, webpage):
         webpage.get("//a[@id='link']")[0].click(timeout=1)
 
+    def test_get_mouse_over_01(self, webpage):
+        webpage.get("//a[@id='link']")[0].mouse_over()
+
     def test_get_scroll_01(self, webpage):
         webpage.get("//a[@id='link']")[0].scroll()
 
