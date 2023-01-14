@@ -69,14 +69,14 @@ class WebPageElement:
 
     @property
     def attr(self):
-        return self.attribute
+        return self.attributes
 
     @property
     def attrib(self):
-        return self.attribute
+        return self.attributes
 
     @property
-    def attribute(self):
+    def attributes(self):
         return self.lxml_html.attrib
 
     def get(self, xpath):
