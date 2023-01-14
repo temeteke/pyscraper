@@ -68,7 +68,15 @@ class WebPageElement:
         return text.strip()
 
     @property
+    def attr(self):
+        return self.attribute
+
+    @property
     def attrib(self):
+        return self.attribute
+
+    @property
+    def attribute(self):
         return self.lxml_html.attrib
 
     def get(self, xpath):
