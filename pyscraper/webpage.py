@@ -38,12 +38,13 @@ class WebPageNoSuchElementError(WebPageError):
 
 
 class WebPageElement:
-    def __init__(self, element):
+    def __init__(self, element, encoding=None):
         self.lxml_html = element
+        self.encoding = encoding
 
     @property
     def html(self):
-        return lxml.html.tostring(self.lxml_html, method='html').decode().strip()
+        return lxml.html.tostring(self.lxml_html, method='html', encoding=self.encoding).decode().strip()
 
     @property
     def inner_html(self):
@@ -51,7 +52,7 @@ class WebPageElement:
         if self.lxml_html.text:
             html += self.lxml_html.text
         for child in self.lxml_html.getchildren():
-            html += lxml.html.tostring(child).decode()
+            html += lxml.html.tostring(child, encoding=self.encoding).decode()
         return html.strip()
 
     @property
@@ -101,7 +102,7 @@ class WebPageParser:
             return lxml.html.fromstring(self.html)
 
     def get(self, xpath):
-        return [WebPageElement(element) for element in self.xpath(xpath)]
+        return [WebPageElement(element, encoding=self.encoding) for element in self.xpath(xpath)]
 
     def get_html(self, xpath):
         if hasattr(self, 'encoding'):
@@ -182,6 +183,10 @@ class WebPage(WebPageParser, ABC):
     @abstractmethod
     def html(self):
         pass
+
+    @property
+    def encoding(self):
+        return None
 
 
 class WebPageRequests(RequestsMixin, WebPage):
