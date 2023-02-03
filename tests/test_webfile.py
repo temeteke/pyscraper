@@ -54,6 +54,13 @@ class MixinTestWebFile:
         webfile.unlink()
         assert f.exists() is False
 
+    def test_download_unlink_filename(self, webfile):
+        f = webfile.download(filename='test2')
+        assert f.exists() is True
+
+        webfile.unlink()
+        assert f.exists() is False
+
 
 class TestWebFile(MixinTestWebFile):
     @pytest.fixture
