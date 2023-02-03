@@ -1,5 +1,6 @@
 import logging
 import re
+import sys
 import unicodedata
 from functools import cached_property
 from pathlib import Path
@@ -12,6 +13,20 @@ from tqdm import tqdm
 from .utils import RequestsMixin, debug
 
 logger = logging.getLogger(__name__)
+
+
+class MyTqdm(tqdm):
+    def __init__(self, *args, **kwargs):
+        if 'file' not in kwargs:
+            kwargs['file'] = sys.stderr
+        if hasattr(kwargs['file'], 'isatty') and not kwargs['file'].isatty():
+            kwargs['disable'] = True
+        elif logger.getEffectiveLevel() > logging.INFO:
+            kwargs['disable'] = True
+        else:
+            kwargs['disable'] = False
+
+        return super().__init__(*args, **kwargs)
 
 
 class FileIOBase():
@@ -244,7 +259,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             downloaded_file_size = 0
 
         try:
-            with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, disable=None) as pbar:
+            with MyTqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True) as pbar:
                 with self.tempfile.open('ab') as f:
                     for chunk in self.read_in_chunks(1024, downloaded_file_size):
                         f.write(chunk)
@@ -471,7 +486,7 @@ class WebFileCached(WebFile):
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
-        with tqdm(total=self.size, initial=0, unit='B', unit_scale=True, dynamic_ncols=True, disable=None) as pbar:
+        with MyTqdm(total=self.size, initial=0, unit='B', unit_scale=True, dynamic_ncols=True) as pbar:
             for chunk in self.read_in_chunks(1024):
                 pbar.update(len(chunk))
 
