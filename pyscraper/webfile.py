@@ -244,7 +244,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             downloaded_file_size = 0
 
         try:
-            with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+            with tqdm(total=self.size, initial=downloaded_file_size, unit='B', unit_scale=True, dynamic_ncols=True, disable=None) as pbar:
                 with self.tempfile.open('ab') as f:
                     for chunk in self.read_in_chunks(1024, downloaded_file_size):
                         f.write(chunk)
@@ -471,7 +471,7 @@ class WebFileCached(WebFile):
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
-        with tqdm(total=self.size, initial=0, unit='B', unit_scale=True, dynamic_ncols=True, ascii=True) as pbar:
+        with tqdm(total=self.size, initial=0, unit='B', unit_scale=True, dynamic_ncols=True, disable=None) as pbar:
             for chunk in self.read_in_chunks(1024):
                 pbar.update(len(chunk))
 
