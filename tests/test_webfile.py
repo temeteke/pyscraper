@@ -55,8 +55,12 @@ class MixinTestWebFile:
         assert f.exists() is False
 
     def test_download_unlink_filename(self, webfile):
-        f = webfile.download(filename='test2')
+        f = webfile.download(filename='test2.txt')
         assert f.exists() is True
+        assert f.name == 'test2.txt'
+        assert webfile.filename == 'test2.txt'
+        assert webfile.filestem == 'test2'
+        assert webfile.filesuffix == '.txt'
 
         webfile.unlink()
         assert f.exists() is False

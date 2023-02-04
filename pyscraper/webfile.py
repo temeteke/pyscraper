@@ -93,8 +93,9 @@ class WebFileMixin():
         return self.url == other.url
 
     def set_path(self, directory='.', filename=None, filestem=None, filesuffix=None):
-        self.directory = Path(re.sub(r'[:|\s\*\?\\"]', '_', directory))
-        self.directory.mkdir(parents=True, exist_ok=True)
+        if directory:
+            self.directory = Path(re.sub(r'[:|\s\*\?\\"]', '_', directory))
+            self.directory.mkdir(parents=True, exist_ok=True)
 
         self._filename = filename
         self._filestem = filestem
@@ -282,7 +283,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def download(self, directory=None, file_name=None, filename=None, file_stem=None, filestem=None, file_suffix=None, filesuffix=None):
         """Read contents and save into a file."""
 
-        self.set_path(directory or str(self.directory), file_name or filename or self.filename, file_stem or filestem or self.filestem, file_suffix or filesuffix or self.filesuffix)
+        self.set_path(directory, file_name or filename, file_stem or filestem, file_suffix or filesuffix)
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -476,7 +477,7 @@ class WebFileCached(WebFile):
     def download(self, directory=None, file_name=None, filename=None, file_stem=None, filestem=None, file_suffix=None, filesuffix=None):
         """Read contents and save into a file."""
 
-        self.set_path(directory or str(self.directory), file_name or filename or self.filename, file_stem or filestem or self.filestem, file_suffix or filesuffix or self.filesuffix)
+        self.set_path(directory, file_name or filename, file_stem or filestem, file_suffix or filesuffix)
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
