@@ -10,7 +10,7 @@ import requests
 import urllib3.exceptions
 from tqdm import tqdm
 
-from .utils import RequestsMixin, debug
+from .utils import RequestsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +100,10 @@ class WebFileMixin():
         self._filestem = filestem
         self._filesuffix = filesuffix
 
-    @debug(logger)
     def get_filename(self):
         return urlparse(self.url).path.split('/').pop()
 
-    @cached_property
-    @debug(logger)
+    @property
     def filestem(self):
         if self._filestem:
             filestem = unicodedata.normalize('NFC', self._filestem)
@@ -117,8 +115,7 @@ class WebFileMixin():
         else:
             return Path(self.get_filename()).stem
 
-    @cached_property
-    @debug(logger)
+    @property
     def filesuffix(self):
         if self._filesuffix:
             return self._filesuffix
@@ -127,13 +124,11 @@ class WebFileMixin():
         else:
             return Path(self.get_filename()).suffix
 
-    @cached_property
-    @debug(logger)
+    @property
     def filename(self):
         return self.filestem + self.filesuffix
 
-    @cached_property
-    @debug(logger)
+    @property
     def filepath(self):
         return Path(self.directory, self.filename)
 
@@ -188,14 +183,12 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         return self._get_response()
 
     @cached_property
-    @debug(logger)
     def size(self):
         try:
             return int(self.response.headers['Content-Length'])
         except KeyError:
             return None
 
-    @debug(logger)
     def get_filename(self):
         if 'Content-Disposition' in self.response.headers:
             m = re.search('filename="?([^"]+)"?', self.response.headers['Content-Disposition'])
@@ -203,8 +196,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                 return m.group(1)
         return super().get_filename()
 
-    @cached_property
-    @debug(logger)
+    @property
     def filesuffix(self):
         if self._filesuffix:
             return self._filesuffix
@@ -215,7 +207,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         else:
             return Path(self.get_filename()).suffix
 
-    @cached_property
+    @property
     def tempfile(self):
         return self.filepath.with_name(self.filepath.name + '.part')
 
@@ -481,8 +473,11 @@ class WebFileCached(WebFile):
 
         return cached_data + new_data
 
-    def download(self):
+    def download(self, directory=None, file_name=None, filename=None, file_stem=None, filestem=None, file_suffix=None, filesuffix=None):
         """Read contents and save into a file."""
+
+        self.set_path(directory or str(self.directory), file_name or filename or self.filename, file_stem or filestem or self.filestem, file_suffix or filesuffix or self.filesuffix)
+
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
             return
