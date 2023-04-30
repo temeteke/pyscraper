@@ -4,7 +4,8 @@ from .webfile import (WebFile, WebFileCached, WebFileClientError,
                       WebFileConnectionError, WebFileError, WebFileSeekError,
                       WebFileServerError, WebFileTimeoutError)
 from .webpage import (WebPageChrome, WebPageCurl, WebPageError, WebPageFirefox,
-                      WebPageNoSuchElementError, WebPageRequests)
+                      WebPageNoSuchElementError, WebPageRequests,
+                      WebPageTimeoutError)
 
 __all__ = [
     'WebPageRequests',
@@ -12,6 +13,7 @@ __all__ = [
     'WebPageChrome',
     'WebPageCurl',
     'WebPageError',
+    'WebPageTimeoutError',
     'WebPageNoSuchElementError',
     'WebFile',
     'WebFileCached',
