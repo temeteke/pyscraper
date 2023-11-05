@@ -38,13 +38,13 @@ class WebPageNoSuchElementError(WebPageError):
 
 
 class WebPageElement:
-    def __init__(self, element, encoding=None):
+    def __init__(self, element, encoding='utf-8'):
         self.lxml_html = element
         self.encoding = encoding
 
     @property
     def html(self):
-        return lxml.html.tostring(self.lxml_html, method='html', encoding=self.encoding).decode().strip()
+        return lxml.html.tostring(self.lxml_html, method='html', encoding=self.encoding).decode(encoding=self.encoding).strip()
 
     @property
     def inner_html(self):
@@ -52,7 +52,7 @@ class WebPageElement:
         if self.lxml_html.text:
             html += self.lxml_html.text
         for child in self.lxml_html.getchildren():
-            html += lxml.html.tostring(child, encoding=self.encoding).decode()
+            html += lxml.html.tostring(child, encoding=self.encoding).decode(encoding=self.encoding)
         return html.strip()
 
     @property
@@ -82,7 +82,7 @@ class WebPageElement:
         return self.lxml_html.attrib
 
     def get(self, xpath):
-        return [WebPageElement(element) for element in self.lxml_html.xpath(xpath)]
+        return [WebPageElement(element, self.encoding) for element in self.lxml_html.xpath(xpath)]
 
     def xpath(self, xpath):
         return self.lxml_html.xpath(xpath)
@@ -92,6 +92,13 @@ class WebPageParser:
     def __init__(self, html, encoding=None):
         self.html = html
         self._encoding = encoding
+
+    @property
+    def encoding(self):
+        if self._encoding:
+            return self._encoding
+        else:
+            return 'utf-8'
 
     @property
     def lxml_html(self):
@@ -105,10 +112,7 @@ class WebPageParser:
         return [WebPageElement(element, encoding=self.encoding) for element in self.xpath(xpath)]
 
     def get_html(self, xpath):
-        if hasattr(self, 'encoding'):
-            return [lxml.html.tostring(x, method='html', encoding=self.encoding).decode().strip() for x in self.lxml_html.xpath(xpath)]
-        else:
-            return [lxml.html.tostring(x, method='html').decode().strip() for x in self.lxml_html.xpath(xpath)]
+        return [lxml.html.tostring(x, method='html', encoding=self.encoding).decode(self.encoding).strip() for x in self.lxml_html.xpath(xpath)]
 
     def get_innerhtml(self, xpath):
         htmls = []
@@ -117,10 +121,7 @@ class WebPageParser:
             if element.text:
                 html += element.text
             for child in element.getchildren():
-                if hasattr(self, 'encoding'):
-                    html += lxml.html.tostring(child, encoding=self.encoding).decode()
-                else:
-                    html += lxml.html.tostring(child).decode()
+                html += lxml.html.tostring(child, encoding=self.encoding).decode(self.encoding)
             htmls.append(html.strip())
         return htmls
 
@@ -160,11 +161,12 @@ class WebPageParser:
 
 
 class WebPage(WebPageParser, ABC):
-    def __init__(self, url, params={}):
+    def __init__(self, url, params={}, encoding=None):
         parsed_url = urlparse(url)
         parsed_qs = parse_qs(parsed_url.query)
         parsed_qs.update(params)
         self._url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
+        self._encoding = encoding
 
     def __str__(self):
         return self.url
@@ -175,27 +177,20 @@ class WebPage(WebPageParser, ABC):
         return self.url == other.url
 
     @property
-    @abstractmethod
     def url(self):
-        pass
+        return self._url
 
     @property
     @abstractmethod
     def html(self):
         pass
 
-    @property
-    def encoding(self):
-        return None
-
 
 class WebPageRequests(RequestsMixin, WebPage):
     def __init__(self, url, params={}, session=None, headers={}, cookies={}, encoding=None):
-        super().__init__(url, params)
+        super().__init__(url, params=params, encoding=encoding)
 
         self.init_session(session, headers, cookies)
-
-        self._encoding = encoding
 
     @cached_property
     @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
@@ -213,7 +208,7 @@ class WebPageRequests(RequestsMixin, WebPage):
         if 'response' in self.__dict__:
             return self.response.url
         else:
-            return self._url
+            return super().url
 
     @cached_property
     def content(self):
@@ -286,7 +281,7 @@ class SeleniumMixin:
         if hasattr(self, 'driver'):
             return self.driver.current_url
         else:
-            return self._url
+            return super().url
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
@@ -382,7 +377,7 @@ class SeleniumMixin:
 
 class WebPageFirefox(SeleniumMixin, WebPage):
     def __init__(self, url, params={}, cookies_file=None, profile=None):
-        super().__init__(url, params)
+        super().__init__(url, params=params)
         self._cookies_file = cookies_file
         self._profile = profile
 
@@ -447,7 +442,7 @@ class WebPageFirefox(SeleniumMixin, WebPage):
 
 class WebPageChrome(SeleniumMixin, WebPage):
     def __init__(self, url, params={}, cookies_file=None):
-        super().__init__(url, params)
+        super().__init__(url, params=params)
         self._cookies_file = cookies_file
 
     def open(self):
@@ -480,10 +475,6 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
 
 class WebPageCurl(WebPage):
-    @property
-    def url(self):
-        return self._url
-
     @cached_property
     def html(self):
         return subprocess.run(['curl', self.url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
