@@ -3,14 +3,14 @@ import unittest
 
 from pyscraper.hlsfile import HlsFileFfmpeg, HlsFileRequests
 
-logger = logging.getLogger('pyscraper')
+logger = logging.getLogger("pyscraper")
 logger.setLevel(logging.DEBUG)
 
-fh = logging.FileHandler(filename='test_pyscraper.log')
+fh = logging.FileHandler(filename="test_pyscraper.log")
 fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)8s %(message)s"))
 logger.addHandler(fh)
 
-URL = 'https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video.m3u8'
+URL = "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video.m3u8"
 
 
 class MixinTestHlsFile:

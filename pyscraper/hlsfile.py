@@ -21,12 +21,14 @@ class HlsFileError(Exception):
 class HlsFileMixin(WebFileMixin):
     @cached_property
     def filesuffix(self):
-        return '.mp4'
+        return ".mp4"
 
 
 class HlsFileFfmpeg(HlsFileMixin):
-    def __init__(self, url, headers={}, directory='.', filename=None, filestem=None, filesuffix=None):
-        self.logger = logging.getLogger('.'.join([__name__, self.__class__.__name__]))
+    def __init__(
+        self, url, headers={}, directory=".", filename=None, filestem=None, filesuffix=None
+    ):
+        self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
 
         self.url = url
         self.headers = headers
@@ -36,7 +38,7 @@ class HlsFileFfmpeg(HlsFileMixin):
 
     @cached_property
     def tempfile(self):
-        return self.filepath.with_name('.tmp.' + self.filepath.name)
+        return self.filepath.with_name(".tmp." + self.filepath.name)
 
     def download(self):
         if self.filepath.exists():
@@ -50,9 +52,11 @@ class HlsFileFfmpeg(HlsFileMixin):
 
         try:
             ff = ffmpy.FFmpeg(
-                global_options="-headers '" + '\r\n'.join(['{}: {}'.format(k, v) for k, v in self.headers.items()]) + "'",
+                global_options="-headers '"
+                + "\r\n".join(["{}: {}".format(k, v) for k, v in self.headers.items()])
+                + "'",
                 inputs={self.url: None},
-                outputs={self.tempfile: '-c copy'},
+                outputs={self.tempfile: "-c copy"},
             )
             self.logger.debug(ff)
             ff.run()
@@ -76,8 +80,18 @@ class HlsFileFfmpeg(HlsFileMixin):
 
 
 class HlsFileRequests(HlsFileMixin, RequestsMixin):
-    def __init__(self, url, session=None, headers={}, cookies={}, directory='.', filename=None, filestem=None, filesuffix=None):
-        self.logger = logging.getLogger('.'.join([__name__, self.__class__.__name__]))
+    def __init__(
+        self,
+        url,
+        session=None,
+        headers={},
+        cookies={},
+        directory=".",
+        filename=None,
+        filestem=None,
+        filesuffix=None,
+    ):
+        self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
 
         self.url = url
 
@@ -106,29 +120,40 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         else:
             m3u8_playlist_url = self.url
 
-        m3u8_file = WebFile(m3u8_playlist_url, session=self.session, directory=str(self.directory / Path(self.filestem)), filename='hls.m3u8')
+        m3u8_file = WebFile(
+            m3u8_playlist_url,
+            session=self.session,
+            directory=str(self.directory / Path(self.filestem)),
+            filename="hls.m3u8",
+        )
         if m3u8_file.filepath.exists():
             m3u8_file.filepath.unlink()
         m3u8_file.download()
 
-        for ts_url in re.findall(r'^[^#\s].+', m3u8_file.filepath.read_text(), flags=re.MULTILINE):
-            if not (self.directory / Path(self.filestem) / Path(urlparse(ts_url).path).name).exists():
-                WebFile(urljoin(m3u8_playlist_url, ts_url), session=self.session, directory=str(self.directory / Path(self.filestem))).download()
+        for ts_url in re.findall(r"^[^#\s].+", m3u8_file.filepath.read_text(), flags=re.MULTILINE):
+            if not (
+                self.directory / Path(self.filestem) / Path(urlparse(ts_url).path).name
+            ).exists():
+                WebFile(
+                    urljoin(m3u8_playlist_url, ts_url),
+                    session=self.session,
+                    directory=str(self.directory / Path(self.filestem)),
+                ).download()
 
         # 連結
         temp = []
         with m3u8_file.filepath.open() as f:
             for x in f:
-                if x.startswith('http'):
-                    temp.append(urlparse(x).path.split('/').pop())
+                if x.startswith("http"):
+                    temp.append(urlparse(x).path.split("/").pop())
                 else:
                     temp.append(x)
-        with m3u8_file.filepath.open('w') as f:
-            f.write('\n'.join(temp))
+        with m3u8_file.filepath.open("w") as f:
+            f.write("\n".join(temp))
 
         ff = ffmpy.FFmpeg(
             inputs={str(m3u8_file.filepath): None},
-            outputs={str(self.filepath): '-c copy'},
+            outputs={str(self.filepath): "-c copy"},
         )
         self.logger.debug(ff)
         ff.run()

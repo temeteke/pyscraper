@@ -38,21 +38,27 @@ class WebPageNoSuchElementError(WebPageError):
 
 
 class WebPageElement:
-    def __init__(self, element, encoding='utf-8'):
+    def __init__(self, element, encoding="utf-8"):
         self.lxml_html = element
         self.encoding = encoding
 
     @property
     def html(self):
-        return lxml.html.tostring(self.lxml_html, method='html', encoding=self.encoding).decode(encoding=self.encoding).strip()
+        return (
+            lxml.html.tostring(self.lxml_html, method="html", encoding=self.encoding)
+            .decode(encoding=self.encoding)
+            .strip()
+        )
 
     @property
     def inner_html(self):
-        html = ''
+        html = ""
         if self.lxml_html.text:
             html += self.lxml_html.text
         for child in self.lxml_html.getchildren():
-            html += lxml.html.tostring(child, encoding=self.encoding).decode(encoding=self.encoding)
+            html += lxml.html.tostring(child, encoding=self.encoding).decode(
+                encoding=self.encoding
+            )
         return html.strip()
 
     @property
@@ -61,7 +67,7 @@ class WebPageElement:
 
     @property
     def inner_text(self):
-        text = ''
+        text = ""
         if self.lxml_html.text:
             text += self.lxml_html.text
         for child in self.lxml_html.getchildren():
@@ -98,12 +104,12 @@ class WebPageParser:
         if self._encoding:
             return self._encoding
         else:
-            return 'utf-8'
+            return "utf-8"
 
     @property
     def lxml_html(self):
         # エンコードしていないcontentがあり、encodingが指定されていない場合、contentを処理する
-        if hasattr(self, 'content') and not self._encoding:
+        if hasattr(self, "content") and not self._encoding:
             return lxml.html.fromstring(self.content)
         else:
             return lxml.html.fromstring(self.html)
@@ -112,12 +118,17 @@ class WebPageParser:
         return [WebPageElement(element, encoding=self.encoding) for element in self.xpath(xpath)]
 
     def get_html(self, xpath):
-        return [lxml.html.tostring(x, method='html', encoding=self.encoding).decode(self.encoding).strip() for x in self.lxml_html.xpath(xpath)]
+        return [
+            lxml.html.tostring(x, method="html", encoding=self.encoding)
+            .decode(self.encoding)
+            .strip()
+            for x in self.lxml_html.xpath(xpath)
+        ]
 
     def get_innerhtml(self, xpath):
         htmls = []
         for element in self.lxml_html.xpath(xpath):
-            html = ''
+            html = ""
             if element.text:
                 html += element.text
             for child in element.getchildren():
@@ -138,10 +149,10 @@ class WebPageParser:
 
     def dump(self, filestem=None):
         if not filestem:
-            filestem = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filepath = Path(filestem + '.html')
-        with filepath.open('w') as f:
+        filepath = Path(filestem + ".html")
+        with filepath.open("w") as f:
             f.write(self.html)
 
         return filepath
@@ -193,7 +204,9 @@ class WebPageRequests(RequestsMixin, WebPage):
         self.init_session(session, headers, cookies)
 
     @cached_property
-    @retry(requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    @retry(
+        requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger
+    )
     def response(self):
         logger.debug("Getting {}".format(self._url))
         logger.debug("Request Headers: " + str(self.session.headers))
@@ -205,7 +218,7 @@ class WebPageRequests(RequestsMixin, WebPage):
 
     @cached_property
     def url(self):
-        if 'response' in self.__dict__:
+        if "response" in self.__dict__:
             return self.response.url
         else:
             return super().url
@@ -233,31 +246,38 @@ class SeleniumWebPageElement(WebPageElement):
 
     @property
     def html(self):
-        return self.element.get_attribute('outerHTML')
+        return self.element.get_attribute("outerHTML")
 
     @property
     def inner_html(self):
-        return self.element.get_attribute('innerHTML')
+        return self.element.get_attribute("innerHTML")
 
     @property
     def inner_text(self):
-        return self.element.get_attribute('innerText')
+        return self.element.get_attribute("innerText")
 
     def wait(self, xpath, timeout=10):
         try:
-            WebDriverWait(self.element, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+            WebDriverWait(self.element, timeout).until(
+                EC.presence_of_element_located((By.XPATH, xpath))
+            )
         except selenium.common.exceptions.TimeoutException as e:
             raise WebPageTimeoutError from e
 
     def get(self, xpath, timeout=0):
         if timeout:
             self.wait(xpath, timeout)
-        return [SeleniumWebPageElement(element) for element in self.element.find_elements(By.XPATH, xpath)]
+        return [
+            SeleniumWebPageElement(element)
+            for element in self.element.find_elements(By.XPATH, xpath)
+        ]
 
     def click(self, timeout=0):
         if timeout:
             try:
-                WebDriverWait(self.element, timeout).until(EC.element_to_be_clickable(self.element))
+                WebDriverWait(self.element, timeout).until(
+                    EC.element_to_be_clickable(self.element)
+                )
             except selenium.common.exceptions.TimeoutException as e:
                 raise WebPageTimeoutError from e
         self.element.click()
@@ -267,8 +287,10 @@ class SeleniumWebPageElement(WebPageElement):
         actions.move_to_element(self.element)
         actions.perform()
 
-    def scroll(self, block='start', inline='nearest'):
-        self.element.parent.execute_script(f"arguments[0].scrollIntoView({{block: '{block}', inline: '{inline}'}});", self.element)
+    def scroll(self, block="start", inline="nearest"):
+        self.element.parent.execute_script(
+            f"arguments[0].scrollIntoView({{block: '{block}', inline: '{inline}'}});", self.element
+        )
 
 
 class SeleniumMixin:
@@ -278,7 +300,7 @@ class SeleniumMixin:
 
     @property
     def url(self):
-        if hasattr(self, 'driver'):
+        if hasattr(self, "driver"):
             return self.driver.current_url
         else:
             return super().url
@@ -292,7 +314,7 @@ class SeleniumMixin:
     def cookies(self):
         cookies = {}
         for cookie in self.driver.get_cookies():
-            cookies[cookie['name']] = cookie['value']
+            cookies[cookie["name"]] = cookie["value"]
         return cookies
 
     def set_cookies_from_file(self, cookies_file):
@@ -303,14 +325,19 @@ class SeleniumMixin:
 
     def wait(self, xpath, timeout=10):
         try:
-            WebDriverWait(self.driver, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+            WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.XPATH, xpath))
+            )
         except selenium.common.exceptions.TimeoutException as e:
             raise WebPageTimeoutError from e
 
     def get(self, xpath, timeout=0):
         if timeout:
             self.wait(xpath, timeout)
-        return [SeleniumWebPageElement(element) for element in self.driver.find_elements(By.XPATH, xpath)]
+        return [
+            SeleniumWebPageElement(element)
+            for element in self.driver.find_elements(By.XPATH, xpath)
+        ]
 
     def click(self, xpath, timeout=10):
         try:
@@ -327,7 +354,7 @@ class SeleniumMixin:
 
     def switch_to_frame(self, xpath):
         iframe = self.driver.find_element(By.XPATH, xpath)
-        iframe_url = iframe.get_attribute('src')
+        iframe_url = iframe.get_attribute("src")
         self.driver.switch_to.frame(iframe)
         return iframe_url
 
@@ -354,10 +381,10 @@ class SeleniumMixin:
 
     def dump(self, filestem=None):
         if not filestem:
-            filestem = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filepath = Path(filestem + '.html')
-        with filepath.open('w') as f:
+        filepath = Path(filestem + ".html")
+        with filepath.open("w") as f:
             f.write(self.html)
         files = [filepath]
 
@@ -367,7 +394,7 @@ class SeleniumMixin:
         scroll = 0
         while scroll < scroll_height:
             self.driver.execute_script(f"window.scrollTo(0, {scroll})")
-            filepath = Path(filestem + f'_{scroll}.png')
+            filepath = Path(filestem + f"_{scroll}.png")
             self.driver.save_screenshot(str(filepath))
             files.append(filepath)
             scroll += inner_height
@@ -382,40 +409,36 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         self._profile = profile
 
     def open(self):
-        if url := os.environ.get('SELENIUM_FIREFOX_URL'):
+        if url := os.environ.get("SELENIUM_FIREFOX_URL"):
             options = webdriver.FirefoxOptions()
-            if profile := os.environ.get('SELENIUM_FIREFOX_PROFILE'):
-                options.add_argument('-profile')
+            if profile := os.environ.get("SELENIUM_FIREFOX_PROFILE"):
+                options.add_argument("-profile")
                 options.add_argument(profile)
 
             # get proxy settings from environment variables
-            http_proxy = os.environ.get('HTTP_PROXY')
-            https_proxy = os.environ.get('HTTPS_PROXY')
-            no_proxy = os.environ.get('NO_PROXY')
+            http_proxy = os.environ.get("HTTP_PROXY")
+            https_proxy = os.environ.get("HTTPS_PROXY")
+            no_proxy = os.environ.get("NO_PROXY")
 
             # set proxy option for Firefox
             if http_proxy or https_proxy or no_proxy:
-                proxy_dict = {
-                    'proxyType': proxy.ProxyType.MANUAL
-                }
+                proxy_dict = {"proxyType": proxy.ProxyType.MANUAL}
                 if http_proxy:
-                    proxy_dict['httpProxy'] = http_proxy
+                    proxy_dict["httpProxy"] = http_proxy
                 if https_proxy:
-                    proxy_dict['sslProxy'] = https_proxy
+                    proxy_dict["sslProxy"] = https_proxy
                 if no_proxy:
-                    proxy_dict['noProxy'] = no_proxy.split(',')
+                    proxy_dict["noProxy"] = no_proxy.split(",")
             else:
-                proxy_dict = {
-                    'proxyType': proxy.ProxyType.DIRECT
-                }
+                proxy_dict = {"proxyType": proxy.ProxyType.DIRECT}
             options.proxy = proxy.Proxy(proxy_dict)
 
             # set NO_PROXY not to use proxy for accessing selenium
             netloc = urlparse(url).netloc
             if not no_proxy:
-                os.environ['NO_PROXY'] = netloc
+                os.environ["NO_PROXY"] = netloc
             elif netloc not in no_proxy:
-                os.environ['NO_PROXY'] += ',' + netloc
+                os.environ["NO_PROXY"] += "," + netloc
 
             self.driver = self.webdriver.Remote(command_executor=url, options=options)
 
@@ -423,7 +446,9 @@ class WebPageFirefox(SeleniumMixin, WebPage):
             options = self.webdriver.firefox.options.Options()
             options.headless = True
             if self._profile:
-                self.driver = self.webdriver.Firefox(options=options, firefox_profile=self.webdriver.FirefoxProfile(self._profile))
+                self.driver = self.webdriver.Firefox(
+                    options=options, firefox_profile=self.webdriver.FirefoxProfile(self._profile)
+                )
             else:
                 self.driver = self.webdriver.Firefox(options=options)
 
@@ -446,21 +471,23 @@ class WebPageChrome(SeleniumMixin, WebPage):
         self._cookies_file = cookies_file
 
     def open(self):
-        if url := os.environ.get('SELENIUM_CHROME_URL'):
+        if url := os.environ.get("SELENIUM_CHROME_URL"):
             # set NO_PROXY not to use proxy for accessing selenium
-            no_proxy = os.environ.get('NO_PROXY')
+            no_proxy = os.environ.get("NO_PROXY")
             netloc = urlparse(url).netloc
             if not no_proxy:
-                os.environ['NO_PROXY'] = netloc
+                os.environ["NO_PROXY"] = netloc
             elif netloc not in no_proxy:
-                os.environ['NO_PROXY'] += ',' + netloc
+                os.environ["NO_PROXY"] += "," + netloc
 
-            self.driver = self.webdriver.Remote(command_executor=url, options=webdriver.ChromeOptions())
+            self.driver = self.webdriver.Remote(
+                command_executor=url, options=webdriver.ChromeOptions()
+            )
         else:
             options = self.webdriver.chrome.options.Options()
             options.headless = True
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-gpu')
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-gpu")
             self.driver = self.webdriver.Chrome(options=options)
 
         logger.debug("Getting {}".format(self._url))
@@ -477,4 +504,6 @@ class WebPageChrome(SeleniumMixin, WebPage):
 class WebPageCurl(WebPage):
     @cached_property
     def html(self):
-        return subprocess.run(['curl', self.url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode()
+        return subprocess.run(
+            ["curl", self.url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        ).stdout.decode()
