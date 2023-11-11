@@ -172,11 +172,16 @@ class WebPageParser:
 
 
 class WebPage(WebPageParser, ABC):
-    def __init__(self, url, params={}, encoding=None):
+    def __init__(self, url, params={}, encoding=None, params_encoding=None):
+        if not params_encoding:
+            params_encoding = encoding
+
         parsed_url = urlparse(url)
         parsed_qs = parse_qs(parsed_url.query)
         parsed_qs.update(params)
-        self._url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
+        self._url = urlunparse(
+            parsed_url._replace(query=urlencode(parsed_qs, doseq=True, encoding=params_encoding))
+        )
         self._encoding = encoding
 
     def __str__(self):
