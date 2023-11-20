@@ -47,9 +47,7 @@
 		}
 	},
 	"features": {
-		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
-	},
-	"remoteEnv": {
-		"COMPOSE_PROJECT_NAME": "pyscraper"
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+		"ghcr.io/devcontainers-contrib/features/ffmpeg-apt-get:1": {}
 	}
 }

@@ -15,6 +15,17 @@ services:
       - 7900:7900
     volumes:
       - firefox-profile:/tmp/firefox-profile
+    depends_on:
+      - init-firefox
+
+  init-firefox:
+    image: busybox
+    command:
+      - sh
+      - -c
+      - chown -R 1200:1201 /tmp/firefox-profile
+    volumes:
+      - firefox-profile:/tmp/firefox-profile
 
   chrome:
     image: selenium/standalone-chrome

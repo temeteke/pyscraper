@@ -35,3 +35,9 @@ services:
 
     # Overrides default command so things don't shut down after the process ends.
     command: /bin/sh -c "while sleep 1000; do :; done"
+
+    environment:
+      - COMPOSE_PROJECT_NAME=pyscraper
+      - SELENIUM_FIREFOX_URL=http://firefox:4444/wd/hub
+      - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
+      - SELENIUM_CHROME_URL=http://chrome:4444/wd/hub

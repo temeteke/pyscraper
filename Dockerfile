@@ -1,4 +1,4 @@
-FROM python:3.9-alpine
+FROM python:3.12-alpine
 
 RUN apk add --no-cache ffmpeg && \
     apk add --no-cache --virtual .lxml-deps build-base libc-dev libxslt-dev && \
