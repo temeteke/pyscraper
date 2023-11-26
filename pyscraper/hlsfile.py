@@ -125,7 +125,7 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin, FileIOBase):
         total_chunk = b""
         web_file_position = self.position
         for web_file in self.web_files:
-            if web_file_position > web_file.size:
+            if web_file_position >= web_file.size:
                 web_file_position -= web_file.size
                 continue
             else:

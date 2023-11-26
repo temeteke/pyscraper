@@ -63,6 +63,10 @@ class MixinTestHlsFile:
         hls_file.seek(512)
         assert hls_file.read(128) == content[512 : 512 + 128]
 
+    def test_read_57152(self, hls_file, content):
+        hls_file.seek(57152)
+        assert hls_file.read(128) == content[57152 : 57152 + 128]
+
     def test_read_60000(self, hls_file, content):
         hls_file.seek(60000)
         assert hls_file.read(128) == content[60000 : 60000 + 128]
