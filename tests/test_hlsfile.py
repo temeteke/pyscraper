@@ -42,7 +42,7 @@ class MixinTestHlsFile:
     def test_m3u8_url(self, hls_file, url):
         assert hls_file.m3u8_url == url
 
-    def test_m3u8_content(self, hls_file, url):
+    def test_m3u8_content(self, hls_file):
         assert (
             hls_file.m3u8_content.strip()
             == """

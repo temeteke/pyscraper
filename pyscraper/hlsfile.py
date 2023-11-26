@@ -110,7 +110,7 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin, FileIOBase):
                 m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[
                     -1
                 ]
-                m3u8_playlist_url = urljoin(self.url, m3u8_playlist.uri)
+                m3u8_playlist_url = urljoin(url, m3u8_playlist.uri)
                 self.logger.debug(m3u8_playlist_url)
                 return get(m3u8_playlist_url)
             else:
@@ -125,11 +125,15 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def m3u8_content(self):
-        content = self.m3u8_web_file.read().decode()
-        content = re.sub(
-            r"^([^#\s].+)", urljoin(self.m3u8_url, r"\1"), content, flags=re.MULTILINE
-        )
-        return content
+        output_lines = []
+        for input_line in self.m3u8_web_file.read().decode().split("\n"):
+            if input_line.startswith("#"):
+                output_lines.append(input_line)
+            elif not input_line:
+                output_lines.append(input_line)
+            else:
+                output_lines.append(urljoin(self.m3u8_url, input_line))
+        return "\n".join(output_lines)
 
     @cached_property
     def web_files(self):
