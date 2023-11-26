@@ -1,4 +1,4 @@
-from .hlsfile import HlsFileError, HlsFileFfmpeg, HlsFileRequests
+from .hlsfile import HlsFile, HlsFileFfmpeg, HlsFileRequests, HlsFileError
 from .utils import HEADERS
 from .webfile import (
     WebFile,
@@ -36,6 +36,7 @@ __all__ = [
     "WebFileClientError",
     "WebFileServerError",
     "WebFileSeekError",
+    "HlsFile",
     "HlsFileFfmpeg",
     "HlsFileRequests",
     "HlsFileError",
