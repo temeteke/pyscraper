@@ -100,25 +100,42 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin, FileIOBase):
         self.set_path(directory, filename, filestem, filesuffix)
 
     @cached_property
+    def m3u8_web_file(self):
+        def get(url):
+            m3u8_web_file = WebFile(url, session=self.session)
+
+            # m3u8のリンクが含まれていた場合は選択する
+            m3u8_obj = m3u8.loads(m3u8_web_file.read().decode())
+            if m3u8_obj.playlists:
+                m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[
+                    -1
+                ]
+                m3u8_playlist_url = urljoin(self.url, m3u8_playlist.uri)
+                self.logger.debug(m3u8_playlist_url)
+                return get(m3u8_playlist_url)
+            else:
+                m3u8_web_file.seek(0)  # TODO: 改善
+                return m3u8_web_file
+
+        return get(self.url)
+
+    @cached_property
+    def m3u8_url(self):
+        return self.m3u8_web_file.url
+
+    @cached_property
+    def m3u8_content(self):
+        content = self.m3u8_web_file.read().decode()
+        content = re.sub(
+            r"^([^#\s].+)", urljoin(self.m3u8_url, r"\1"), content, flags=re.MULTILINE
+        )
+        return content
+
+    @cached_property
     def web_files(self):
-        r = self.session.get(self.url)
-        self.logger.debug(self.url)
-        self.logger.debug("Request Headers: " + str(r.request.headers))
-        self.logger.debug("Response Headers: " + str(r.headers))
-
-        # m3u8のリンクが含まれていた場合は選択する
-        m3u8_obj = m3u8.loads(r.text)
-        if m3u8_obj.playlists:
-            m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
-            m3u8_playlist_url = urljoin(self.url, m3u8_playlist.uri)
-            self.logger.debug(m3u8_playlist_url)
-        else:
-            m3u8_playlist_url = self.url
-
-        m3u8_file = WebFile(m3u8_playlist_url, session=self.session)
         return [
-            WebFile(urljoin(m3u8_playlist_url, url), session=self.session)
-            for url in re.findall(r"^[^#\s].+", m3u8_file.read().decode(), flags=re.MULTILINE)
+            WebFile(url, session=self.session)
+            for url in re.findall(r"^[^#\s].+", self.m3u8_content, flags=re.MULTILINE)
         ]
 
     def read(self, size=None):

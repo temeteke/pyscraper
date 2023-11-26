@@ -39,8 +39,29 @@ def content():
 
 
 class MixinTestHlsFile:
-    def test_web_files(self):
-        assert self.hf.web_files == [
+    def test_m3u8_url(self, hls_file, url):
+        assert hls_file.m3u8_url == url
+
+    def test_m3u8_content(self, hls_file, url):
+        assert (
+            hls_file.m3u8_content.strip()
+            == """
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:8
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:8.341667,
+https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts
+#EXTINF:8.341667,
+https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video001.ts
+#EXTINF:3.336667,
+https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts
+#EXT-X-ENDLIST
+""".strip()
+        )
+
+    def test_web_files(self, hls_file):
+        assert hls_file.web_files == [
             WebFile(
                 "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts"
             ),
