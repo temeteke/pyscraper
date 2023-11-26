@@ -24,62 +24,7 @@ class HlsFileMixin(WebFileMixin):
         return ".mp4"
 
 
-class HlsFileFfmpeg(HlsFileMixin):
-    def __init__(
-        self, url, headers={}, directory=".", filename=None, filestem=None, filesuffix=None
-    ):
-        self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
-
-        self.url = url
-        self.headers = headers
-        self.headers.update(HEADERS)
-
-        self.set_path(directory, filename, filestem, filesuffix)
-
-    @cached_property
-    def tempfile(self):
-        return self.filepath.with_name(".tmp." + self.filepath.name)
-
-    def download(self):
-        if self.filepath.exists():
-            self.logger.warning(f"{self.filepath} is already downloaded.")
-            return self.filepath
-
-        self.logger.info(f"Downloading {self.url} to {self.filepath}")
-
-        if self.tempfile.exists():
-            self.tempfile.unlink()
-
-        try:
-            ff = ffmpy.FFmpeg(
-                global_options="-headers '"
-                + "\r\n".join(["{}: {}".format(k, v) for k, v in self.headers.items()])
-                + "'",
-                inputs={self.url: None},
-                outputs={self.tempfile: "-c copy"},
-            )
-            self.logger.debug(ff)
-            ff.run()
-        except Exception as e:
-            self.logger.exception(e)
-            if self.tempfile.exists():
-                self.tempfile.unlink()
-            raise HlsFileError from None
-
-        self.tempfile.rename(self.filepath)
-
-        return self.filepath
-
-    def unlink(self):
-        super().unlink()
-
-        try:
-            self.tempfile.unlink()
-        except FileNotFoundError:
-            pass
-
-
-class HlsFileRequests(HlsFileMixin, RequestsMixin, FileIOBase):
+class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
         url,
@@ -160,6 +105,82 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin, FileIOBase):
                     break
         self.position += len(total_chunk)
         return total_chunk
+
+
+class HlsFileFfmpeg(HlsFileMixin):
+    def __init__(
+        self, url, headers={}, directory=".", filename=None, filestem=None, filesuffix=None
+    ):
+        self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
+
+        self.url = url
+        self.headers = headers
+        self.headers.update(HEADERS)
+
+        self.set_path(directory, filename, filestem, filesuffix)
+
+    @cached_property
+    def tempfile(self):
+        return self.filepath.with_name(".tmp." + self.filepath.name)
+
+    def download(self):
+        if self.filepath.exists():
+            self.logger.warning(f"{self.filepath} is already downloaded.")
+            return self.filepath
+
+        self.logger.info(f"Downloading {self.url} to {self.filepath}")
+
+        if self.tempfile.exists():
+            self.tempfile.unlink()
+
+        try:
+            ff = ffmpy.FFmpeg(
+                global_options="-headers '"
+                + "\r\n".join(["{}: {}".format(k, v) for k, v in self.headers.items()])
+                + "'",
+                inputs={self.url: None},
+                outputs={self.tempfile: "-c copy"},
+            )
+            self.logger.debug(ff)
+            ff.run()
+        except Exception as e:
+            self.logger.exception(e)
+            if self.tempfile.exists():
+                self.tempfile.unlink()
+            raise HlsFileError from None
+
+        self.tempfile.rename(self.filepath)
+
+        return self.filepath
+
+    def unlink(self):
+        super().unlink()
+
+        try:
+            self.tempfile.unlink()
+        except FileNotFoundError:
+            pass
+
+
+class HlsFileRequests(HlsFileMixin, RequestsMixin):
+    def __init__(
+        self,
+        url,
+        session=None,
+        headers={},
+        cookies={},
+        directory=".",
+        filename=None,
+        filestem=None,
+        filesuffix=None,
+    ):
+        self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
+
+        self.url = url
+
+        self.init_session(session, headers, cookies)
+
+        self.set_path(directory, filename, filestem, filesuffix)
 
     def download(self):
         if self.filepath.exists():

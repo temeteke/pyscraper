@@ -2,9 +2,8 @@ import logging
 
 import pytest
 
-from pyscraper import WebFile
-
-from pyscraper.hlsfile import HlsFileFfmpeg, HlsFileRequests
+from pyscraper.webfile import WebFile
+from pyscraper.hlsfile import HlsFile, HlsFileFfmpeg, HlsFileRequests
 
 logger = logging.getLogger("pyscraper")
 logger.setLevel(logging.DEBUG)
@@ -38,7 +37,11 @@ def content():
     return content
 
 
-class MixinTestHlsFile:
+class TestHlsFile:
+    @pytest.fixture
+    def hls_file(self, url):
+        return HlsFile(url)
+
     def test_m3u8_url(self, hls_file, url):
         assert hls_file.m3u8_url == url
 
@@ -96,6 +99,12 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
         hls_file.seek(256)
         assert hls_file.read() == content[256:]
 
+
+class TestHlsFileFfmpeg:
+    @pytest.fixture
+    def hls_file(self, url):
+        return HlsFileFfmpeg(url)
+
     def test_download_unlink(self, hls_file):
         f = hls_file.download()
         assert f.exists()
@@ -104,13 +113,14 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
         assert not f.exists()
 
 
-class TestHlsFileFfmpeg(MixinTestHlsFile):
-    @pytest.fixture
-    def hls_file(self, url):
-        return HlsFileFfmpeg(url)
-
-
-class TestHlsFileRequests(MixinTestHlsFile):
+class TestHlsFileRequests:
     @pytest.fixture
     def hls_file(self, url):
         return HlsFileRequests(url)
+
+    def test_download_unlink(self, hls_file):
+        f = hls_file.download()
+        assert f.exists()
+
+        hls_file.unlink()
+        assert not f.exists()
