@@ -9,7 +9,7 @@ import ffmpy
 import m3u8
 
 from .utils import HEADERS, RequestsMixin
-from .webfile import WebFile, WebFileMixin
+from .webfile import FileIOBase, WebFile, WebFileMixin
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class HlsFileFfmpeg(HlsFileMixin):
             pass
 
 
-class HlsFileRequests(HlsFileMixin, RequestsMixin):
+class HlsFileRequests(HlsFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
         url,
@@ -91,13 +91,54 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         filestem=None,
         filesuffix=None,
     ):
-        self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
+        super().__init__()
 
         self.url = url
 
         self.init_session(session, headers, cookies)
 
         self.set_path(directory, filename, filestem, filesuffix)
+
+    @cached_property
+    def web_files(self):
+        r = self.session.get(self.url)
+        self.logger.debug(self.url)
+        self.logger.debug("Request Headers: " + str(r.request.headers))
+        self.logger.debug("Response Headers: " + str(r.headers))
+
+        # m3u8のリンクが含まれていた場合は選択する
+        m3u8_obj = m3u8.loads(r.text)
+        if m3u8_obj.playlists:
+            m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
+            m3u8_playlist_url = urljoin(self.url, m3u8_playlist.uri)
+            self.logger.debug(m3u8_playlist_url)
+        else:
+            m3u8_playlist_url = self.url
+
+        m3u8_file = WebFile(m3u8_playlist_url, session=self.session)
+        return [
+            WebFile(urljoin(m3u8_playlist_url, url), session=self.session)
+            for url in re.findall(r"^[^#\s].+", m3u8_file.read().decode(), flags=re.MULTILINE)
+        ]
+
+    def read(self, size=None):
+        total_chunk = b""
+        web_file_position = self.position
+        for web_file in self.web_files:
+            if web_file_position > web_file.size:
+                web_file_position -= web_file.size
+                continue
+            else:
+                web_file.seek(web_file_position)
+                web_file_position = 0
+            chunk = web_file.read(size)
+            total_chunk += chunk
+            if size:
+                size -= len(chunk)
+                if size == 0:
+                    break
+        self.position += len(total_chunk)
+        return total_chunk
 
     def download(self):
         if self.filepath.exists():
