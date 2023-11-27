@@ -46,9 +46,6 @@ class TestHlsFile:
     def hls_file(self, url):
         return HlsFile(url)
 
-    def test_m3u8_url(self, hls_file, url):
-        assert hls_file.m3u8_url == url
-
     def test_m3u8_content(self, hls_file):
         assert (
             hls_file.m3u8_content.strip()
@@ -56,7 +53,6 @@ class TestHlsFile:
 #EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:8
-#EXT-X-MEDIA-SEQUENCE:0
 #EXTINF:8.341667,
 https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts
 #EXTINF:8.341667,

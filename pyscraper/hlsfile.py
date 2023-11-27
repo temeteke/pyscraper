@@ -45,47 +45,26 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         self.set_path(directory, filename, filestem, filesuffix)
 
     @cached_property
-    def m3u8_web_file(self):
-        def get(url):
-            m3u8_web_file = WebFile(url, session=self.session)
-
-            # m3u8のリンクが含まれていた場合は選択する
-            m3u8_obj = m3u8.loads(m3u8_web_file.read().decode())
+    def m3u8_obj(self):
+        def get_best_playlist(url):
+            m3u8_obj = m3u8.loads(WebFile(url, session=self.session).read().decode())
+            m3u8_obj.base_path = url.rsplit("/", 1)[0]
             if m3u8_obj.playlists:
-                m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[
-                    -1
-                ]
-                m3u8_playlist_url = urljoin(url, m3u8_playlist.uri)
-                self.logger.debug(m3u8_playlist_url)
-                return get(m3u8_playlist_url)
+                return get_best_playlist(
+                    sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1].uri
+                )
             else:
-                m3u8_web_file.seek(0)  # TODO: 改善
-                return m3u8_web_file
+                return m3u8_obj
 
-        return get(self.url)
-
-    @cached_property
-    def m3u8_url(self):
-        return self.m3u8_web_file.url
+        return get_best_playlist(self.url)
 
     @cached_property
     def m3u8_content(self):
-        output_lines = []
-        for input_line in self.m3u8_web_file.read().decode().split("\n"):
-            if input_line.startswith("#"):
-                output_lines.append(input_line)
-            elif not input_line:
-                output_lines.append(input_line)
-            else:
-                output_lines.append(urljoin(self.m3u8_url, input_line))
-        return "\n".join(output_lines)
+        return self.m3u8_obj.dumps()
 
     @cached_property
     def web_files(self):
-        return [
-            WebFile(url, session=self.session)
-            for url in re.findall(r"^[^#\s].+", self.m3u8_content, flags=re.MULTILINE)
-        ]
+        return [WebFile(segment.uri, session=self.session) for segment in self.m3u8_obj.segments]
 
     def read(self, size=None):
         total_chunk = b""
