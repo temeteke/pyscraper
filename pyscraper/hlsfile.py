@@ -47,11 +47,12 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @cached_property
     def m3u8_obj(self):
         def get_best_playlist(url):
-            m3u8_obj = m3u8.loads(WebFile(url, session=self.session).read().decode())
-            m3u8_obj.base_path = url.rsplit("/", 1)[0]
+            m3u8_obj = m3u8.loads(WebFile(url, session=self.session).read().decode(), uri=url)
             if m3u8_obj.playlists:
                 return get_best_playlist(
-                    sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1].uri
+                    sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[
+                        -1
+                    ].absolute_uri
                 )
             else:
                 return m3u8_obj
@@ -60,11 +61,20 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def m3u8_content(self):
-        return self.m3u8_obj.dumps()
+        output_lines = []
+        for input_line in self.m3u8_obj.dumps().split("\n"):
+            if input_line.startswith("#"):
+                output_lines.append(input_line)
+            elif input_line:
+                output_lines.append(urljoin(self.m3u8_obj.base_uri, input_line))
+        return "\n".join(output_lines)
 
     @cached_property
     def web_files(self):
-        return [WebFile(segment.uri, session=self.session) for segment in self.m3u8_obj.segments]
+        return [
+            WebFile(segment.absolute_uri, session=self.session)
+            for segment in self.m3u8_obj.segments
+        ]
 
     def read(self, size=None):
         total_chunk = b""
