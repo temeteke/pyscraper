@@ -19,8 +19,8 @@ def url():
 
 
 @pytest.fixture(scope="session")
-def content():
-    web_files = [
+def web_files():
+    return [
         WebFile(
             "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts"
         ),
@@ -31,6 +31,10 @@ def content():
             "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts"
         ),
     ]
+
+
+@pytest.fixture(scope="session")
+def content(web_files):
     content = b""
     for web_file in web_files:
         content += web_file.read()
@@ -98,6 +102,10 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
     def test_read_256(self, hls_file, content):
         hls_file.seek(256)
         assert hls_file.read() == content[256:]
+
+    def test_read_files(self, hls_file, web_files):
+        for hls_file_content, web_file in zip(hls_file.read_files(), web_files):
+            assert hls_file_content == web_file.read()
 
 
 class TestHlsFileFfmpeg:

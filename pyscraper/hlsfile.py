@@ -106,6 +106,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         self.position += len(total_chunk)
         return total_chunk
 
+    def read_files(self):
+        for web_file in self.web_files:
+            yield web_file.read()
+
 
 class HlsFileFfmpeg(HlsFileMixin):
     def __init__(
