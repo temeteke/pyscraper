@@ -18,13 +18,7 @@ class HlsFileError(Exception):
     pass
 
 
-class HlsFileMixin(WebFileMixin):
-    @cached_property
-    def filesuffix(self):
-        return ".mp4"
-
-
-class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
+class HlsFile(WebFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
         url,
@@ -98,6 +92,12 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def read_files(self):
         for web_file in self.web_files:
             yield web_file.read()
+
+
+class HlsFileMixin(WebFileMixin):
+    @cached_property
+    def filesuffix(self):
+        return ".mp4"
 
 
 class HlsFileFfmpeg(HlsFileMixin):
