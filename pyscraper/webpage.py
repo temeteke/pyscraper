@@ -408,16 +408,22 @@ class SeleniumMixin:
 
 
 class WebPageFirefox(SeleniumMixin, WebPage):
-    def __init__(self, url=None, params={}, cookies_file=None, profile=None):
+    def __init__(
+        self, url=None, params={}, cookies_file=None, profile=None, page_load_strategy=None
+    ):
         if not url:
             url = "about:home"
         super().__init__(url, params=params)
         self._cookies_file = cookies_file
         self._profile = profile
+        self._page_load_strategy = page_load_strategy
 
     def open(self):
+        options = webdriver.FirefoxOptions()
+        if self._page_load_strategy:
+            options.page_load_strategy = self._page_load_strategy
+
         if url := os.environ.get("SELENIUM_FIREFOX_URL"):
-            options = webdriver.FirefoxOptions()
             if profile := os.environ.get("SELENIUM_FIREFOX_PROFILE"):
                 options.add_argument("-profile")
                 options.add_argument(profile)
@@ -450,7 +456,6 @@ class WebPageFirefox(SeleniumMixin, WebPage):
             self.driver = self.webdriver.Remote(command_executor=url, options=options)
 
         else:
-            options = self.webdriver.firefox.options.Options()
             options.headless = True
             if self._profile:
                 self.driver = self.webdriver.Firefox(
@@ -473,15 +478,19 @@ class WebPageFirefox(SeleniumMixin, WebPage):
 
 
 class WebPageChrome(SeleniumMixin, WebPage):
-    def __init__(self, url=None, params={}, cookies_file=None):
+    def __init__(self, url=None, params={}, cookies_file=None, page_load_strategy=None):
         if not url:
             url = "chrome://new-tab-page"
         super().__init__(url, params=params)
         self._cookies_file = cookies_file
+        self._page_load_strategy = page_load_strategy
 
     def open(self):
+        options = webdriver.ChromeOptions()
+        if self._page_load_strategy:
+            options.page_load_strategy = self._page_load_strategy
+
         if url := os.environ.get("SELENIUM_CHROME_URL"):
-            options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
             if profile := os.environ.get("SELENIUM_CHROME_PROFILE"):
                 options.add_argument(f"--user-data-dir={profile}")
@@ -496,7 +505,6 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
             self.driver = self.webdriver.Remote(command_executor=url, options=options)
         else:
-            options = self.webdriver.chrome.options.Options()
             options.headless = True
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
