@@ -408,7 +408,9 @@ class SeleniumMixin:
 
 
 class WebPageFirefox(SeleniumMixin, WebPage):
-    def __init__(self, url, params={}, cookies_file=None, profile=None):
+    def __init__(self, url=None, params={}, cookies_file=None, profile=None):
+        if not url:
+            url = "about:home"
         super().__init__(url, params=params)
         self._cookies_file = cookies_file
         self._profile = profile
@@ -471,7 +473,9 @@ class WebPageFirefox(SeleniumMixin, WebPage):
 
 
 class WebPageChrome(SeleniumMixin, WebPage):
-    def __init__(self, url, params={}, cookies_file=None):
+    def __init__(self, url=None, params={}, cookies_file=None):
+        if not url:
+            url = "chrome://new-tab-page"
         super().__init__(url, params=params)
         self._cookies_file = cookies_file
 
