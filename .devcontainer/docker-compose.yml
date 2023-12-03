@@ -41,3 +41,4 @@ services:
       - SELENIUM_FIREFOX_URL=http://firefox:4444/wd/hub
       - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
       - SELENIUM_CHROME_URL=http://chrome:4444/wd/hub
+      - SELENIUM_CHROME_PROFILE=/tmp/chrome-profile

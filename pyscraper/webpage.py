@@ -477,6 +477,11 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
     def open(self):
         if url := os.environ.get("SELENIUM_CHROME_URL"):
+            options = webdriver.ChromeOptions()
+            options.add_argument("--start-maximized")
+            if profile := os.environ.get("SELENIUM_CHROME_PROFILE"):
+                options.add_argument(f"--user-data-dir={profile}")
+
             # set NO_PROXY not to use proxy for accessing selenium
             no_proxy = os.environ.get("NO_PROXY")
             netloc = urlparse(url).netloc
@@ -485,9 +490,7 @@ class WebPageChrome(SeleniumMixin, WebPage):
             elif netloc not in no_proxy:
                 os.environ["NO_PROXY"] += "," + netloc
 
-            self.driver = self.webdriver.Remote(
-                command_executor=url, options=webdriver.ChromeOptions()
-            )
+            self.driver = self.webdriver.Remote(command_executor=url, options=options)
         else:
             options = self.webdriver.chrome.options.Options()
             options.headless = True

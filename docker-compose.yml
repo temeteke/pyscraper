@@ -8,6 +8,7 @@ services:
       - SELENIUM_FIREFOX_URL=http://firefox:4444/wd/hub
       - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
       - SELENIUM_CHROME_URL=http://chrome:4444/wd/hub
+      - SELENIUM_CHROME_PROFILE=/tmp/chrome-profile
 
   firefox:
     image: selenium/standalone-firefox
@@ -31,6 +32,20 @@ services:
     image: selenium/standalone-chrome
     ports:
       - 7901:7900
+    volumes:
+      - chrome-profile:/tmp/chrome-profile
+    depends_on:
+      - init-chrome
+
+  init-chrome:
+    image: busybox
+    command:
+      - sh
+      - -c
+      - chown -R 1200:1201 /tmp/chrome-profile
+    volumes:
+      - chrome-profile:/tmp/chrome-profile
 
 volumes:
   firefox-profile:
+  chrome-profile:
