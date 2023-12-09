@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import subprocess
@@ -296,6 +297,12 @@ class SeleniumWebPageElement(WebPageElement):
         self.element.parent.execute_script(
             f"arguments[0].scrollIntoView({{block: '{block}', inline: '{inline}'}});", self.element
         )
+
+    @contextlib.contextmanager
+    def switch(self):
+        self.element.parent.switch_to.frame(self.element)
+        yield
+        self.element.parent.switch_to.parent_frame()
 
 
 class SeleniumMixin:

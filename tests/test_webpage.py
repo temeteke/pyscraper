@@ -112,6 +112,12 @@ class MixinTestWebPageSelenium:
     def test_get_scroll_01(self, webpage):
         webpage.get("//a[@id='link']")[0].scroll()
 
+    def test_get_switch_01(self, webpage):
+        assert webpage.get("//title")[0].inner_text == "Title"
+        with webpage.get("//iframe")[0].switch():
+            assert webpage.get("//title")[0].inner_text == "Title 2"
+        assert webpage.get("//title")[0].inner_text == "Title"
+
     def test_click_01(self, webpage):
         webpage.click("//a[@id='link']")
         assert webpage.url.endswith("test2.html")
