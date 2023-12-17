@@ -57,3 +57,7 @@ class RequestsMixin:
 
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
+
+    @property
+    def user_agent(self):
+        return self.session.headers["User-Agent"]

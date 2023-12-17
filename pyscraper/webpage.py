@@ -329,6 +329,10 @@ class SeleniumMixin:
             cookies[cookie["name"]] = cookie["value"]
         return cookies
 
+    @property
+    def user_agent(self):
+        return self.driver.execute_script("return navigator.userAgent")
+
     def set_cookies_from_file(self, cookies_file):
         cookies = MozillaCookieJar(cookies_file)
         cookies.load()
