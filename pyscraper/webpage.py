@@ -11,7 +11,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import lxml.html
-import requests
 import selenium.common.exceptions
 from retry import retry
 from selenium import webdriver
@@ -210,9 +209,6 @@ class WebPageRequests(RequestsMixin, WebPage):
         self.init_session(session, headers, cookies)
 
     @cached_property
-    @retry(
-        requests.exceptions.ReadTimeout, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger
-    )
     def response(self):
         logger.debug("Getting {}".format(self._url))
         logger.debug("Request Headers: " + str(self.session.headers))
