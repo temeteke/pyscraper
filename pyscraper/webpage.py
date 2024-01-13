@@ -75,6 +75,9 @@ class WebPageElement:
                 text += child.text
         return text.strip()
 
+    def itertext(self):
+        return self.lxml_html.itertext()
+
     @property
     def attr(self):
         return self.attributes

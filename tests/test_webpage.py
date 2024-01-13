@@ -63,6 +63,9 @@ class MixinTestWebPage:
     def test_get_inner_text_01(self, webpage):
         assert webpage.get("//p")[0].inner_text == "paragraph 1link 1"
 
+    def test_get_itertext_01(self, webpage):
+        assert list(webpage.get("//p")[0].itertext()) == ["paragraph 1", "link 1"]
+
     def test_get_atrib_01(self, webpage):
         assert webpage.get("//a[@id='link']")[0].attrib["id"] == "link"
 
