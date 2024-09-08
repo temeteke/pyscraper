@@ -206,16 +206,18 @@ class WebPage(WebPageParser, ABC):
 
 
 class WebPageRequests(RequestsMixin, WebPage):
-    def __init__(self, url, params={}, session=None, headers={}, cookies={}, encoding=None):
+    def __init__(self, url, params={}, session=None, headers={}, cookies={}, encoding=None, timeout=10):
         super().__init__(url, params=params, encoding=encoding)
 
         self.init_session(session, headers, cookies)
+        
+        self.timeout = timeout
 
     @cached_property
     def response(self):
         logger.debug("Getting {}".format(self._url))
         logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.get(self._url, timeout=10)
+        r = self.session.get(self._url, timeout=self.timeout)
         logger.debug("Response Headers: " + str(r.headers))
         if self._encoding:
             r.encoding = self._encoding
