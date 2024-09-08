@@ -6,6 +6,7 @@ RUN apk add --no-cache ffmpeg && \
     apk del .lxml-deps
 
 WORKDIR /app
+RUN pip install --no-cache-dir --upgrade setuptools
 COPY setup.py setup.cfg ./
 COPY pyscraper pyscraper/
 RUN python setup.py install -n && \
