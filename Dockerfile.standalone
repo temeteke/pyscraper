@@ -14,6 +14,7 @@ RUN apk add --no-cache --virtual .python-deps gcc musl-dev python3-dev libffi-de
     apk del .python-deps
 
 WORKDIR /app
+RUN pip install --no-cache-dir --upgrade setuptools
 COPY setup.py setup.cfg ./
 COPY pyscraper pyscraper/
 RUN python setup.py install -n && \
