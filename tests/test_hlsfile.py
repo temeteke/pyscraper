@@ -116,6 +116,14 @@ class TestHlsFileFfmpeg:
         hls_file.unlink()
         assert not f.exists()
 
+    def test_download_unlink_filename(self, hls_file):
+        f = hls_file.download(filename="video_file.mp4")
+        assert f.exists()
+        assert f.name == "video_file.mp4"
+
+        hls_file.unlink()
+        assert not f.exists()
+
 
 class TestHlsFileRequests:
     @pytest.fixture
@@ -125,6 +133,14 @@ class TestHlsFileRequests:
     def test_download_unlink(self, hls_file):
         f = hls_file.download()
         assert f.exists()
+
+        hls_file.unlink()
+        assert not f.exists()
+
+    def test_download_unlink_filename(self, hls_file):
+        f = hls_file.download(filename="video_file.mp4")
+        assert f.exists()
+        assert f.name == "video_file.mp4"
 
         hls_file.unlink()
         assert not f.exists()

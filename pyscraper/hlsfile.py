@@ -116,7 +116,15 @@ class HlsFileFfmpeg(HlsFileMixin):
     def tempfile(self):
         return self.filepath.with_name(".tmp." + self.filepath.name)
 
-    def download(self):
+    def download(
+        self,
+        directory=None,
+        filename=None,
+        filestem=None,
+        filesuffix=None,
+    ):
+        self.set_path(directory, filename, filestem, filesuffix)
+
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
             return self.filepath
@@ -175,7 +183,15 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
 
         self.set_path(directory, filename, filestem, filesuffix)
 
-    def download(self):
+    def download(
+        self,
+        directory=None,
+        filename=None,
+        filestem=None,
+        filesuffix=None,
+    ):
+        self.set_path(directory, filename, filestem, filesuffix)
+
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
             return
