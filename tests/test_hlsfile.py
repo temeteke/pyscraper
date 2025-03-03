@@ -19,6 +19,11 @@ def url():
 
 
 @pytest.fixture(scope="session")
+def url_error():
+    return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_.m3u8"
+
+
+@pytest.fixture(scope="session")
 def web_files():
     return [
         WebFile(
@@ -109,6 +114,10 @@ class TestHlsFileFfmpeg:
     def hls_file(self, url):
         return HlsFileFfmpeg(url)
 
+    @pytest.fixture
+    def hls_file_error(self, url_error):
+        return HlsFileFfmpeg(url_error)
+
     def test_download_unlink(self, hls_file):
         f = hls_file.download()
         assert f.exists()
@@ -123,6 +132,12 @@ class TestHlsFileFfmpeg:
 
         hls_file.unlink()
         assert not f.exists()
+
+    def test_exists_true(self, hls_file):
+        assert hls_file.exists()
+
+    def test_exists_false(self, hls_file_error):
+        assert not hls_file_error.exists()
 
 
 class TestHlsFileRequests:
@@ -130,6 +145,10 @@ class TestHlsFileRequests:
     def hls_file(self, url):
         return HlsFileRequests(url)
 
+    @pytest.fixture
+    def hls_file_error(self, url_error):
+        return HlsFileFfmpeg(url_error)
+
     def test_download_unlink(self, hls_file):
         f = hls_file.download()
         assert f.exists()
@@ -144,3 +163,9 @@ class TestHlsFileRequests:
 
         hls_file.unlink()
         assert not f.exists()
+
+    def test_exists_true(self, hls_file):
+        assert hls_file.exists()
+
+    def test_exists_false(self, hls_file_error):
+        assert not hls_file_error.exists()

@@ -162,6 +162,20 @@ class HlsFileFfmpeg(HlsFileMixin):
         except FileNotFoundError:
             pass
 
+    def exists(self):
+        try:
+            ff = ffmpy.FFprobe(
+                global_options="-headers '"
+                + "\r\n".join(["{}: {}".format(k, v) for k, v in self.headers.items()])
+                + "'",
+                inputs={self.url: None},
+            )
+            self.logger.debug(ff)
+            ff.run()
+            return True
+        except ffmpy.FFRuntimeError:
+            return False
+
 
 class HlsFileRequests(HlsFileMixin, RequestsMixin):
     def __init__(
@@ -183,6 +197,29 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
 
         self.set_path(directory, filename, filestem, filesuffix)
 
+    @cached_property
+    def m3u8_file(self):
+        r = self.session.get(self.url)
+        self.logger.debug(self.url)
+        self.logger.debug("Request Headers: " + str(r.request.headers))
+        self.logger.debug("Response Headers: " + str(r.headers))
+
+        # m3u8のリンクが含まれていた場合は選択する
+        m3u8_obj = m3u8.loads(r.text)
+        if m3u8_obj.playlists:
+            m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
+            m3u8_playlist_url = urljoin(self.url, m3u8_playlist.uri)
+            self.logger.debug(m3u8_playlist_url)
+        else:
+            m3u8_playlist_url = self.url
+
+        return WebFile(
+            m3u8_playlist_url,
+            session=self.session,
+            directory=str(self.directory / Path(self.filestem)),
+            filename="hls.m3u8",
+        )
+
     def download(
         self,
         directory=None,
@@ -198,53 +235,35 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
-        r = self.session.get(self.url)
-        self.logger.debug(self.url)
-        self.logger.debug("Request Headers: " + str(r.request.headers))
-        self.logger.debug("Response Headers: " + str(r.headers))
+        if self.m3u8_file.filepath.exists():
+            self.m3u8_file.filepath.unlink()
+        self.m3u8_file.download()
 
-        # m3u8のリンクが含まれていた場合は選択する
-        m3u8_obj = m3u8.loads(r.text)
-        if m3u8_obj.playlists:
-            m3u8_playlist = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
-            m3u8_playlist_url = urljoin(self.url, m3u8_playlist.uri)
-            self.logger.debug(m3u8_playlist_url)
-        else:
-            m3u8_playlist_url = self.url
-
-        m3u8_file = WebFile(
-            m3u8_playlist_url,
-            session=self.session,
-            directory=str(self.directory / Path(self.filestem)),
-            filename="hls.m3u8",
-        )
-        if m3u8_file.filepath.exists():
-            m3u8_file.filepath.unlink()
-        m3u8_file.download()
-
-        for ts_url in re.findall(r"^[^#\s].+", m3u8_file.filepath.read_text(), flags=re.MULTILINE):
+        for ts_url in re.findall(
+            r"^[^#\s].+", self.m3u8_file.filepath.read_text(), flags=re.MULTILINE
+        ):
             if not (
                 self.directory / Path(self.filestem) / Path(urlparse(ts_url).path).name
             ).exists():
                 WebFile(
-                    urljoin(m3u8_playlist_url, ts_url),
+                    urljoin(self.m3u8_file.url, ts_url),
                     session=self.session,
                     directory=str(self.directory / Path(self.filestem)),
                 ).download()
 
         # 連結
         temp = []
-        with m3u8_file.filepath.open() as f:
+        with self.m3u8_file.filepath.open() as f:
             for x in f:
                 if x.startswith("http"):
                     temp.append(urlparse(x).path.split("/").pop())
                 else:
                     temp.append(x)
-        with m3u8_file.filepath.open("w") as f:
+        with self.m3u8_file.filepath.open("w") as f:
             f.write("\n".join(temp))
 
         ff = ffmpy.FFmpeg(
-            inputs={str(m3u8_file.filepath): None},
+            inputs={str(self.m3u8_file.filepath): None},
             outputs={str(self.filepath): "-c copy"},
         )
         self.logger.debug(ff)
@@ -253,3 +272,6 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         shutil.rmtree(str(self.directory / Path(self.filestem)))
 
         return self.filepath
+
+    def exists(self):
+        return self.m3u8_file.exists()
