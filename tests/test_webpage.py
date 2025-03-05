@@ -167,6 +167,31 @@ class TestWebPageRequests(MixinTestWebPage):
         assert f.exists()
         f.unlink()
 
+    def test_url(self, webpage, url):
+        assert webpage.url == url
+
+    def test_url_redirect(self):
+        assert (
+            WebPageRequests("https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org").url
+            == "https://httpbin.org"
+        )
+
+    def test_headers(self):
+        assert (
+            WebPageRequests("https://httpbin.org/headers", headers={"test": "test"}).headers[
+                "test"
+            ]
+            == "test"
+        )
+
+    def test_cookies(self):
+        assert (
+            WebPageRequests("https://httpbin.org/cookies", cookies={"test": "test"}).cookies[
+                "test"
+            ]
+            == "test"
+        )
+
 
 class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium):
     @pytest.fixture

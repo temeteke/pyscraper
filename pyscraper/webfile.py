@@ -157,19 +157,23 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         self.logger.debug(url)
 
-        self.url = url
+        self._url = url
         self.timeout = timeout
 
         self.init_session(session, headers, cookies)
 
         self.set_path(directory, filename, filestem, filesuffix)
 
+    @property
+    def url(self):
+        return self.response.url
+
     def _get_response(self, headers={}):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)
 
         try:
-            r = self.session.get(self.url, headers=headers, stream=True, timeout=self.timeout)
+            r = self.session.get(self._url, headers=headers, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
             raise WebFileConnectionError(e) from e
         except requests.exceptions.Timeout as e:

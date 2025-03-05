@@ -84,6 +84,27 @@ class TestWebFile(MixinTestWebFile):
         with pytest.raises(WebFileError):
             WebFile("http://a.temeteke.com").read()
 
+    def test_url(self, webfile, url):
+        assert webfile.url == url
+
+    def test_url_redirect(self):
+        assert (
+            WebFile("https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org").url
+            == "https://httpbin.org"
+        )
+
+    def test_headers(self):
+        assert (
+            WebFile("https://httpbin.org/headers", headers={"test": "test"}).headers["test"]
+            == "test"
+        )
+
+    def test_cookies(self):
+        assert (
+            WebFile("https://httpbin.org/cookies", cookies={"test": "test"}).cookies["test"]
+            == "test"
+        )
+
 
 class TestWebFileCached(MixinTestWebFile):
     @pytest.fixture

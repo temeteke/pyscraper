@@ -206,11 +206,13 @@ class WebPage(WebPageParser, ABC):
 
 
 class WebPageRequests(RequestsMixin, WebPage):
-    def __init__(self, url, params={}, session=None, headers={}, cookies={}, encoding=None, timeout=10):
+    def __init__(
+        self, url, params={}, session=None, headers={}, cookies={}, encoding=None, timeout=10
+    ):
         super().__init__(url, params=params, encoding=encoding)
 
         self.init_session(session, headers, cookies)
-        
+
         self.timeout = timeout
 
     @cached_property
@@ -225,10 +227,7 @@ class WebPageRequests(RequestsMixin, WebPage):
 
     @cached_property
     def url(self):
-        if "response" in self.__dict__:
-            return self.response.url
-        else:
-            return super().url
+        return self.response.url
 
     @cached_property
     def content(self):
