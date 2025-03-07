@@ -9,7 +9,7 @@ import ffmpy
 import m3u8
 
 from .utils import HEADERS, RequestsMixin
-from .webfile import FileIOBase, WebFile, WebFileClientError, WebFileMixin
+from .webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,13 @@ class HlsFileError(Exception):
     pass
 
 
-class HlsFile(WebFileMixin, RequestsMixin, FileIOBase):
+class HlsFileMixin(WebFileMixin):
+    @cached_property
+    def filesuffix(self):
+        return ".mp4"
+
+
+class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
         url,
@@ -70,6 +76,10 @@ class HlsFile(WebFileMixin, RequestsMixin, FileIOBase):
             for segment in self.m3u8_obj.segments
         ]
 
+    @property
+    def tempfile(self):
+        return self.filepath.with_name(self.filepath.name + ".part")
+
     def read(self, size=None):
         total_chunk = b""
         web_file_position = self.position
@@ -93,18 +103,49 @@ class HlsFile(WebFileMixin, RequestsMixin, FileIOBase):
         for web_file in self.web_files:
             yield web_file.read()
 
+    def download(
+        self,
+        directory=None,
+        filename=None,
+        filestem=None,
+        filesuffix=None,
+    ):
+        self.set_path(directory, filename, filestem, filesuffix)
+
+        if self.filepath.exists():
+            self.logger.warning(f"{self.filepath} is already downloaded.")
+            return
+
+        self.logger.info(f"Downloading {self.url} to {self.filepath}")
+
+        with MyTqdm(
+            total=len(self.web_files),
+            dynamic_ncols=True,
+        ) as pbar:
+            for web_file in self.web_files:
+                web_file.download(directory=str(self.directory / self.filestem))
+                pbar.update()
+
+        with self.tempfile.open("ab") as out_file:
+            for web_file in self.web_files:
+                with web_file.filepath.open("rb") as in_file:
+                    out_file.write(in_file.read())
+
+        for web_file in self.web_files:
+            web_file.unlink()
+
+        (self.directory / self.filestem).rmdir()
+
+        self.tempfile.rename(self.filepath)
+
+        return self.filepath
+
     def exists(self):
         try:
             if web_files := self.web_files:
                 return web_files[0].exists()
         except WebFileClientError:
             return False
-
-
-class HlsFileMixin(WebFileMixin):
-    @cached_property
-    def filesuffix(self):
-        return ".mp4"
 
 
 class HlsFileFfmpeg(HlsFileMixin):

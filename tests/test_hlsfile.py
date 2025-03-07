@@ -118,6 +118,21 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
     def test_exists_false(self, hls_file_error):
         assert not hls_file_error.exists()
 
+    def test_download_unlink(self, hls_file):
+        f = hls_file.download()
+        assert f.exists()
+
+        hls_file.unlink()
+        assert not f.exists()
+
+    def test_download_unlink_filename(self, hls_file):
+        f = hls_file.download(filename="video_file.mp4")
+        assert f.exists()
+        assert f.name == "video_file.mp4"
+
+        hls_file.unlink()
+        assert not f.exists()
+
 
 class TestHlsFileFfmpeg:
     @pytest.fixture
