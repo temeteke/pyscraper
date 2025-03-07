@@ -9,7 +9,7 @@ import ffmpy
 import m3u8
 
 from .utils import HEADERS, RequestsMixin
-from .webfile import FileIOBase, WebFile, WebFileMixin
+from .webfile import FileIOBase, WebFile, WebFileClientError, WebFileMixin
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,13 @@ class HlsFile(WebFileMixin, RequestsMixin, FileIOBase):
     def read_files(self):
         for web_file in self.web_files:
             yield web_file.read()
+
+    def exists(self):
+        try:
+            if web_files := self.web_files:
+                return web_files[0].exists()
+        except WebFileClientError:
+            return False
 
 
 class HlsFileMixin(WebFileMixin):

@@ -51,6 +51,10 @@ class TestHlsFile:
     def hls_file(self, url):
         return HlsFile(url)
 
+    @pytest.fixture
+    def hls_file_error(self, url_error):
+        return HlsFile(url_error)
+
     def test_m3u8_content(self, hls_file):
         assert (
             hls_file.m3u8_content.strip()
@@ -107,6 +111,12 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
     def test_read_files(self, hls_file, web_files):
         for hls_file_content, web_file in zip(hls_file.read_files(), web_files):
             assert hls_file_content == web_file.read()
+
+    def test_exists_true(self, hls_file):
+        assert hls_file.exists()
+
+    def test_exists_false(self, hls_file_error):
+        assert not hls_file_error.exists()
 
 
 class TestHlsFileFfmpeg:
