@@ -77,8 +77,12 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         ]
 
     @property
-    def tempfile(self):
+    def temp_file(self):
         return self.filepath.with_name(self.filepath.name + ".part")
+
+    @property
+    def temp_directory(self):
+        return self.directory / self.filestem
 
     def read(self, size=None):
         total_chunk = b""
@@ -123,10 +127,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             dynamic_ncols=True,
         ) as pbar:
             for web_file in self.web_files:
-                web_file.download(directory=str(self.directory / self.filestem))
+                web_file.download(directory=str(self.temp_directory))
                 pbar.update()
 
-        with self.tempfile.open("ab") as out_file:
+        with self.temp_file.open("ab") as out_file:
             for web_file in self.web_files:
                 with web_file.filepath.open("rb") as in_file:
                     out_file.write(in_file.read())
@@ -134,11 +138,19 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         for web_file in self.web_files:
             web_file.unlink()
 
-        (self.directory / self.filestem).rmdir()
+        self.temp_directory.rmdir()
 
-        self.tempfile.rename(self.filepath)
+        self.temp_file.rename(self.filepath)
 
         return self.filepath
+
+    def unlink(self):
+        super().unlink()
+
+        for web_file in self.web_files:
+            web_file.unlink()
+
+        self.temp_directory.rmdir()
 
     def exists(self):
         try:
