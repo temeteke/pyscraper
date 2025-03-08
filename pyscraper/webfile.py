@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import logging
 import re
 import sys
@@ -30,11 +31,12 @@ class MyTqdm(tqdm):
         return super().__init__(*args, **kwargs)
 
 
-class FileIOBase:
+class FileIOBase(ABC):
     def __init__(self):
         self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
         self.position = 0
 
+    @abstractmethod
     def read(self, size):
         pass
 
