@@ -4,6 +4,7 @@ import shutil
 from functools import cached_property
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from typing_extensions import deprecated
 
 import ffmpy
 import m3u8
@@ -63,6 +64,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return get_best_playlist(self.url)
 
     @cached_property
+    @deprecated("使っていないはずなので廃止する")
     def m3u8_content(self):
         output_lines = []
         for input_line in self.m3u8_obj.dumps().split("\n"):
