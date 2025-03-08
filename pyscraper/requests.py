@@ -55,7 +55,10 @@ class RequestsMixin:
 
     @property
     def url(self):
-        return self.response.url
+        try:
+            return self.response.url
+        except requests.exceptions.RequestException:
+            return self._url
 
     @url.setter
     def url(self, value):
@@ -67,7 +70,10 @@ class RequestsMixin:
 
     @property
     def encoding(self):
-        return self.response.encoding
+        try:
+            return self.response.encoding
+        except requests.exceptions.RequestException:
+            return self._url
 
     @encoding.setter
     def encoding(self, value):

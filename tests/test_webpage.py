@@ -25,6 +25,10 @@ class MixinTestWebPage:
         webpage.url = "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
         assert webpage.url == "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
 
+    def test_url_03(self, webpage):
+        webpage.url = "https://temeteke.github.io/pyscraper/tests/testdata/test3.html"
+        assert webpage.url == "https://temeteke.github.io/pyscraper/tests/testdata/test3.html"
+
     def test_encoding_01(self, webpage):
         assert webpage.encoding == "utf-8"
 

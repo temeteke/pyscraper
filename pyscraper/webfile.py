@@ -216,6 +216,21 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         return r
 
+    @property
+    def url(self):
+        try:
+            return self.response.url
+        except WebFileError:
+            return self._url
+
+    @url.setter
+    def url(self, value):
+        self._url = value
+        try:
+            del self.response
+        except AttributeError:
+            pass
+
     @cached_property
     def size(self):
         try:

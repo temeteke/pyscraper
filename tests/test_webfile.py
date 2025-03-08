@@ -30,6 +30,11 @@ class MixinTestWebFile:
         webfile.url = "https://httpbin.org/range/2048"
         assert webfile.url == "https://httpbin.org/range/2048"
 
+    def test_url_03(self, webfile):
+        webfile.exists()
+        webfile.url = "https://httpbin.org/status/404"
+        assert webfile.url == "https://httpbin.org/status/404"
+
     def test_directory(self, webfile):
         assert webfile.directory == Path(".")
 
