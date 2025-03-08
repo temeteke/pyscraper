@@ -19,9 +19,8 @@ class HlsFileError(Exception):
 
 
 class HlsFileMixin(WebFileMixin):
-    @cached_property
-    def filesuffix(self):
-        return ".mp4"
+    def get_filename(self):
+        return str(Path(urlparse(self.url).path.split("/")[-1]).with_suffix(".mp4"))
 
 
 class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
@@ -42,8 +41,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         self.session = session
         self.headers = headers
         self.cookies = cookies
-
-        self.set_path(directory, filename, filestem, filesuffix)
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
 
     @cached_property
     def m3u8_obj(self):
@@ -115,7 +116,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         filestem=None,
         filesuffix=None,
     ):
-        self.set_path(directory, filename, filestem, filesuffix)
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -128,7 +132,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             dynamic_ncols=True,
         ) as pbar:
             for web_file in self.web_files:
-                web_file.download(directory=str(self.temp_directory))
+                web_file.download(directory=self.temp_directory)
                 pbar.update()
 
         with self.temp_file.open("ab") as out_file:
@@ -172,8 +176,10 @@ class HlsFileFfmpeg(HlsFileMixin):
         self.url = url
         self.headers = headers
         self.headers.update(HEADERS)
-
-        self.set_path(directory, filename, filestem, filesuffix)
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
 
     @cached_property
     def tempfile(self):
@@ -186,7 +192,10 @@ class HlsFileFfmpeg(HlsFileMixin):
         filestem=None,
         filesuffix=None,
     ):
-        self.set_path(directory, filename, filestem, filesuffix)
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -258,8 +267,10 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         self.session = session
         self.headers = headers
         self.cookies = cookies
-
-        self.set_path(directory, filename, filestem, filesuffix)
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
 
     @cached_property
     def m3u8_file(self):
@@ -280,7 +291,7 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         return WebFile(
             m3u8_playlist_url,
             session=self.session,
-            directory=str(self.directory / Path(self.filestem)),
+            directory=(self.directory / self.filestem),
             filename="hls.m3u8",
         )
 
@@ -291,7 +302,10 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         filestem=None,
         filesuffix=None,
     ):
-        self.set_path(directory, filename, filestem, filesuffix)
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -312,7 +326,7 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
                 WebFile(
                     urljoin(self.m3u8_file.url, ts_url),
                     session=self.session,
-                    directory=str(self.directory / Path(self.filestem)),
+                    directory=(self.directory / self.filestem),
                 ).download()
 
         # 連結
@@ -333,7 +347,7 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         self.logger.debug(ff)
         ff.run()
 
-        shutil.rmtree(str(self.directory / Path(self.filestem)))
+        shutil.rmtree(self.directory / self.filestem)
 
         return self.filepath
 

@@ -38,9 +38,12 @@ class WebPageNoSuchElementError(WebPageError):
 
 
 class WebPageElement:
-    def __init__(self, element, encoding="utf-8"):
+    def __init__(self, element, encoding=None):
         self.lxml_html = element
-        self.encoding = encoding
+        if encoding:
+            self.encoding = encoding
+        else:
+            self.encoding = "utf-8"
 
     @property
     def html(self):
@@ -100,19 +103,23 @@ class WebPageElement:
 class WebPageParser:
     def __init__(self, html, encoding=None):
         self.html = html
-        self._encoding = encoding
+        self.encoding = encoding
 
     @property
     def encoding(self):
-        if self._encoding:
-            return self._encoding
+        if encoding := getattr(self, "_encoding", None):
+            return encoding
         else:
             return "utf-8"
+
+    @encoding.setter
+    def encoding(self, value):
+        self._encoding = value
 
     @property
     def lxml_html(self):
         # エンコードしていないcontentがあり、encodingが指定されていない場合、contentを処理する
-        if hasattr(self, "content") and not self._encoding:
+        if hasattr(self, "content") and not self.encoding:
             return lxml.html.fromstring(self.content)
         else:
             return lxml.html.fromstring(self.html)
@@ -185,7 +192,7 @@ class WebPage(WebPageParser, ABC):
         self._url = urlunparse(
             parsed_url._replace(query=urlencode(parsed_qs, doseq=True, encoding=params_encoding))
         )
-        self._encoding = encoding
+        self.encoding = encoding
 
     def __str__(self):
         return self.url
@@ -198,6 +205,10 @@ class WebPage(WebPageParser, ABC):
     @property
     def url(self):
         return self._url
+
+    @url.setter
+    def url(self, value):
+        self._url = value
 
     @property
     @abstractmethod
@@ -222,25 +233,37 @@ class WebPageRequests(RequestsMixin, WebPage):
         logger.debug("Request Headers: " + str(self.session.headers))
         r = self.session.get(self._url, timeout=self.timeout)
         logger.debug("Response Headers: " + str(r.headers))
-        if self._encoding:
-            r.encoding = self._encoding
+        if encoding := self._encoding:
+            r.encoding = encoding
         return r
 
-    @cached_property
+    @property
     def url(self):
         return self.response.url
 
-    @cached_property
+    @url.setter
+    def url(self, value):
+        self._url = value
+        if hasattr(self, "response"):
+            del self.response
+
+    @property
+    def encoding(self):
+        return self.response.encoding
+
+    @encoding.setter
+    def encoding(self, value):
+        self._encoding = value
+        if hasattr(self, "response"):
+            del self.response
+
+    @property
     def content(self):
         return self.response.content
 
-    @cached_property
+    @property
     def html(self):
         return self.response.text
-
-    @cached_property
-    def encoding(self):
-        return self.response.encoding
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -426,14 +449,14 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         if not url:
             url = "about:home"
         super().__init__(url, params=params)
-        self._cookies_file = cookies_file
-        self._profile = profile
-        self._page_load_strategy = page_load_strategy
+        self.cookies_file = cookies_file
+        self.profile = profile
+        self.page_load_strategy = page_load_strategy
 
     def open(self):
         options = webdriver.FirefoxOptions()
-        if self._page_load_strategy:
-            options.page_load_strategy = self._page_load_strategy
+        if self.page_load_strategy:
+            options.page_load_strategy = self.page_load_strategy
 
         if url := os.environ.get("SELENIUM_FIREFOX_URL"):
             if profile := os.environ.get("SELENIUM_FIREFOX_PROFILE"):
@@ -469,9 +492,9 @@ class WebPageFirefox(SeleniumMixin, WebPage):
 
         else:
             options.headless = True
-            if self._profile:
+            if self.profile:
                 self.driver = self.webdriver.Firefox(
-                    options=options, firefox_profile=self.webdriver.FirefoxProfile(self._profile)
+                    options=options, firefox_profile=self.webdriver.FirefoxProfile(self.profile)
                 )
             else:
                 self.driver = self.webdriver.Firefox(options=options)
@@ -479,8 +502,8 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         logger.debug("Getting {}".format(self._url))
         self.driver.get(self._url)
 
-        if self._cookies_file:
-            self.set_cookies_from_file(self._cookies_file)
+        if self.cookies_file:
+            self.set_cookies_from_file(self.cookies_file)
             self.driver.get(self._url)
 
         return self
@@ -494,13 +517,13 @@ class WebPageChrome(SeleniumMixin, WebPage):
         if not url:
             url = "chrome://new-tab-page"
         super().__init__(url, params=params)
-        self._cookies_file = cookies_file
-        self._page_load_strategy = page_load_strategy
+        self.cookies_file = cookies_file
+        self.page_load_strategy = page_load_strategy
 
     def open(self):
         options = webdriver.ChromeOptions()
-        if self._page_load_strategy:
-            options.page_load_strategy = self._page_load_strategy
+        if self.page_load_strategy:
+            options.page_load_strategy = self.page_load_strategy
 
         if url := os.environ.get("SELENIUM_CHROME_URL"):
             options.add_argument("--start-maximized")
@@ -524,8 +547,8 @@ class WebPageChrome(SeleniumMixin, WebPage):
 
         logger.debug("Getting {}".format(self._url))
         self.driver.get(self._url)
-        if self._cookies_file:
-            self.set_cookies_from_file(self._cookies_file)
+        if self.cookies_file:
+            self.set_cookies_from_file(self.cookies_file)
             self.driver.get(self._url)
         return self
 

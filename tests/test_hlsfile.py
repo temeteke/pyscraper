@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -54,6 +55,18 @@ class TestHlsFile:
     @pytest.fixture
     def hls_file_error(self, url_error):
         return HlsFile(url_error)
+
+    def test_directory(self, hls_file):
+        assert hls_file.directory == Path(".")
+
+    def test_filestem(self, hls_file):
+        assert hls_file.filestem == "video"
+
+    def test_filesuffix(self, hls_file):
+        assert hls_file.filesuffix == ".mp4"
+
+    def test_filename(self, hls_file):
+        assert hls_file.filename == "video.mp4"
 
     def test_m3u8_content(self, hls_file):
         assert (

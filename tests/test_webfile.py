@@ -22,6 +22,9 @@ def content(url):
 
 
 class MixinTestWebFile:
+    def test_directory(self, webfile):
+        assert webfile.directory == Path(".")
+
     def test_filestem(self, webfile):
         assert webfile.filestem == "test"
 

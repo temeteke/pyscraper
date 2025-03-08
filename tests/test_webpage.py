@@ -28,6 +28,12 @@ class TestWebPageParser:
     def webpage(self, html):
         return WebPageParser(html=html)
 
+    def test_encoding_01(self, webpage):
+        assert webpage.encoding == "utf-8"
+
+    def test_encoding_02(self, html):
+        assert WebPageParser(html=html, encoding="euc-jp").encoding == "euc-jp"
+
     def test_get_html_01(self, webpage):
         assert webpage.get_html("//p") == [
             "<p>paragraph 1<a>link 1</a></p>",

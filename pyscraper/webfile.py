@@ -92,42 +92,62 @@ class WebFileMixin:
             return NotImplemented
         return self.url == other.url
 
-    def set_path(self, directory=".", filename=None, filestem=None, filesuffix=None):
-        if directory:
-            self.directory = Path(re.sub(r'[:|\s\*\?\\"]', "_", directory))
-            self.directory.mkdir(parents=True, exist_ok=True)
-
-        self._filename = filename
-        self._filestem = filestem
-        self._filesuffix = filesuffix
-
     def get_filename(self):
         return urlparse(self.url).path.split("/").pop()
 
     @property
+    def directory(self):
+        if directory := getattr(self, "_directory", None):
+            return directory
+        else:
+            return Path(".")
+
+    @directory.setter
+    def directory(self, directory):
+        if directory:
+            self._directory = Path(re.sub(r'[:|\s\*\?\\"]', "_", str(directory)))
+            self._directory.mkdir(parents=True, exist_ok=True)
+
+    @property
     def filestem(self):
-        if self._filestem:
-            filestem = unicodedata.normalize("NFC", self._filestem)
-            while len(filestem.encode()) > 255 - 10:
-                filestem = filestem[:-1]
-            return re.sub(r'[/:|\s\*\.\?\\"]', "_", filestem)
-        elif self._filename:
-            return Path(self._filename).stem
+        if filestem := getattr(self, "_filestem", None):
+            return filestem
+        elif filename := getattr(self, "_filename", None):
+            return Path(filename).stem
         else:
             return Path(self.get_filename()).stem
 
+    @filestem.setter
+    def filestem(self, filestem):
+        if filestem:
+            filestem = unicodedata.normalize("NFC", filestem)
+            while len(filestem.encode()) > 255 - 10:
+                filestem = filestem[:-1]
+            self._filestem = re.sub(r'[/:|\s\*\.\?\\"]', "_", filestem)
+
     @property
     def filesuffix(self):
-        if self._filesuffix:
-            return self._filesuffix
-        elif self._filename:
-            return Path(self._filename).suffix
+        if filesuffix := getattr(self, "_filesuffix", None):
+            return filesuffix
+        elif filename := getattr(self, "_filename", None):
+            return Path(filename).suffix
         else:
             return Path(self.get_filename()).suffix
 
+    @filesuffix.setter
+    def filesuffix(self, filesuffix):
+        self._filesuffix = filesuffix
+
     @property
     def filename(self):
-        return self.filestem + self.filesuffix
+        if filename := getattr(self, "_filename", None):
+            return filename
+        else:
+            return self.filestem + self.filesuffix
+
+    @filename.setter
+    def filename(self, filename):
+        self._filename = filename
 
     @property
     def filepath(self):
@@ -161,9 +181,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.session = session
         self.headers = headers
         self.cookies = cookies
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
         self.timeout = timeout
-
-        self.set_path(directory, filename, filestem, filesuffix)
 
     @property
     def url(self):
@@ -221,10 +243,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def filesuffix(self):
-        if self._filesuffix:
-            return self._filesuffix
-        elif self._filename:
-            return Path(self._filename).suffix
+        if filesuffix := getattr(self, "_filesuffix", None):
+            return filesuffix
+        elif filename := getattr(self, "_filename", None):
+            return Path(filename).suffix
         elif (
             "Content-Type" in self.response.headers
             and self.response.headers["Content-Type"] == "video/mp4"
@@ -232,6 +254,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return ".mp4"
         else:
             return Path(self.get_filename()).suffix
+
+    @filesuffix.setter
+    def filesuffix(self, filesuffix):
+        self._filesuffix = filesuffix
 
     @property
     def tempfile(self):
@@ -327,9 +353,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     ):
         """Read contents and save into a file."""
 
-        self.set_path(
-            directory, file_name or filename, file_stem or filestem, file_suffix or filesuffix
-        )
+        self.directory = directory
+        self.filename = file_name or filename
+        self.filestem = file_stem or filestem
+        self.filesuffix = file_suffix or filesuffix
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -539,9 +566,10 @@ class WebFileCached(WebFile):
     ):
         """Read contents and save into a file."""
 
-        self.set_path(
-            directory, file_name or filename, file_stem or filestem, file_suffix or filesuffix
-        )
+        self.directory = directory
+        self.filename = file_name or filename
+        self.filestem = file_stem or filestem
+        self.filesuffix = file_suffix or filesuffix
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
