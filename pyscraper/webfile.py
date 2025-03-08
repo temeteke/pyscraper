@@ -10,7 +10,8 @@ import requests
 import urllib3.exceptions
 from tqdm import tqdm
 
-from .utils import RequestsMixin
+from pyscraper.requests import RequestsMixin
+
 
 logger = logging.getLogger(__name__)
 

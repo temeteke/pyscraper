@@ -8,8 +8,9 @@ from urllib.parse import urljoin, urlparse
 import ffmpy
 import m3u8
 
-from .utils import HEADERS, RequestsMixin
-from .webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
+from pyscraper.requests import RequestsMixin
+from pyscraper.utils import HEADERS
+from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
 
 logger = logging.getLogger(__name__)
 
