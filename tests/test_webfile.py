@@ -118,6 +118,9 @@ class TestWebFile(MixinTestWebFile):
             == "test"
         )
 
+    def test_filesuffix_jpg(self, webfile):
+        return WebFile("https://httpbin.org/image/jpeg").filesuffix == ".jpg"
+
 
 class TestWebFileCached(MixinTestWebFile):
     @pytest.fixture

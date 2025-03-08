@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
+import mimetypes
 import re
 import sys
 import unicodedata
@@ -236,11 +237,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return filesuffix
         elif filename := getattr(self, "_filename", None):
             return Path(filename).suffix
-        elif (
-            "Content-Type" in self.response.headers
-            and self.response.headers["Content-Type"] == "video/mp4"
-        ):
-            return ".mp4"
+        elif extension := mimetypes.guess_extension(self.response.headers.get("Content-Type", "")):
+            return extension
         else:
             return Path(self.get_filename()).suffix
 
