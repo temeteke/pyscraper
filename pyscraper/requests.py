@@ -2,7 +2,8 @@ from functools import cached_property
 import logging
 import requests
 
-from pyscraper.utils import HEADERS
+from pyscraper.constants import HEADERS
+
 
 logger = logging.getLogger(__name__)
 

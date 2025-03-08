@@ -1,5 +1,5 @@
 from .hlsfile import HlsFile, HlsFileFfmpeg, HlsFileRequests, HlsFileError
-from .utils import HEADERS
+from .constants import HEADERS
 from .webfile import (
     WebFile,
     WebFileCached,

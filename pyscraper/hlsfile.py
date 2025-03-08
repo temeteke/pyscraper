@@ -9,8 +9,8 @@ from typing_extensions import deprecated
 import ffmpy
 import m3u8
 
+from pyscraper.constants import HEADERS
 from pyscraper.requests import RequestsMixin
-from pyscraper.utils import HEADERS
 from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
 
 logger = logging.getLogger(__name__)
