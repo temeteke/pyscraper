@@ -168,6 +168,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def url(self):
         return self.response.url
 
+    @url.setter
+    def url(self, url):
+        self._url = url
+        del self.response
+
     def _get_response(self, headers={}):
         headers_all = self.session.headers.copy()
         headers_all.update(headers)

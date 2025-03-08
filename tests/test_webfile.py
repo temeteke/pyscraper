@@ -105,6 +105,11 @@ class TestWebFile(MixinTestWebFile):
             == "test"
         )
 
+    def test_url_change(self, webfile):
+        webfile.exists()
+        webfile.url = "https://httpbin.org/range/2048"
+        assert webfile.url == "https://httpbin.org/range/2048"
+
 
 class TestWebFileCached(MixinTestWebFile):
     @pytest.fixture
