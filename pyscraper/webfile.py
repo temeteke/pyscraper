@@ -171,7 +171,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     @url.setter
     def url(self, url):
         self._url = url
-        del self.response
+        if hasattr(self, "response"):
+            del self.response
 
     def _get_response(self, headers={}):
         headers_all = self.session.headers.copy()
