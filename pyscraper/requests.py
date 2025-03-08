@@ -1,8 +1,7 @@
 from functools import cached_property
+from fake_useragent import UserAgent
 import logging
 import requests
-
-from pyscraper.constants import HEADERS
 
 
 logger = logging.getLogger(__name__)
@@ -13,16 +12,17 @@ class RequestsMixin:
     def session(self):
         if not getattr(self, "_session", None):
             self._session = requests.Session()
-            self._session.headers.update(HEADERS)
+            ua = UserAgent(platforms="desktop")
+            self._session.headers["User-Agent"] = ua.random
         return self._session
 
     @session.setter
     def session(self, session):
         if session:
             self._session = session
-            # sessionのheadersにない項目はデフォルトのHEADERSを設定する
-            for k, v in HEADERS.items():
-                self._session.headers.setdefault(k, v)
+            if not session.headers.get("User-Agent"):
+                ua = UserAgent(platforms="desktop")
+                self._session.headers["User-Agent"] = ua.random
         try:
             del self.response
         except AttributeError:
