@@ -101,10 +101,11 @@ class WebPageElement:
         return self.lxml_html.itertext()
 
 
-class WebPageParser:
-    def __init__(self, html, encoding=None):
-        self.html = html
-        self.encoding = encoding
+class WebPageParserMixin(ABC):
+    @property
+    @abstractmethod
+    def html(self):
+        pass
 
     @property
     def encoding(self):
@@ -167,21 +168,8 @@ class WebPageParser:
 
         return filepath
 
-    def __enter__(self):
-        self.open()
-        return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    def open(self):
-        pass
-
-    def close(self):
-        pass
-
-
-class WebPage(WebPageParser, ABC):
+class WebPage(WebPageParserMixin):
     def __init__(self, url, params={}, encoding=None, params_encoding=None):
         if not params_encoding:
             params_encoding = encoding
@@ -210,9 +198,17 @@ class WebPage(WebPageParser, ABC):
     def url(self, value):
         self._url = value
 
-    @property
-    @abstractmethod
-    def html(self):
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def open(self):
+        pass
+
+    def close(self):
         pass
 
 
@@ -299,17 +295,19 @@ class SeleniumWebPageElement(WebPageElement):
         self.element.parent.switch_to.parent_frame()
 
 
-class SeleniumMixin:
+class SeleniumMixin(ABC):
     @property
-    def webdriver(self):
-        return webdriver
+    @abstractmethod
+    def driver(self):
+        pass
 
     @property
     def url(self):
-        if hasattr(self, "driver"):
-            return self.driver.current_url
-        else:
-            return super().url
+        return self.driver.current_url
+
+    @url.setter
+    def url(self, url):
+        self.go(url)
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
@@ -369,10 +367,12 @@ class SeleniumMixin:
         return iframe_url
 
     def go(self, url, params={}):
-        parsed_url = urlparse(url)
-        parsed_qs = parse_qs(parsed_url.query)
-        parsed_qs.update(params)
-        self.driver.get(urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True))))
+        if params:
+            parsed_url = urlparse(url)
+            parsed_qs = parse_qs(parsed_url.query)
+            parsed_qs.update(params)
+            url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
+        self.driver.get(url)
 
     def forward(self):
         self.driver.forward()
@@ -423,7 +423,8 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         self.profile = profile
         self.page_load_strategy = page_load_strategy
 
-    def open(self):
+    @cached_property
+    def driver(self):
         options = webdriver.FirefoxOptions()
         if self.page_load_strategy:
             options.page_load_strategy = self.page_load_strategy
@@ -458,17 +459,18 @@ class WebPageFirefox(SeleniumMixin, WebPage):
             elif netloc not in no_proxy:
                 os.environ["NO_PROXY"] += "," + netloc
 
-            self.driver = self.webdriver.Remote(command_executor=url, options=options)
+            return webdriver.Remote(command_executor=url, options=options)
 
         else:
             options.headless = True
             if self.profile:
-                self.driver = self.webdriver.Firefox(
-                    options=options, firefox_profile=self.webdriver.FirefoxProfile(self.profile)
+                return webdriver.Firefox(
+                    options=options, firefox_profile=webdriver.FirefoxProfile(self.profile)
                 )
             else:
-                self.driver = self.webdriver.Firefox(options=options)
+                return webdriver.Firefox(options=options)
 
+    def open(self):
         logger.debug("Getting {}".format(self._url))
         self.driver.get(self._url)
 
@@ -490,7 +492,8 @@ class WebPageChrome(SeleniumMixin, WebPage):
         self.cookies_file = cookies_file
         self.page_load_strategy = page_load_strategy
 
-    def open(self):
+    @cached_property
+    def driver(self):
         options = webdriver.ChromeOptions()
         if self.page_load_strategy:
             options.page_load_strategy = self.page_load_strategy
@@ -508,13 +511,14 @@ class WebPageChrome(SeleniumMixin, WebPage):
             elif netloc not in no_proxy:
                 os.environ["NO_PROXY"] += "," + netloc
 
-            self.driver = self.webdriver.Remote(command_executor=url, options=options)
+            return webdriver.Remote(command_executor=url, options=options)
         else:
             options.headless = True
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
-            self.driver = self.webdriver.Chrome(options=options)
+            return webdriver.Chrome(options=options)
 
+    def open(self):
         logger.debug("Getting {}".format(self._url))
         self.driver.get(self._url)
         if self.cookies_file:

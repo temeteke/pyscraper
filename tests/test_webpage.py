@@ -1,14 +1,12 @@
 import os
 
 import pytest
-import requests
 
 from pyscraper.webpage import (
     WebPageChrome,
     WebPageCurl,
     WebPageFirefox,
     WebPageNoSuchElementError,
-    WebPageParser,
     WebPageRequests,
     WebPageTimeoutError,
 )
@@ -19,38 +17,21 @@ def url():
     return "https://temeteke.github.io/pyscraper/tests/testdata/test.html"
 
 
-class TestWebPageParser:
-    @pytest.fixture
-    def html(self, url):
-        return requests.get(url).text
+class MixinTestWebPage:
+    def test_url_01(self, webpage, url):
+        assert webpage.url == url
 
-    @pytest.fixture
-    def webpage(self, html):
-        return WebPageParser(html=html)
+    def test_url_02(self, webpage):
+        webpage.url = "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
+        assert webpage.url == "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
 
     def test_encoding_01(self, webpage):
         assert webpage.encoding == "utf-8"
 
-    def test_encoding_02(self, html):
-        assert WebPageParser(html=html, encoding="euc-jp").encoding == "euc-jp"
+    def test_encoding_02(self, webpage):
+        webpage.encoding = "euc-jp"
+        assert webpage.encoding == "euc-jp"
 
-    def test_get_html_01(self, webpage):
-        assert webpage.get_html("//p") == [
-            "<p>paragraph 1<a>link 1</a></p>",
-            "<p>paragraph 2<a>link 2</a></p>",
-        ]
-
-    def test_get_innerhtml_01(self, webpage):
-        assert webpage.get_innerhtml("//p") == [
-            "paragraph 1<a>link 1</a>",
-            "paragraph 2<a>link 2</a>",
-        ]
-
-    def test_xpath_01(self, webpage):
-        assert webpage.xpath("//h1/text()")[0] == "Header"
-
-
-class MixinTestWebPage:
     def test_get_01(self, webpage):
         assert webpage.get("//a[@id='link']")
 
@@ -172,9 +153,6 @@ class TestWebPageRequests(MixinTestWebPage):
         f = webpage.dump()
         assert f.exists()
         f.unlink()
-
-    def test_url(self, webpage, url):
-        assert webpage.url == url
 
     def test_url_redirect(self):
         assert (
