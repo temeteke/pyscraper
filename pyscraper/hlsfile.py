@@ -74,7 +74,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @cached_property
     def web_files(self):
         return [
-            WebFile(segment.absolute_uri, session=self.session)
+            WebFile(segment.absolute_uri, headers=self.headers, cookies=self.cookies)
             for segment in self.m3u8_obj.segments
         ]
 
