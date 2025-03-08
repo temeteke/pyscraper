@@ -227,36 +227,6 @@ class WebPageRequests(RequestsMixin, WebPage):
         self.cookies = cookies
         self.timeout = timeout
 
-    @cached_property
-    def response(self):
-        logger.debug("Getting {}".format(self._url))
-        logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.get(self._url, timeout=self.timeout)
-        logger.debug("Response Headers: " + str(r.headers))
-        if encoding := self._encoding:
-            r.encoding = encoding
-        return r
-
-    @property
-    def url(self):
-        return self.response.url
-
-    @url.setter
-    def url(self, value):
-        self._url = value
-        if hasattr(self, "response"):
-            del self.response
-
-    @property
-    def encoding(self):
-        return self.response.encoding
-
-    @encoding.setter
-    def encoding(self, value):
-        self._encoding = value
-        if hasattr(self, "response"):
-            del self.response
-
     @property
     def content(self):
         return self.response.content

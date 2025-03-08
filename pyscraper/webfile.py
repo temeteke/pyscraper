@@ -187,28 +187,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.filesuffix = filesuffix
         self.timeout = timeout
 
-    @property
-    def url(self):
-        return self.response.url
-
-    @url.setter
-    def url(self, url):
-        self._url = url
-        if hasattr(self, "response"):
-            del self.response
-
-    @property
-    def headers(self):
-        return dict(self.session.headers)
-
-    @headers.setter
-    def headers(self, headers):
-        self.session.headers.update(headers)
-        if hasattr(self, "response"):
-            del self.response
-
     @cached_property
     def response(self):
+        self.logger.debug("Getting {}".format(self._url))
+        self.logger.debug("Request Headers: " + str(self.session.headers))
+
         try:
             r = self.session.get(self._url, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
@@ -216,7 +199,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         except requests.exceptions.Timeout as e:
             raise WebFileTimeoutError(e) from e
 
-        self.logger.debug("Request Headers: " + str(r.request.headers))
         self.logger.debug("Response Headers: " + str(r.headers))
 
         try:
