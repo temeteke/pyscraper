@@ -150,7 +150,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         for web_file in self.web_files:
             web_file.unlink()
 
-        self.temp_directory.rmdir()
+        temp_directory = self.temp_directory
+        if temp_directory.exists():
+            temp_directory.rmdir()
 
     def exists(self):
         try:
