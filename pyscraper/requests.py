@@ -57,7 +57,8 @@ class RequestsMixin:
     def url(self):
         try:
             return self.response.url
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            logger.error(e)
             return self._url
 
     @url.setter
@@ -72,7 +73,8 @@ class RequestsMixin:
     def encoding(self):
         try:
             return self.response.encoding
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            logger.error(e)
             return self._url
 
     @encoding.setter

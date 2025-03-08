@@ -220,7 +220,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def url(self):
         try:
             return self.response.url
-        except WebFileError:
+        except WebFileError as e:
+            logger.error(e)
             return self._url
 
     @url.setter
