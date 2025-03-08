@@ -39,7 +39,7 @@ for element in web_page.get("//a"):
 ```python
 from pyscraper.webpage import WebPageFirefox
 
-with WebPageFirefox("https://example.com") as wp:
+with WebPageFirefox("https://example.com") as web_page:
     for element in web_page.get("//a"):
         print(element.text)
 ```
