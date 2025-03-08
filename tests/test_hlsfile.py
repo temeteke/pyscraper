@@ -85,8 +85,8 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
 """.strip()
         )
 
-    def test_web_files(self, hls_file):
-        assert hls_file.web_files == [
+    def test_web_files_01(self, hls_file):
+        expected = [
             WebFile(
                 "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts"
             ),
@@ -97,6 +97,31 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
                 "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts"
             ),
         ]
+        assert list(hls_file.web_files) == expected
+        assert list(hls_file.web_files) == expected
+
+    def test_web_files_02(self, hls_file):
+        assert (
+            WebFile(
+                "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts"
+            )
+            in hls_file.web_files
+        )
+        assert len(hls_file.web_files) == 1
+        assert (
+            WebFile(
+                "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video001.ts"
+            )
+            in hls_file.web_files
+        )
+        assert len(hls_file.web_files) == 2
+        assert (
+            WebFile(
+                "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts"
+            )
+            in hls_file.web_files
+        )
+        assert len(hls_file.web_files) == 3
 
     def test_read_all(self, hls_file, content):
         assert hls_file.read() == content
