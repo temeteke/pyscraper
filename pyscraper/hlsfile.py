@@ -10,7 +10,6 @@ from typing_extensions import deprecated
 import ffmpy
 import m3u8
 
-from pyscraper.constants import HEADERS
 from pyscraper.requests import RequestsMixin
 from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
 
@@ -182,7 +181,6 @@ class HlsFileFfmpeg(HlsFileMixin):
             ua = UserAgent(platforms="desktop")
             headers["User-Agent"] = ua.random
         self.headers = headers
-        self.headers.update(HEADERS)
         self.directory = directory
         self.filename = filename
         self.filestem = filestem
