@@ -4,6 +4,7 @@ import shutil
 from functools import cached_property
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from fake_useragent import UserAgent
 from typing_extensions import deprecated
 
 import ffmpy
@@ -177,6 +178,9 @@ class HlsFileFfmpeg(HlsFileMixin):
         self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
 
         self.url = url
+        if not headers.get("User-Agent"):
+            ua = UserAgent(platforms="desktop")
+            headers["User-Agent"] = ua.random
         self.headers = headers
         self.headers.update(HEADERS)
         self.directory = directory
