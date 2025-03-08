@@ -56,6 +56,14 @@ class TestHlsFile:
     def hls_file_error(self, url_error):
         return HlsFile(url_error)
 
+    def test_url_01(self, hls_file, url):
+        assert hls_file.url == url
+
+    def test_url_02(self, hls_file, url_error):
+        hls_file.web_files[0]
+        hls_file.url = url_error
+        assert hls_file.url == url_error
+
     def test_directory(self, hls_file):
         assert hls_file.directory == Path(".")
 

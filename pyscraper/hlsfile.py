@@ -49,6 +49,26 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         self.filestem = filestem
         self.filesuffix = filesuffix
 
+    @property
+    def url(self):
+        return self._url
+
+    @url.setter
+    def url(self, value):
+        self._url = value
+        try:
+            del self.m3u8_obj
+        except AttributeError:
+            pass
+        try:
+            del self.m3u8_content
+        except AttributeError:
+            pass
+        try:
+            del self.web_files
+        except AttributeError:
+            pass
+
     @cached_property
     def m3u8_obj(self):
         def get_best_playlist(url):
@@ -65,7 +85,6 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return get_best_playlist(self.url)
 
     @cached_property
-    @deprecated("使っていないはずなので廃止する")
     def m3u8_content(self):
         output_lines = []
         for input_line in self.m3u8_obj.dumps().split("\n"):
