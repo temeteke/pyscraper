@@ -109,9 +109,10 @@ class WebPageParserMixin(ABC):
 
     @property
     def encoding(self):
-        if not getattr(self, "_encoding", None):
-            self._encoding = "utf-8"
-        return self._encoding
+        if encoding := getattr(self, "_encoding", None):
+            return encoding
+        else:
+            return "utf-8"
 
     @encoding.setter
     def encoding(self, value):
@@ -119,11 +120,7 @@ class WebPageParserMixin(ABC):
 
     @property
     def lxml_html(self):
-        # エンコードしていないcontentがあり、encodingが指定されていない場合、contentを処理する
-        if hasattr(self, "content") and not self.encoding:
-            return lxml.html.fromstring(self.content)
-        else:
-            return lxml.html.fromstring(self.html)
+        return lxml.html.fromstring(self.html)
 
     def get(self, xpath):
         return [WebPageElement(element, encoding=self.encoding) for element in self.xpath(xpath)]
@@ -224,12 +221,16 @@ class WebPageRequests(RequestsMixin, WebPage):
         self.timeout = timeout
 
     @property
-    def content(self):
-        return self.response.content
-
-    @property
     def html(self):
         return self.response.text
+
+    @property
+    def lxml_html(self):
+        # encodingが指定されていなかった場合、デコード前のcontentを処理する
+        if not self._encoding:
+            return lxml.html.fromstring(self.response.content)
+
+        return super().lxml_html
 
 
 class SeleniumWebPageElement(WebPageElement):
