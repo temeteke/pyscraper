@@ -261,7 +261,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         if offset:
             self.headers = {"Range": "bytes={}-".format(offset)}
         else:
-            self.headers = {}
+            self.headers = {"Range": None}
 
         return super().seek(offset)
 

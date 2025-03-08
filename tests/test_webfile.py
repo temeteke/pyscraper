@@ -50,6 +50,11 @@ class MixinTestWebFile:
         webfile.seek(256)
         assert webfile.read() == content[256:]
 
+    def test_seek_read_0(self, webfile, content):
+        webfile.seek(128)
+        webfile.seek(0)
+        assert webfile.read(128) == content[:128]
+
     def test_download_unlink(self, webfile):
         f = webfile.download()
         assert f.exists() is True
