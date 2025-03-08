@@ -197,12 +197,20 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         if hasattr(self, "response"):
             del self.response
 
-    def _get_response(self, headers={}):
-        headers_all = self.session.headers.copy()
-        headers_all.update(headers)
+    @property
+    def headers(self):
+        return dict(self.session.headers)
 
+    @headers.setter
+    def headers(self, headers):
+        self.session.headers.update(headers)
+        if hasattr(self, "response"):
+            del self.response
+
+    @cached_property
+    def response(self):
         try:
-            r = self.session.get(self._url, headers=headers, stream=True, timeout=self.timeout)
+            r = self.session.get(self._url, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
             raise WebFileConnectionError(e) from e
         except requests.exceptions.Timeout as e:
@@ -222,10 +230,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                 raise WebFileError(e) from e
 
         return r
-
-    @cached_property
-    def response(self):
-        return self._get_response()
 
     @cached_property
     def size(self):
@@ -271,11 +275,9 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return self.position
 
         if offset:
-            headers = {"Range": "bytes={}-".format(offset)}
+            self.headers = {"Range": "bytes={}-".format(offset)}
         else:
-            headers = {}
-
-        self.response = self._get_response(headers)
+            self.headers = {}
 
         return super().seek(offset)
 
