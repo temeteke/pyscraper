@@ -39,8 +39,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         super().__init__()
 
         self.url = url
-
-        self.init_session(session, headers, cookies)
+        self.session = session
+        self.headers = headers
+        self.cookies = cookies
 
         self.set_path(directory, filename, filestem, filesuffix)
 
@@ -254,8 +255,9 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
 
         self.url = url
-
-        self.init_session(session, headers, cookies)
+        self.session = session
+        self.headers = headers
+        self.cookies = cookies
 
         self.set_path(directory, filename, filestem, filesuffix)
 

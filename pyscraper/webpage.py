@@ -211,8 +211,9 @@ class WebPageRequests(RequestsMixin, WebPage):
     ):
         super().__init__(url, params=params, encoding=encoding)
 
-        self.init_session(session, headers, cookies)
-
+        self.session = session
+        self.headers = headers
+        self.cookies = cookies
         self.timeout = timeout
 
     @cached_property

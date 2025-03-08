@@ -157,10 +157,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         self.logger.debug(url)
 
-        self._url = url
+        self.url = url
+        self.session = session
+        self.headers = headers
+        self.cookies = cookies
         self.timeout = timeout
-
-        self.init_session(session, headers, cookies)
 
         self.set_path(directory, filename, filestem, filesuffix)
 

@@ -42,29 +42,37 @@ def debug(logger=None):
 
 
 class RequestsMixin:
-    def init_session(self, session, headers, cookies):
+    @property
+    def session(self):
+        if not getattr(self, "_session", None):
+            self._session = requests.Session()
+            self._session.headers.update(HEADERS)
+        return self._session
+
+    @session.setter
+    def session(self, session):
         if session:
-            self.session = session
+            self._session = session
             # sessionのheadersにない項目はデフォルトのHEADERSを設定する
             for k, v in HEADERS.items():
-                self.session.headers.setdefault(k, v)
-        else:
-            self.session = requests.Session()
-            self.session.headers.update(HEADERS)
-
-        # headersで上書きする
-        self.session.headers.update(headers)
-
-        for k, v in cookies.items():
-            self.session.cookies.set(k, v)
+                self._session.headers.setdefault(k, v)
 
     @property
     def headers(self):
         return dict(self.session.headers)
 
+    @headers.setter
+    def headers(self, headers):
+        self.session.headers.update(headers)
+
     @property
     def cookies(self):
         return dict(self.session.cookies)
+
+    @cookies.setter
+    def cookies(self, cookies):
+        for k, v in cookies.items():
+            self.session.cookies.set(k, v)
 
     @property
     def user_agent(self):
