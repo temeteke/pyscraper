@@ -22,6 +22,14 @@ def content(url):
 
 
 class MixinTestWebFile:
+    def test_url_01(self, webfile, url):
+        assert webfile.url == url
+
+    def test_url_02(self, webfile):
+        webfile.exists()
+        webfile.url = "https://httpbin.org/range/2048"
+        assert webfile.url == "https://httpbin.org/range/2048"
+
     def test_directory(self, webfile):
         assert webfile.directory == Path(".")
 
@@ -92,9 +100,6 @@ class TestWebFile(MixinTestWebFile):
         with pytest.raises(WebFileError):
             WebFile("http://a.temeteke.com").read()
 
-    def test_url(self, webfile, url):
-        assert webfile.url == url
-
     def test_url_redirect(self):
         assert (
             WebFile("https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org").url
@@ -112,11 +117,6 @@ class TestWebFile(MixinTestWebFile):
             WebFile("https://httpbin.org/cookies", cookies={"test": "test"}).cookies["test"]
             == "test"
         )
-
-    def test_url_change(self, webfile):
-        webfile.exists()
-        webfile.url = "https://httpbin.org/range/2048"
-        assert webfile.url == "https://httpbin.org/range/2048"
 
 
 class TestWebFileCached(MixinTestWebFile):
