@@ -79,9 +79,6 @@ class WebPageElement:
                 text += child.text
         return text.strip()
 
-    def itertext(self):
-        return self.lxml_html.itertext()
-
     @property
     def attr(self):
         return self.attributes
@@ -100,6 +97,9 @@ class WebPageElement:
     def xpath(self, xpath):
         return self.lxml_html.xpath(xpath)
 
+    def itertext(self):
+        return self.lxml_html.itertext()
+
 
 class WebPageParser:
     def __init__(self, html, encoding=None):
@@ -108,10 +108,9 @@ class WebPageParser:
 
     @property
     def encoding(self):
-        if encoding := getattr(self, "_encoding", None):
-            return encoding
-        else:
-            return "utf-8"
+        if not getattr(self, "_encoding", None):
+            self._encoding = "utf-8"
+        return self._encoding
 
     @encoding.setter
     def encoding(self, value):

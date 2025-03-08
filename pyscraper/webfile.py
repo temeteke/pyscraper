@@ -100,10 +100,9 @@ class WebFileMixin:
 
     @property
     def directory(self):
-        if directory := getattr(self, "_directory", None):
-            return directory
-        else:
-            return Path(".")
+        if not getattr(self, "_directory", None):
+            self._directory = Path(".")
+        return self._directory
 
     @directory.setter
     def directory(self, directory):
