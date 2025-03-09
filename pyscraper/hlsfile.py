@@ -149,29 +149,33 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
+        temp_directory = self.temp_directory
         with MyTqdm(
             total=len(self.web_files),
             dynamic_ncols=True,
         ) as pbar:
             for web_file in self.web_files:
-                web_file.download(directory=self.temp_directory)
+                web_file.download(directory=temp_directory)
                 pbar.update()
 
-        with self.temp_file.open("ab") as out_file:
+        temp_file = self.temp_file
+        with temp_file.open("ab") as out_file:
             for web_file in self.web_files:
                 with web_file.filepath.open("rb") as in_file:
                     out_file.write(in_file.read())
 
-        shutil.rmtree(self.temp_directory)
+        shutil.rmtree(temp_directory)
 
-        self.temp_file.rename(self.filepath)
+        temp_file.rename(self.filepath)
 
         return self.filepath
 
     def unlink(self):
         super().unlink()
 
-        shutil.rmtree(self.temp_directory)
+        temp_directory = self.temp_directory
+        if temp_directory.exists():
+            shutil.rmtree(temp_directory)
 
     def exists(self):
         try:
