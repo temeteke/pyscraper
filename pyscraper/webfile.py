@@ -97,7 +97,7 @@ class WebFileMixin:
         return self.url == other.url
 
     def get_filename(self):
-        return urlparse(self.url).path.split("/").pop()
+        return urlparse(self.url).path.split("/")[-1]
 
     @property
     def directory(self):

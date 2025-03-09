@@ -359,7 +359,7 @@ class HlsFileRequests(HlsFileMixin, RequestsMixin):
         with self.m3u8_file.filepath.open() as f:
             for x in f:
                 if x.startswith("http"):
-                    temp.append(urlparse(x).path.split("/").pop())
+                    temp.append(urlparse(x).path.split("/")[-1])
                 else:
                     temp.append(x)
         with self.m3u8_file.filepath.open("w") as f:
