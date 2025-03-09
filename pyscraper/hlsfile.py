@@ -162,10 +162,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 with web_file.filepath.open("rb") as in_file:
                     out_file.write(in_file.read())
 
-        for web_file in self.web_files:
-            web_file.unlink()
-
-        self.temp_directory.rmdir()
+        shutil.rmtree(self.temp_directory)
 
         self.temp_file.rename(self.filepath)
 
@@ -174,12 +171,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def unlink(self):
         super().unlink()
 
-        for web_file in self.web_files:
-            web_file.unlink()
-
-        temp_directory = self.temp_directory
-        if temp_directory.exists():
-            temp_directory.rmdir()
+        shutil.rmtree(self.temp_directory)
 
     def exists(self):
         try:
