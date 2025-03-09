@@ -68,3 +68,49 @@ def cached_generator(func):
         return CachedGenerator(func(*args, **kwargs))
 
     return wrapper
+
+
+class LazyList:
+    """
+    A list-like container that processes its elements lazily.
+
+    Attributes:
+        data (list): The list of raw data elements.
+        process_func (callable): A function to process each element of the data.
+        _cache (dict): A dictionary to cache the results of processed elements.
+
+    Methods:
+        __getitem__(index):
+            Returns the processed element at the specified index. Supports slicing.
+        __len__():
+            Returns the length of the data.
+        __iter__():
+            Returns an iterator that yields processed elements.
+    """
+
+    def __init__(self, data, process_func):
+        self.data = data
+        self.process_func = process_func
+        self._cache = {}  # Cache to store the results of processed elements
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            # In the case of a slice, access each element with a list comprehension
+            return [self[i] for i in range(*index.indices(len(self)))]
+        # Convert negative index to positive by adding the length of the data
+        if index < 0:
+            index += len(self.data)
+        # If already processed, return from cache
+        if index in self._cache:
+            return self._cache[index]
+        # Execute processing on first access
+        result = self.process_func(self.data[index])
+        self._cache[index] = result
+        return result
+
+    def __len__(self):
+        return len(self.data)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]

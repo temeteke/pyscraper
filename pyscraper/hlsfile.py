@@ -5,13 +5,12 @@ from functools import cached_property
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from fake_useragent import UserAgent
-from typing_extensions import deprecated
 
 import ffmpy
 import m3u8
 
 from pyscraper.requests import RequestsMixin
-from pyscraper.utils import cached_generator
+from pyscraper.utils import LazyList
 from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
 
 logger = logging.getLogger(__name__)
@@ -95,10 +94,11 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return "\n".join(output_lines)
 
     @cached_property
-    @cached_generator
     def web_files(self):
-        for segment in self.m3u8_obj.segments:
-            yield WebFile(segment.absolute_uri, headers=self.headers, cookies=self.cookies)
+        return LazyList(
+            self.m3u8_obj.segments,
+            lambda x: WebFile(x.absolute_uri, headers=self.headers, cookies=self.cookies),
+        )
 
     @property
     def temp_file(self):

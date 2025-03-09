@@ -115,21 +115,18 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
             )
             in hls_file.web_files
         )
-        assert len(hls_file.web_files) == 1
         assert (
             WebFile(
                 "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video001.ts"
             )
             in hls_file.web_files
         )
-        assert len(hls_file.web_files) == 2
         assert (
             WebFile(
                 "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts"
             )
             in hls_file.web_files
         )
-        assert len(hls_file.web_files) == 3
 
     def test_read_all(self, hls_file, content):
         assert hls_file.read() == content
