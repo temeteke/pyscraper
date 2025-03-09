@@ -183,8 +183,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     def exists(self):
         try:
-            if web_files := self.web_files:
-                return web_files[0].exists()
+            return self.web_files[0].exists()
+        except IndexError:
+            return False
         except WebFileClientError:
             return False
 
