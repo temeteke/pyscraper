@@ -2,6 +2,22 @@ import functools
 
 
 class CachedGenerator:
+    """
+    A generator wrapper that caches generated items for efficient re-access.
+
+    Attributes:
+        generator (generator): The generator to be wrapped and cached.
+        cache (list): A list to store the generated items.
+        index (int): The index of the next element to be returned by __next__.
+
+    Methods:
+        __iter__(): Resets the index and returns the iterator object.
+        __next__(): Returns the next item from the generator, caching it if not already cached.
+        __len__(): Returns the number of cached items.
+        __getitem__(index): Returns the item at the specified index, generating and caching items as needed.
+        __contains__(item): Checks if an item is in the cache or the generator, caching items as they are checked.
+    """
+
     def __init__(self, generator):
         self.generator = generator
         self.cache = []  # Cache of generated items
