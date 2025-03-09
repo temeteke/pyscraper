@@ -109,14 +109,14 @@ class WebPageParserMixin(ABC):
 
     @property
     def encoding(self):
-        if encoding := getattr(self, "_encoding", None):
+        if encoding := getattr(self, "request_encoding", None):
             return encoding
         else:
             return "utf-8"
 
     @encoding.setter
     def encoding(self, value):
-        self._encoding = value
+        self.request_encoding = value
 
     @property
     def lxml_html(self):
@@ -174,7 +174,7 @@ class WebPage(WebPageParserMixin):
         parsed_url = urlparse(url)
         parsed_qs = parse_qs(parsed_url.query)
         parsed_qs.update(params)
-        self._url = urlunparse(
+        self.request_url = urlunparse(
             parsed_url._replace(query=urlencode(parsed_qs, doseq=True, encoding=params_encoding))
         )
         self.encoding = encoding
@@ -189,11 +189,11 @@ class WebPage(WebPageParserMixin):
 
     @property
     def url(self):
-        return self._url
+        return self.request_url
 
     @url.setter
     def url(self, value):
-        self._url = value
+        self.request_url = value
 
     def __enter__(self):
         self.open()
@@ -227,7 +227,7 @@ class WebPageRequests(RequestsMixin, WebPage):
     @property
     def lxml_html(self):
         # encodingが指定されていなかった場合、デコード前のcontentを処理する
-        if not self._encoding:
+        if not self.request_encoding:
             return lxml.html.fromstring(self.response.content)
 
         return super().lxml_html
@@ -472,12 +472,12 @@ class WebPageFirefox(SeleniumMixin, WebPage):
                 return webdriver.Firefox(options=options)
 
     def open(self):
-        logger.debug("Getting {}".format(self._url))
-        self.driver.get(self._url)
+        logger.debug("Getting {}".format(self.request_url))
+        self.driver.get(self.request_url)
 
         if self.cookies_file:
             self.set_cookies_from_file(self.cookies_file)
-            self.driver.get(self._url)
+            self.driver.get(self.request_url)
 
         return self
 
@@ -520,11 +520,11 @@ class WebPageChrome(SeleniumMixin, WebPage):
             return webdriver.Chrome(options=options)
 
     def open(self):
-        logger.debug("Getting {}".format(self._url))
-        self.driver.get(self._url)
+        logger.debug("Getting {}".format(self.request_url))
+        self.driver.get(self.request_url)
         if self.cookies_file:
             self.set_cookies_from_file(self.cookies_file)
-            self.driver.get(self._url)
+            self.driver.get(self.request_url)
         return self
 
     def close(self):

@@ -192,11 +192,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def response(self):
-        self.logger.debug("Getting {}".format(self._url))
+        self.logger.debug("Getting {}".format(self.request_url))
         self.logger.debug("Request Headers: " + str(self.session.headers))
 
         try:
-            r = self.session.get(self._url, stream=True, timeout=self.timeout)
+            r = self.session.get(self.request_url, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
             raise WebFileConnectionError(e) from e
         except requests.exceptions.Timeout as e:
@@ -222,11 +222,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return self.response.url
         except WebFileError as e:
             logger.error(e)
-            return self._url
+            return self.request_url
 
     @url.setter
     def url(self, value):
-        self._url = value
+        self.request_url = value
         try:
             del self.response
         except AttributeError:

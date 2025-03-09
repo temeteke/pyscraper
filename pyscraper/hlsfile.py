@@ -51,11 +51,11 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def url(self):
-        return self._url
+        return self.request_url
 
     @url.setter
     def url(self, value):
-        self._url = value
+        self.request_url = value
         try:
             del self.m3u8_obj
         except AttributeError:

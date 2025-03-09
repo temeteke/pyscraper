@@ -56,34 +56,42 @@ class RequestsMixin:
     @property
     def url(self):
         try:
-            return self.response.url
+            return self.response_url
         except requests.exceptions.RequestException as e:
             logger.error(e)
-            return self._url
+            return self.request_url
 
     @url.setter
     def url(self, value):
-        self._url = value
+        self.request_url = value
         try:
             del self.response
         except AttributeError:
             pass
 
     @property
+    def response_url(self):
+        return self.response.url
+
+    @property
     def encoding(self):
         try:
-            return self.response.encoding
+            return self.response_encoding
         except requests.exceptions.RequestException as e:
             logger.error(e)
-            return self._url
+            return self.request_encoding
 
     @encoding.setter
     def encoding(self, value):
-        self._encoding = value
+        self.request_encoding = value
         try:
             del self.response
         except AttributeError:
             pass
+
+    @property
+    def response_encoding(self):
+        return self.response.encoding
 
     @property
     def timeout(self):
@@ -97,11 +105,11 @@ class RequestsMixin:
 
     @cached_property
     def response(self):
-        logger.debug("Getting {}".format(self._url))
+        logger.debug("Getting {}".format(self.request_url))
         logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.get(self._url, timeout=self.timeout)
+        r = self.session.get(self.request_url, timeout=self.timeout)
         logger.debug("Response Headers: " + str(r.headers))
-        if encoding := getattr(self, "_encoding", None):
+        if encoding := getattr(self, "request_encoding", None):
             r.encoding = encoding
         return r
 
