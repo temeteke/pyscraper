@@ -232,6 +232,12 @@ class WebPageRequests(RequestsMixin, WebPage):
 
         return super().lxml_html
 
+    def open(self):
+        self.session
+
+    def close(self):
+        self.session.close()
+
 
 class SeleniumWebPageElement(WebPageElement):
     def __init__(self, element):
