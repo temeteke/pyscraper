@@ -120,12 +120,18 @@ class WebPageParserMixin(ABC):
 
     @property
     def lxml_html(self):
+        if not self.html:
+            return
+
         return lxml.html.fromstring(self.html)
 
     def get(self, xpath):
         return [WebPageElement(element, encoding=self.encoding) for element in self.xpath(xpath)]
 
     def get_html(self, xpath):
+        if not self.lxml_html:
+            return
+
         return [
             lxml.html.tostring(x, method="html", encoding=self.encoding)
             .decode(self.encoding)
@@ -134,6 +140,9 @@ class WebPageParserMixin(ABC):
         ]
 
     def get_innerhtml(self, xpath):
+        if not self.lxml_html:
+            return
+
         htmls = []
         for element in self.lxml_html.xpath(xpath):
             html = ""
@@ -153,6 +162,9 @@ class WebPageParserMixin(ABC):
             raise WebPageNoSuchElementError
 
     def xpath(self, xpath):
+        if not self.lxml_html:
+            return
+
         return self.lxml_html.xpath(xpath)
 
     def dump(self, filestem=None):
@@ -228,7 +240,8 @@ class WebPageRequests(RequestsMixin, WebPage):
     def lxml_html(self):
         # encodingが指定されていなかった場合、デコード前のcontentを処理する
         if not self.request_encoding:
-            return lxml.html.fromstring(self.response.content)
+            if html := self.response.content:
+                return lxml.html.fromstring(html)
 
         return super().lxml_html
 
