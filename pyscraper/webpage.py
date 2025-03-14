@@ -130,7 +130,7 @@ class WebPageParserMixin(ABC):
 
     def get_html(self, xpath):
         if not self.lxml_html:
-            return
+            return []
 
         return [
             lxml.html.tostring(x, method="html", encoding=self.encoding)
@@ -141,7 +141,7 @@ class WebPageParserMixin(ABC):
 
     def get_innerhtml(self, xpath):
         if not self.lxml_html:
-            return
+            return []
 
         htmls = []
         for element in self.lxml_html.xpath(xpath):
@@ -163,7 +163,7 @@ class WebPageParserMixin(ABC):
 
     def xpath(self, xpath):
         if not self.lxml_html:
-            return
+            return []
 
         return self.lxml_html.xpath(xpath)
 
