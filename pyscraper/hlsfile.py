@@ -15,6 +15,8 @@ from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, W
 
 logger = logging.getLogger(__name__)
 
+user_agent = UserAgent(platforms="desktop")
+
 
 class HlsFileError(Exception):
     pass
@@ -194,8 +196,7 @@ class HlsFileFfmpeg(HlsFileMixin):
 
         self.url = url
         if not headers.get("User-Agent"):
-            ua = UserAgent(platforms="desktop")
-            headers["User-Agent"] = ua.random
+            headers["User-Agent"] = user_agent.random
         self.headers = headers
         self.directory = directory
         self.filename = filename

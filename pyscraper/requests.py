@@ -6,14 +6,15 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+user_agent = UserAgent(platforms="desktop")
+
 
 class RequestsMixin:
     @property
     def session(self):
         if not getattr(self, "_session", None):
             self._session = requests.Session()
-            ua = UserAgent(platforms="desktop")
-            self._session.headers["User-Agent"] = ua.random
+            self._session.headers["User-Agent"] = user_agent.random
         return self._session
 
     @session.setter
@@ -21,8 +22,7 @@ class RequestsMixin:
         if session:
             self._session = session
             if not session.headers.get("User-Agent"):
-                ua = UserAgent(platforms="desktop")
-                self._session.headers["User-Agent"] = ua.random
+                self._session.headers["User-Agent"] = user_agent.random
         try:
             del self.response
         except AttributeError:
