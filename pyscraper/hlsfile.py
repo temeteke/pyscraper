@@ -24,7 +24,7 @@ class HlsFileError(Exception):
 
 class HlsFileMixin(WebFileMixin):
     def get_filename(self):
-        return str(Path(urlparse(self.url).path.split("/")[-1]).with_suffix(".mp4"))
+        return str(Path(get_filename_from_url(self.url)).with_suffix(".mp4"))
 
 
 class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):

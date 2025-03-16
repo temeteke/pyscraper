@@ -6,13 +6,13 @@ import sys
 import unicodedata
 from functools import cached_property
 from pathlib import Path
-from urllib.parse import urlparse
 
 import requests
 import urllib3.exceptions
 from tqdm import tqdm
 
 from pyscraper.requests import RequestsMixin
+from pyscraper.utils import get_filename_from_url
 
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ class WebFileMixin:
         return self.url == other.url
 
     def get_filename(self):
-        return urlparse(self.url).path.split("/")[-1]
+        return get_filename_from_url(self.url)
 
     @property
     def directory(self):
