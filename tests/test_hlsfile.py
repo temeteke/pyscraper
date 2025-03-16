@@ -20,6 +20,11 @@ def url():
 
 
 @pytest.fixture(scope="session")
+def url_absolute():
+    return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_absolute_url.m3u8"
+
+
+@pytest.fixture(scope="session")
 def url_error():
     return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_.m3u8"
 
@@ -53,6 +58,10 @@ class TestHlsFile:
         return HlsFile(url)
 
     @pytest.fixture
+    def hls_file_absolute_url(self, url_absolute):
+        return HlsFile(url_absolute)
+
+    @pytest.fixture
     def hls_file_error(self, url_error):
         return HlsFile(url_error)
 
@@ -76,9 +85,9 @@ class TestHlsFile:
     def test_filename(self, hls_file):
         assert hls_file.filename == "video.mp4"
 
-    def test_m3u8_content(self, hls_file):
+    def test_m3u8_content_url(self, hls_file):
         assert (
-            hls_file.m3u8_content.strip()
+            hls_file.m3u8_content_url.strip()
             == """
 #EXTM3U
 #EXT-X-VERSION:3
@@ -89,6 +98,23 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
 https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video001.ts
 #EXTINF:3.336667,
 https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts
+#EXT-X-ENDLIST
+""".strip()
+        )
+
+    def test_m3u8_content_filename(self, hls_file):
+        assert (
+            hls_file.m3u8_content_filename.strip()
+            == """
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:8
+#EXTINF:8.341667,
+video000.ts
+#EXTINF:8.341667,
+video001.ts
+#EXTINF:3.336667,
+video002.ts
 #EXT-X-ENDLIST
 """.strip()
         )
@@ -166,6 +192,13 @@ https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video
         assert f.exists()
 
         hls_file.unlink()
+        assert not f.exists()
+
+    def test_download_unlink_absolute_url(self, hls_file_absolute_url):
+        f = hls_file_absolute_url.download()
+        assert f.exists()
+
+        hls_file_absolute_url.unlink()
         assert not f.exists()
 
     def test_download_unlink_filename(self, hls_file):

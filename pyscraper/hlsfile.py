@@ -10,7 +10,7 @@ import ffmpy
 import m3u8
 
 from pyscraper.requests import RequestsMixin
-from pyscraper.utils import LazyList
+from pyscraper.utils import LazyList, get_filename_from_url
 from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,14 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         except AttributeError:
             pass
         try:
+            del self.m3u8_content_url
+        except AttributeError:
+            pass
+        try:
+            del self.m3u8_content_filename
+        except AttributeError:
+            pass
+        try:
             del self.web_files
         except AttributeError:
             pass
@@ -87,8 +95,12 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def m3u8_content(self):
+        return self.m3u8_obj.dumps()
+
+    @cached_property
+    def m3u8_content_url(self):
         output_lines = []
-        for input_line in self.m3u8_obj.dumps().split("\n"):
+        for input_line in self.m3u8_content.split("\n"):
             if input_line.startswith("#"):
                 output_lines.append(input_line)
             elif input_line:
@@ -96,15 +108,27 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return "\n".join(output_lines)
 
     @cached_property
+    def m3u8_content_filename(self):
+        output_lines = []
+        for input_line in self.m3u8_content.split("\n"):
+            if input_line.startswith("#"):
+                output_lines.append(input_line)
+            elif input_line:
+                output_lines.append(get_filename_from_url(input_line))
+        return "\n".join(output_lines)
+
+    @cached_property
     def web_files(self):
         return LazyList(
             self.m3u8_obj.segments,
-            lambda x: WebFile(x.absolute_uri, headers=self.headers, cookies=self.cookies),
+            lambda x: WebFile(
+                x.absolute_uri,
+                headers=self.headers,
+                cookies=self.cookies,
+                directory=self.temp_directory,
+                filename=get_filename_from_url(x.absolute_uri),
+            ),
         )
-
-    @property
-    def temp_file(self):
-        return self.filepath.with_name(self.filepath.name + ".part")
 
     @property
     def temp_directory(self):
@@ -151,24 +175,24 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
-        temp_directory = self.temp_directory
+        self.temp_directory.mkdir(parents=True, exist_ok=True)
+
+        m3u8_file = self.temp_directory / Path(self.filestem + ".m3u8")
+        with m3u8_file.open("w") as f:
+            f.write(self.m3u8_content_filename)
+
         with MyTqdm(
             total=len(self.web_files),
             dynamic_ncols=True,
         ) as pbar:
             for web_file in self.web_files:
-                web_file.download(directory=temp_directory)
+                web_file.download()
                 pbar.update()
 
-        temp_file = self.temp_file
-        with temp_file.open("ab") as out_file:
-            for web_file in self.web_files:
-                with web_file.filepath.open("rb") as in_file:
-                    out_file.write(in_file.read())
+        ff = ffmpy.FFmpeg(inputs={str(m3u8_file): None}, outputs={str(self.filepath): "-c copy"})
+        ff.run()
 
-        shutil.rmtree(temp_directory)
-
-        temp_file.rename(self.filepath)
+        shutil.rmtree(self.temp_directory)
 
         return self.filepath
 

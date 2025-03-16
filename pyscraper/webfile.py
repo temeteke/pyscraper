@@ -109,7 +109,6 @@ class WebFileMixin:
     def directory(self, directory):
         if directory:
             self._directory = Path(re.sub(r'[:|\s\*\?\\"]', "_", str(directory)))
-            self._directory.mkdir(parents=True, exist_ok=True)
 
     @property
     def filestem(self):
@@ -364,6 +363,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
+
+        self.directory.mkdir(parents=True, exist_ok=True)
 
         if self.size:
             self.download_and_check_size()

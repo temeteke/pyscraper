@@ -1,4 +1,5 @@
 import functools
+from urllib.parse import urlparse
 
 
 class CachedGenerator:
@@ -130,3 +131,16 @@ class LazyList:
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]
+
+
+def get_filename_from_url(url):
+    """
+    Extracts the filename from a URL.
+
+    Args:
+        url (str): The URL from which to extract the filename.
+
+    Returns:
+        str: The extracted filename.
+    """
+    return urlparse(url).path.split("/")[-1]
