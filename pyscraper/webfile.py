@@ -138,7 +138,8 @@ class WebFileMixin:
 
     @filesuffix.setter
     def filesuffix(self, filesuffix):
-        self._filesuffix = filesuffix
+        if filesuffix:
+            self._filesuffix = filesuffix
 
     @property
     def filename(self):
@@ -149,7 +150,8 @@ class WebFileMixin:
 
     @filename.setter
     def filename(self, filename):
-        self._filename = filename
+        if filename:
+            self._filename = filename
 
     @property
     def filepath(self):
