@@ -129,7 +129,7 @@ class WebPageParserMixin(ABC):
         return [WebPageElement(element, encoding=self.encoding) for element in self.xpath(xpath)]
 
     def get_html(self, xpath):
-        if not self.lxml_html:
+        if self.lxml_html is None:
             return []
 
         return [
@@ -140,7 +140,7 @@ class WebPageParserMixin(ABC):
         ]
 
     def get_innerhtml(self, xpath):
-        if not self.lxml_html:
+        if self.lxml_html is None:
             return []
 
         htmls = []
@@ -162,7 +162,7 @@ class WebPageParserMixin(ABC):
             raise WebPageNoSuchElementError
 
     def xpath(self, xpath):
-        if not self.lxml_html:
+        if self.lxml_html is None:
             return []
 
         return self.lxml_html.xpath(xpath)
