@@ -1,4 +1,4 @@
-from .hlsfile import HlsFile, HlsFileFfmpeg, HlsFileRequests, HlsFileError
+from .hlsfile import HlsFile, HlsFileError
 from .constants import HEADERS
 from .webfile import (
     WebFile,

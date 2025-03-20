@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from pyscraper.webfile import WebFile
-from pyscraper.hlsfile import HlsFile, HlsFileFfmpeg, HlsFileRequests
+from pyscraper.hlsfile import HlsFile
 
 logger = logging.getLogger("pyscraper")
 logger.setLevel(logging.DEBUG)
@@ -208,65 +208,3 @@ video002.ts
 
         hls_file.unlink()
         assert not f.exists()
-
-
-class TestHlsFileFfmpeg:
-    @pytest.fixture
-    def hls_file(self, url):
-        return HlsFileFfmpeg(url)
-
-    @pytest.fixture
-    def hls_file_error(self, url_error):
-        return HlsFileFfmpeg(url_error)
-
-    def test_download_unlink(self, hls_file):
-        f = hls_file.download()
-        assert f.exists()
-
-        hls_file.unlink()
-        assert not f.exists()
-
-    def test_download_unlink_filename(self, hls_file):
-        f = hls_file.download(filename="video_file.mp4")
-        assert f.exists()
-        assert f.name == "video_file.mp4"
-
-        hls_file.unlink()
-        assert not f.exists()
-
-    def test_exists_true(self, hls_file):
-        assert hls_file.exists()
-
-    def test_exists_false(self, hls_file_error):
-        assert not hls_file_error.exists()
-
-
-class TestHlsFileRequests:
-    @pytest.fixture
-    def hls_file(self, url):
-        return HlsFileRequests(url)
-
-    @pytest.fixture
-    def hls_file_error(self, url_error):
-        return HlsFileFfmpeg(url_error)
-
-    def test_download_unlink(self, hls_file):
-        f = hls_file.download()
-        assert f.exists()
-
-        hls_file.unlink()
-        assert not f.exists()
-
-    def test_download_unlink_filename(self, hls_file):
-        f = hls_file.download(filename="video_file.mp4")
-        assert f.exists()
-        assert f.name == "video_file.mp4"
-
-        hls_file.unlink()
-        assert not f.exists()
-
-    def test_exists_true(self, hls_file):
-        assert hls_file.exists()
-
-    def test_exists_false(self, hls_file_error):
-        assert not hls_file_error.exists()
