@@ -134,6 +134,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def temp_directory(self):
         return self.directory / self.filestem
 
+    @cached_property
+    def temp_file(self):
+        return self.filepath.with_name("." + self.filepath.name)
+
     def read(self, size=None):
         total_chunk = b""
         web_file_position = self.position
@@ -177,6 +181,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
         self.temp_directory.mkdir(parents=True, exist_ok=True)
 
+        if self.temp_file.exists():
+            self.temp_file.unlink()
+
         m3u8_file = self.temp_directory / Path(self.filestem + ".m3u8")
         with m3u8_file.open("w") as f:
             f.write(self.m3u8_content_filename)
@@ -189,8 +196,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 web_file.download()
                 pbar.update()
 
-        ff = ffmpy.FFmpeg(inputs={str(m3u8_file): None}, outputs={str(self.filepath): "-c copy"})
+        ff = ffmpy.FFmpeg(inputs={str(m3u8_file): None}, outputs={str(self.temp_file): "-c copy"})
         ff.run()
+
+        self.temp_file.rename(self.filepath)
 
         shutil.rmtree(self.temp_directory)
 
