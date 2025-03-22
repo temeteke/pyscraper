@@ -434,7 +434,13 @@ class SeleniumMixin(ABC):
 
 class WebPageFirefox(SeleniumMixin, WebPage):
     def __init__(
-        self, url=None, params={}, cookies_file=None, profile=None, page_load_strategy=None
+        self,
+        url=None,
+        params={},
+        cookies_file=None,
+        profile=None,
+        page_load_strategy=None,
+        language=None,
     ):
         if not url:
             url = "about:home"
@@ -442,12 +448,17 @@ class WebPageFirefox(SeleniumMixin, WebPage):
         self.cookies_file = cookies_file
         self.profile = profile
         self.page_load_strategy = page_load_strategy
+        self.language = language
 
     @cached_property
     def driver(self):
         options = webdriver.FirefoxOptions()
+
         if self.page_load_strategy:
             options.page_load_strategy = self.page_load_strategy
+
+        if self.language:
+            options.set_preference("intl.accept_languages", self.language)
 
         if url := os.environ.get("SELENIUM_FIREFOX_URL"):
             if profile := os.environ.get("SELENIUM_FIREFOX_PROFILE"):
