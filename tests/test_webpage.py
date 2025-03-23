@@ -147,6 +147,38 @@ class TestWebPageRequests(MixinTestWebPage):
         with WebPageRequests(url) as wp:
             yield wp
 
+    def test_url_01(self, webpage, url):
+        assert not hasattr(webpage, "cached_url")
+        assert webpage.url == url
+        assert webpage.cached_url == url
+
+    def test_url_02(self, webpage):
+        webpage.url = "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
+        assert not hasattr(webpage, "cached_url")
+        assert webpage.url == "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
+        assert (
+            webpage.cached_url == "https://temeteke.github.io/pyscraper/tests/testdata/test2.html"
+        )
+
+    def test_url_03(self, webpage):
+        webpage.url = "https://temeteke.github.io/pyscraper/tests/testdata/test3.html"
+        assert not hasattr(webpage, "cached_url")
+        assert webpage.url == "https://temeteke.github.io/pyscraper/tests/testdata/test3.html"
+        assert (
+            webpage.cached_url == "https://temeteke.github.io/pyscraper/tests/testdata/test3.html"
+        )
+
+    def test_encoding_01(self, webpage):
+        assert not hasattr(webpage, "cached_encoding")
+        assert webpage.encoding == "utf-8"
+        assert webpage.cached_encoding == "utf-8"
+
+    def test_encoding_02(self, webpage):
+        assert not hasattr(webpage, "cached_encoding")
+        webpage.encoding = "euc-jp"
+        assert webpage.encoding == "euc-jp"
+        assert webpage.cached_encoding == "euc-jp"
+
     def test_eq_01(self, webpage, url):
         assert webpage == WebPageRequests(url)
 

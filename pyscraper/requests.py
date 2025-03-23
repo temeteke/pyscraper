@@ -55,19 +55,20 @@ class RequestsMixin:
 
     @property
     def url(self):
+        # Get the cached url if it exists to avoid making another request
+        if url := getattr(self, "cached_url", None):
+            return url
         try:
-            return self.response_url
+            self.cached_url = self.response_url
         except requests.exceptions.RequestException as e:
             logger.error(e)
-            return self.request_url
+            self.cached_url = self.request_url
+        return self.cached_url
 
     @url.setter
     def url(self, value):
         self.request_url = value
-        try:
-            del self.response
-        except AttributeError:
-            pass
+        self.clear_cache()
 
     @property
     def response_url(self):
@@ -75,19 +76,20 @@ class RequestsMixin:
 
     @property
     def encoding(self):
+        # Get the cached encoding if it exists to avoid making another request
+        if encoding := getattr(self, "cached_encoding", None):
+            return encoding
         try:
-            return self.response_encoding
+            self.cached_encoding = self.response_encoding
         except requests.exceptions.RequestException as e:
             logger.error(e)
-            return self.request_encoding
+            self.cached_encoding = self.request_encoding
+        return self.cached_encoding
 
     @encoding.setter
     def encoding(self, value):
         self.request_encoding = value
-        try:
-            del self.response
-        except AttributeError:
-            pass
+        self.clear_cache()
 
     @property
     def response_encoding(self):
@@ -116,3 +118,17 @@ class RequestsMixin:
     @property
     def user_agent(self):
         return self.session.headers["User-Agent"]
+
+    def clear_cache(self):
+        try:
+            del self.cached_url
+        except AttributeError:
+            pass
+        try:
+            del self.cached_encoding
+        except AttributeError:
+            pass
+        try:
+            del self.response
+        except AttributeError:
+            pass

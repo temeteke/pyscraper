@@ -219,19 +219,24 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def url(self):
+        # Get the cached url if it exists to avoid making another request
+        if url := getattr(self, "cached_url", None):
+            return url
         try:
-            return self.response.url
+            self.cached_url = self.response_url
         except WebFileError as e:
             logger.error(e)
-            return self.request_url
+            self.cached_url = self.request_url
+        return self.cached_url
 
     @url.setter
     def url(self, value):
         self.request_url = value
-        try:
-            del self.response
-        except AttributeError:
-            pass
+        self.clear_cache()
+
+    @property
+    def response_url(self):
+        return self.response.url
 
     @cached_property
     def size(self):
@@ -266,6 +271,20 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     @property
     def tempfile(self):
         return self.filepath.with_name(self.filepath.name + ".part")
+
+    def clear_cache(self):
+        try:
+            del self.cached_url
+        except AttributeError:
+            pass
+        try:
+            del self.response
+        except AttributeError:
+            pass
+        try:
+            del self.size
+        except AttributeError:
+            pass
 
     def seek(self, offset, force=False):
         if offset >= self.size:
