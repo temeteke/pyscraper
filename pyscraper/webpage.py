@@ -437,17 +437,20 @@ class WebPageSelenium(WebPage, ABC):
 
     def open(self):
         logger.debug("Getting {}".format(self.request_url))
-        self.driver.get(self.request_url)
 
-        if self.request_cookies:
-            for name, value in self.request_cookies.items():
-                self.driver.add_cookie({"name": name, "value": value})
+        try:
             self.driver.get(self.request_url)
-        if self.cookies_file:
-            self.set_cookies_from_file(self.cookies_file)
-            self.driver.get(self.request_url)
-
-        return self
+            if self.request_cookies:
+                for name, value in self.request_cookies.items():
+                    self.driver.add_cookie({"name": name, "value": value})
+                self.driver.get(self.request_url)
+            if self.cookies_file:
+                self.set_cookies_from_file(self.cookies_file)
+                self.driver.get(self.request_url)
+            return self
+        except selenium.common.exceptions.WebDriverException as e:
+            logger.error(e)
+            self.driver.quit()
 
     def close(self):
         self.driver.quit()
