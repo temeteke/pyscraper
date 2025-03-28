@@ -451,9 +451,11 @@ class WebPageSelenium(WebPage, ABC):
         except selenium.common.exceptions.WebDriverException as e:
             logger.error(e)
             self.driver.quit()
+            del self.driver
 
     def close(self):
         self.driver.quit()
+        del self.driver
 
 
 class WebPageFirefox(WebPageSelenium):
