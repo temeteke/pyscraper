@@ -315,7 +315,7 @@ class SeleniumWebPageElement(WebPageElement):
         self.element.parent.switch_to.parent_frame()
 
 
-class SeleniumMixin(ABC):
+class WebPageSelenium(WebPage, ABC):
     @property
     @abstractmethod
     def driver(self):
@@ -431,8 +431,21 @@ class SeleniumMixin(ABC):
 
         return files
 
+    def open(self):
+        logger.debug("Getting {}".format(self.request_url))
+        self.driver.get(self.request_url)
 
-class WebPageFirefox(SeleniumMixin, WebPage):
+        if self.cookies_file:
+            self.set_cookies_from_file(self.cookies_file)
+            self.driver.get(self.request_url)
+
+        return self
+
+    def close(self):
+        self.driver.quit()
+
+
+class WebPageFirefox(WebPageSelenium):
     def __init__(
         self,
         url=None,
@@ -501,21 +514,8 @@ class WebPageFirefox(SeleniumMixin, WebPage):
             else:
                 return webdriver.Firefox(options=options)
 
-    def open(self):
-        logger.debug("Getting {}".format(self.request_url))
-        self.driver.get(self.request_url)
 
-        if self.cookies_file:
-            self.set_cookies_from_file(self.cookies_file)
-            self.driver.get(self.request_url)
-
-        return self
-
-    def close(self):
-        self.driver.quit()
-
-
-class WebPageChrome(SeleniumMixin, WebPage):
+class WebPageChrome(WebPageSelenium):
     def __init__(self, url=None, params={}, cookies_file=None, page_load_strategy=None):
         if not url:
             url = "chrome://new-tab-page"
@@ -548,17 +548,6 @@ class WebPageChrome(SeleniumMixin, WebPage):
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
             return webdriver.Chrome(options=options)
-
-    def open(self):
-        logger.debug("Getting {}".format(self.request_url))
-        self.driver.get(self.request_url)
-        if self.cookies_file:
-            self.set_cookies_from_file(self.cookies_file)
-            self.driver.get(self.request_url)
-        return self
-
-    def close(self):
-        self.driver.quit()
 
 
 class WebPageCurl(WebPage):
