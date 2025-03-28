@@ -239,6 +239,10 @@ class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium):
         del os.environ["HTTPS_PROXY"]
         del os.environ["NO_PROXY"]
 
+    def test_cookies(self):
+        with WebPageFirefox("https://httpbin.org/cookies", cookies={"test": "test"}) as wp:
+            assert wp.cookies["test"] == "test"
+
 
 class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium):
     @pytest.fixture
@@ -265,6 +269,10 @@ class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium):
         del os.environ["HTTP_PROXY"]
         del os.environ["HTTPS_PROXY"]
         del os.environ["NO_PROXY"]
+
+    def test_cookies(self):
+        with WebPageChrome("https://httpbin.org/cookies", cookies={"test": "test"}) as wp:
+            assert wp.cookies["test"] == "test"
 
 
 class TestWebPageCurl(MixinTestWebPage):

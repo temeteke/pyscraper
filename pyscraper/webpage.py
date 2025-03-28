@@ -341,6 +341,10 @@ class WebPageSelenium(WebPage, ABC):
             cookies[cookie["name"]] = cookie["value"]
         return cookies
 
+    @cookies.setter
+    def cookies(self, cookies):
+        self.request_cookies = cookies
+
     @property
     def user_agent(self):
         return self.driver.execute_script("return navigator.userAgent")
@@ -435,6 +439,10 @@ class WebPageSelenium(WebPage, ABC):
         logger.debug("Getting {}".format(self.request_url))
         self.driver.get(self.request_url)
 
+        if self.request_cookies:
+            for name, value in self.request_cookies.items():
+                self.driver.add_cookie({"name": name, "value": value})
+            self.driver.get(self.request_url)
         if self.cookies_file:
             self.set_cookies_from_file(self.cookies_file)
             self.driver.get(self.request_url)
@@ -450,6 +458,7 @@ class WebPageFirefox(WebPageSelenium):
         self,
         url=None,
         params={},
+        cookies={},
         cookies_file=None,
         profile=None,
         page_load_strategy=None,
@@ -458,6 +467,7 @@ class WebPageFirefox(WebPageSelenium):
         if not url:
             url = "about:home"
         super().__init__(url, params=params)
+        self.cookies = cookies
         self.cookies_file = cookies_file
         self.profile = profile
         self.page_load_strategy = page_load_strategy
@@ -516,10 +526,13 @@ class WebPageFirefox(WebPageSelenium):
 
 
 class WebPageChrome(WebPageSelenium):
-    def __init__(self, url=None, params={}, cookies_file=None, page_load_strategy=None):
+    def __init__(
+        self, url=None, params={}, cookies={}, cookies_file=None, page_load_strategy=None
+    ):
         if not url:
             url = "chrome://new-tab-page"
         super().__init__(url, params=params)
+        self.cookies = cookies
         self.cookies_file = cookies_file
         self.page_load_strategy = page_load_strategy
 
