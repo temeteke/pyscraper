@@ -36,11 +36,13 @@ class FileIOBase:
         self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
         self.position = 0
 
-    def seek(self, position):
+    def seek(self, position: int) -> int:
+        """Move the file pointer to a new position."""
         self.position = position
         return position
 
-    def tell(self):
+    def tell(self) -> int:
+        """Return the current file pointer position."""
         return self.position
 
 
@@ -270,11 +272,16 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         except AttributeError:
             pass
 
-    def seek(self, offset, force=False):
-        if offset >= self.size:
-            raise WebFileSeekError("{} is out of range 0-{}".format(offset, self.size - 1))
+    def seek(self, offset: int):
+        # check the server supports range requests
+        if not self.response.headers.get("Accept-Ranges") == "bytes":
+            raise WebFileSeekError("Server does not support range requests.")
 
-        if not force and offset == self.position:
+        # check if offset is within range
+        if offset < 0 or offset >= self.size:
+            raise WebFileSeekError(f"Offset {offset} is out of range. File size is {self.size}.")
+
+        if offset == self.position:
             return self.position
 
         if offset:
@@ -283,10 +290,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             self.headers = {"Range": None}
 
         return super().seek(offset)
-
-    def reload(self):
-        self.logger.debug("Reloading")
-        self.seek(self.tell(), force=True)
 
     def open(self):
         self.logger.debug("Getting {}".format(self.request_url))

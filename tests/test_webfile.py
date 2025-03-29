@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from pyscraper.webfile import WebFile, WebFileError
+from pyscraper.webfile import WebFile, WebFileError, WebFileSeekError
 
 
 @pytest.fixture(scope="session")
@@ -95,6 +95,32 @@ class MixinTestWebFile:
 
         webfile.unlink()
         assert f.exists() is False
+
+    def test_download_range(self, webfile, content):
+        temp_file = Path("test.txt.part")
+
+        with open(temp_file, "wb") as f:
+            f.write(content[:128])
+
+        f = webfile.download(filename="test.txt")
+        assert f.exists() is True
+        assert temp_file.exists() is False
+
+        webfile.unlink()
+        assert f.exists() is False
+
+    def test_seek_range_not_supported(self):
+        webfile = WebFile("https://httpbin.org/bytes/1024")
+        with pytest.raises(WebFileSeekError):
+            webfile.seek(512)
+
+    def test_seek_large_offset(self, webfile):
+        with pytest.raises(WebFileSeekError):
+            webfile.seek(2048)
+
+    def test_seek_negative_offset(self, webfile):
+        with pytest.raises(WebFileSeekError):
+            webfile.seek(-1)
 
 
 class TestWebFile(MixinTestWebFile):
