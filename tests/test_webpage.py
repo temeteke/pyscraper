@@ -243,6 +243,10 @@ class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageSelenium):
         with WebPageFirefox("https://httpbin.org/cookies", cookies={"test": "test"}) as wp:
             assert wp.cookies["test"] == "test"
 
+    def test_language(self):
+        with WebPageFirefox("https://httpbin.org/headers", language="ja") as wp:
+            assert wp.execute_script("return window.navigator.languages") == ["ja"]
+
 
 class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageSelenium):
     @pytest.fixture
