@@ -150,15 +150,15 @@ class WebFileMixin:
 class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
-        url,
-        session=None,
-        headers={},
-        cookies={},
-        directory=".",
-        filename=None,
-        filestem=None,
-        filesuffix=None,
-        timeout=30,
+        url: str,
+        session: requests.Session = None,
+        headers: dict = {},
+        cookies: dict = {},
+        directory: str = ".",
+        filename: str = None,
+        filestem: str = None,
+        filesuffix: str = None,
+        timeout: int = 30,
     ):
         super().__init__()
 
@@ -361,7 +361,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                     dynamic_ncols=True,
                 ) as pbar:
                     with self.open() as wf, self.tempfile.open("ab") as f:
-                        for chunk in iter(partial(wf.read, 1024), b""):
+                        for chunk in iter(partial(wf.read, 8192), b""):
                             f.write(chunk)
                             pbar.update(len(chunk))
             except requests.exceptions.HTTPError as e:
@@ -396,18 +396,14 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         else:
             with self.open() as wf, self.filepath.open("wb") as f:
-                for chunk in iter(partial(wf.read, 1024), b""):
+                for chunk in iter(partial(wf.read, 8192), b""):
                     f.write(chunk)
 
         return self.filepath
 
     def unlink(self):
         super().unlink()
-
-        try:
-            self.tempfile.unlink()
-        except FileNotFoundError:
-            pass
+        self.tempfile.unlink(missing_ok=True)
 
     def exists(self):
         try:
