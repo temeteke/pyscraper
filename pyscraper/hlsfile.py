@@ -61,7 +61,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @cached_property
     def m3u8_obj(self):
         def get_best_playlist(url):
-            m3u8_obj = m3u8.loads(WebFile(url, session=self.session).read().decode(), uri=url)
+            with WebFile(url, session=self.session).open() as wf:
+                m3u8_obj = m3u8.loads(wf.read().decode(), uri=url)
             if m3u8_obj.playlists:
                 return get_best_playlist(
                     sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[

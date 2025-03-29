@@ -1,10 +1,9 @@
-from abc import ABC, abstractmethod
 import logging
 import mimetypes
 import re
 import sys
 import unicodedata
-from functools import cached_property
+from functools import cached_property, partial
 from pathlib import Path
 
 import requests
@@ -32,35 +31,17 @@ class MyTqdm(tqdm):
         return super().__init__(*args, **kwargs)
 
 
-class FileIOBase(ABC):
+class FileIOBase:
     def __init__(self):
         self.logger = logging.getLogger(".".join([__name__, self.__class__.__name__]))
         self.position = 0
 
-    @abstractmethod
-    def read(self, size):
-        pass
-
     def seek(self, position):
-        self.logger.debug("Seek to {}".format(position))
         self.position = position
         return position
 
     def tell(self):
         return self.position
-
-    def read_in_chunks(self, chunk_size, start=0, stop=None):
-        self.seek(start)
-        while True:
-            if stop and stop - self.tell() < chunk_size:
-                chunk_size = stop - self.tell()
-                self.logger.debug("Read last chunk(size:{})".format(chunk_size))
-
-            chunk = self.read(chunk_size)
-            if chunk:
-                yield chunk
-            else:
-                break
 
 
 class WebFileError(Exception):
@@ -191,14 +172,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.filesuffix = filesuffix
         self.timeout = timeout
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
     @cached_property
-    def head_response(self):
+    def response(self):
         self.logger.debug("Getting {}".format(self.request_url))
         self.logger.debug("Request Headers: " + str(self.session.headers))
 
@@ -214,33 +189,6 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         try:
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            if 400 <= e.response.status_code < 500:
-                raise WebFileClientError(e) from e
-            elif 500 <= e.response.status_code < 600:
-                raise WebFileServerError(e) from e
-            else:
-                raise WebFileError(e) from e
-
-        return r
-
-    @cached_property
-    def stream_response(self):
-        self.logger.debug("Getting {}".format(self.request_url))
-        self.logger.debug("Request Headers: " + str(self.session.headers))
-
-        try:
-            r = self.session.get(self.request_url, stream=True, timeout=self.timeout)
-        except requests.exceptions.ConnectionError as e:
-            raise WebFileConnectionError(e) from e
-        except requests.exceptions.Timeout as e:
-            raise WebFileTimeoutError(e) from e
-
-        self.logger.debug("Response Headers: " + str(r.headers))
-
-        try:
-            r.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            r.close()
             if 400 <= e.response.status_code < 500:
                 raise WebFileClientError(e) from e
             elif 500 <= e.response.status_code < 600:
@@ -269,22 +217,22 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def response_url(self):
-        if url := self.head_response.headers.get("Location"):
+        if url := self.response.headers.get("Location"):
             return url
         else:
             return self.request_url
 
     @cached_property
     def size(self):
-        if content_range := self.head_response.headers.get("Content-Range"):
+        if content_range := self.response.headers.get("Content-Range"):
             return int(content_range.split("/")[-1].strip())
-        elif content_length := self.head_response.headers.get("Content-Length"):
+        elif content_length := self.response.headers.get("Content-Length"):
             return int(content_length)
 
     def get_filename(self):
-        if "Content-Disposition" in self.head_response.headers:
+        if "Content-Disposition" in self.response.headers:
             if m := re.search(
-                'filename="?([^"]+)"?', self.head_response.headers["Content-Disposition"]
+                'filename="?([^"]+)"?', self.response.headers["Content-Disposition"]
             ):
                 return m.group(1)
         return super().get_filename()
@@ -295,9 +243,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return filesuffix
         elif filename := getattr(self, "_filename", None):
             return Path(filename).suffix
-        elif extension := mimetypes.guess_extension(
-            self.head_response.headers.get("Content-Type", "")
-        ):
+        elif extension := mimetypes.guess_extension(self.response.headers.get("Content-Type", "")):
             return extension
         else:
             return Path(self.get_filename()).suffix
@@ -316,24 +262,13 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         except AttributeError:
             pass
         try:
-            del self.head_response
-        except AttributeError:
-            pass
-        try:
-            del self.stream_response
+            del self.response
         except AttributeError:
             pass
         try:
             del self.size
         except AttributeError:
             pass
-
-    def open(self):
-        self.stream_response
-        return self
-
-    def close(self):
-        self.stream_response.close()
 
     def seek(self, offset, force=False):
         if offset >= self.size:
@@ -353,67 +288,33 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.logger.debug("Reloading")
         self.seek(self.tell(), force=True)
 
-    def read(self, size=None):
-        """Read and return contents."""
-        self.stream_response.raw.decode_content = True
+    def open(self):
+        self.logger.debug("Getting {}".format(self.request_url))
+        self.logger.debug("Request Headers: " + str(self.session.headers))
+
         try:
-            chunk = self.stream_response.raw.read(size)
-        except urllib3.exceptions.ProtocolError as e:
+            r = self.session.get(self.request_url, stream=True, timeout=self.timeout)
+        except requests.exceptions.ConnectionError as e:
             raise WebFileConnectionError(e) from e
-        except urllib3.exceptions.ReadTimeoutError as e:
+        except requests.exceptions.Timeout as e:
             raise WebFileTimeoutError(e) from e
-        self.position += len(chunk)
-        return chunk
 
-    def download_and_check_size(self):
-        """Download file and check downloaded file size"""
-        if self.tempfile.exists():
-            downloaded_file_size = self.tempfile.stat().st_size
-        else:
-            downloaded_file_size = 0
+        self.logger.debug("Response Headers: " + str(r.headers))
 
         try:
-            self.open()
-            with MyTqdm(
-                total=self.size,
-                initial=downloaded_file_size,
-                unit="B",
-                unit_scale=True,
-                dynamic_ncols=True,
-            ) as pbar:
-                with self.tempfile.open("ab") as f:
-                    for chunk in self.read_in_chunks(1024, downloaded_file_size):
-                        f.write(chunk)
-                        pbar.update(len(chunk))
-            self.close()
+            r.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            self.close()
-            self.logger.warning(e)
-            if e.response.status_code == 416 and self.tempfile.exists():
-                self.tempfile.unlink()
-                raise WebFileClientError("Range Not Satisfiable. Removed downloaded file.") from e
+            r.close()
+            if 400 <= e.response.status_code < 500:
+                raise WebFileClientError(e) from e
+            elif 500 <= e.response.status_code < 600:
+                raise WebFileServerError(e) from e
             else:
                 raise WebFileError(e) from e
-        except WebFileSeekError as e:
-            self.close()
-            self.logger.warning(e)
-            self.tempfile.unlink()
-            raise WebFileClientError("Seek Error. Removed downloaded file.") from e
 
-        if "gzip" not in self.head_response.headers.get("Content-Encoding", ""):
-            self.logger.debug(
-                "Comparing file size {} {}".format(self.tempfile.stat().st_size, self.size)
-            )
-            if self.tempfile.stat().st_size > self.size:
-                self.tempfile.unlink()
-                raise WebFileError(
-                    "Downloaded file size is larger than expected. Removed downloaded file."
-                )
-            elif self.tempfile.stat().st_size < self.size:
-                raise WebFileError("Downloaded file size is smaller than expected.")
+        r.raw.decode_content = True
 
-        self.logger.debug("Removing temporary file")
-        self.tempfile.rename(self.filepath)
+        return WebFileIO(r)
 
     def download(
         self,
@@ -441,13 +342,59 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.directory.mkdir(parents=True, exist_ok=True)
 
         if self.size:
-            self.download_and_check_size()
+            if self.tempfile.exists():
+                downloaded_file_size = self.tempfile.stat().st_size
+            else:
+                downloaded_file_size = 0
+
+            self.seek(downloaded_file_size)
+
+            try:
+                with MyTqdm(
+                    total=self.size,
+                    initial=downloaded_file_size,
+                    unit="B",
+                    unit_scale=True,
+                    dynamic_ncols=True,
+                ) as pbar:
+                    with self.open() as wf, self.tempfile.open("ab") as f:
+                        for chunk in iter(partial(wf.read, 1024), b""):
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+            except requests.exceptions.HTTPError as e:
+                self.logger.warning(e)
+                if e.response.status_code == 416 and self.tempfile.exists():
+                    self.tempfile.unlink()
+                    raise WebFileClientError(
+                        "Range Not Satisfiable. Removed downloaded file."
+                    ) from e
+                else:
+                    raise WebFileError(e) from e
+            except WebFileSeekError as e:
+                self.logger.warning(e)
+                self.tempfile.unlink()
+                raise WebFileClientError("Seek Error. Removed downloaded file.") from e
+
+            # Check file size after download if not compressed
+            if not self.response.headers.get("Content-Encoding"):
+                self.logger.debug(
+                    f"Comparing file size {self.tempfile.stat().st_size} {self.size}"
+                )
+                if self.tempfile.stat().st_size > self.size:
+                    self.tempfile.unlink()
+                    raise WebFileError(
+                        "Downloaded file size is larger than expected. Removed downloaded file."
+                    )
+                elif self.tempfile.stat().st_size < self.size:
+                    raise WebFileError("Downloaded file size is smaller than expected.")
+
+            self.logger.debug("Removing temporary file")
+            self.tempfile.rename(self.filepath)
+
         else:
-            self.open()
-            with self.filepath.open("ab") as f:
-                for chunk in self.stream_response.iter_content():
+            with self.open() as wf, self.filepath.open("wb") as f:
+                for chunk in iter(partial(wf.read, 1024), b""):
                     f.write(chunk)
-            self.close()
 
         return self.filepath
 
@@ -461,209 +408,30 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     def exists(self):
         try:
-            return self.head_response.ok
+            return self.response.ok
         except WebFileClientError:
             return False
 
 
-class JoinedFile(FileIOBase):
-    def __init__(self, filepath):
-        super().__init__()
-        self.filepath = Path(filepath)
+class WebFileIO:
+    def __init__(self, response):
+        self.response = response
 
-    @property
-    def filepaths(self):
-        """Return a list of files."""
-        return sorted(
-            self.filepath.parent.glob("{}.part*".format(self.filepath.name)),
-            key=lambda x: int(re.findall(r"\d+$", x.suffix)[0]),
-        )
+    def __enter__(self):
+        return self
 
-    @property
-    def size(self):
-        """Return a total size of files."""
-        position = self.tell()
-        self.seek(0)
-        size = len(self.read())
-        self.seek(position)
-        return size
-
-    def read(self, size=-1):
-        if self.filepath.exists():
-            return self.read_joined_file(size)
-        else:
-            return self.read_part_files(size)
-
-    def read_joined_file(self, size=-1):
-        """Read and return contents of joined file."""
-        with self.filepath.open("rb") as f:
-            f.seek(self.tell())
-            return f.read(size)
-
-    def read_part_files(self, size=-1):
-        """Read and return contents of part files."""
-        data = b""
-        for filepath in self.filepaths:
-            start = int(re.findall(r"\d+$", filepath.suffix)[0])
-            stop = start + filepath.stat().st_size
-
-            if self.tell() in range(start, stop):
-                start_in_partfile = self.tell() - start
-                stop_in_partfile = stop if size is None or size < 0 else start_in_partfile + size
-                self.logger.debug(
-                    "Read from cached file {} from {} to {}".format(
-                        filepath, start_in_partfile, stop_in_partfile
-                    )
-                )
-                with filepath.open("rb") as f:
-                    f.seek(start_in_partfile)
-                    read_data = f.read(stop_in_partfile - start_in_partfile)
-
-                if size >= 0:
-                    size -= len(read_data)
-                self.seek(self.tell() + len(read_data))
-                data += read_data
-
-        return data
-
-    def write(self, b):
-        """Write contents."""
-        if self.filepath.exists():
-            with self.filepath.open("r+b") as f:
-                f.seek(self.tell())
-                f.write(b)
-                return len(b)
-
-        for filepath in self.filepaths:
-            start = int(re.findall(r"\d+$", filepath.suffix)[0])
-            stop = start + filepath.stat().st_size
-
-            if self.tell() in range(start, stop + 1):
-                self.logger.debug("Saving data to {}".format(filepath))
-                with filepath.open("r+b") as f:
-                    f.seek(self.tell() - start)
-                    f.write(b)
-                self.position += len(b)
-                return len(b)
-
-        partfile = Path("{}.part{}".format(self.filepath, self.tell()))
-        self.logger.debug("Saving data to {}".format(partfile))
-        with partfile.open("ab") as f:
-            f.write(b)
-        self.position += len(b)
-        return len(b)
-
-    def join(self):
-        if self.filepath.exists():
-            return
-
-        self.logger.debug("Joining files")
-        self.seek(0)
-        with self.filepath.open("wb") as f:
-            while True:
-                chunk = self.read_part_files(1024)
-                if chunk:
-                    f.write(chunk)
-                else:
-                    break
-
-        for filepath in self.filepaths:
-            self.logger.debug("Removing {}".format(filepath))
-            filepath.unlink()
-
-    def unlink(self):
-        try:
-            self.filepath.unlink()
-        except FileNotFoundError:
-            pass
-
-        for filepath in self.filepaths:
-            try:
-                filepath.unlink()
-            except FileNotFoundError:
-                pass
-
-
-class JoinedFileReadError(Exception):
-    pass
-
-
-class WebFileCached(WebFile):
-    def seek(self, offset):
-        self.position_cached = offset
-        return offset
-
-    def tell(self):
-        return self.position_cached
-
-    def read(self, size=-1):
-        """Read and return contents."""
-        if self.filepath.exists():
-            self.logger.debug("Reading from cached file '{}'".format(self.filepath))
-            with self.filepath.open("rb") as f:
-                f.seek(self.tell())
-                return f.read(size)
-
-        joined_files = JoinedFile(self.filepath)
-
-        joined_files.seek(self.tell())
-        cached_data = joined_files.read(size)
-        self.seek(self.tell() + len(cached_data))
-
-        try:
-            super().seek(joined_files.tell())
-        except WebFileSeekError:
-            return cached_data
-
-        if not size or size < 0 or size > len(cached_data):
-            if not size or size < 0:
-                new_data = super().read()
-                joined_files.write(new_data)
-                self.seek(self.tell() + len(new_data))
-            elif size > len(cached_data):
-                new_data = super().read(size - len(cached_data))
-                joined_files.write(new_data)
-                self.seek(self.tell() + len(new_data))
-        else:
-            new_data = b""
-
-        if joined_files.size == self.size:
-            joined_files.join()
-
-        return cached_data + new_data
-
-    def download(
-        self,
-        directory=None,
-        file_name=None,
-        filename=None,
-        file_stem=None,
-        filestem=None,
-        file_suffix=None,
-        filesuffix=None,
-    ):
-        """Read contents and save into a file."""
-
-        self.directory = directory
-        self.filename = file_name or filename
-        self.filestem = file_stem or filestem
-        self.filesuffix = file_suffix or filesuffix
-
-        if self.filepath.exists():
-            self.logger.warning(f"{self.filepath} is already downloaded.")
-            return
-
-        self.logger.info(f"Downloading {self.url} to {self.filepath}")
-
-        self.open()
-        with MyTqdm(
-            total=self.size, initial=0, unit="B", unit_scale=True, dynamic_ncols=True
-        ) as pbar:
-            for chunk in self.read_in_chunks(1024):
-                pbar.update(len(chunk))
+    def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-        return self.filepath
+    def close(self):
+        self.response.close()
 
-    def unlink(self):
-        JoinedFile(self.filepath).unlink()
+    def read(self, size=None):
+        """Read and return contents."""
+        try:
+            chunk = self.response.raw.read(size)
+        except urllib3.exceptions.ProtocolError as e:
+            raise WebFileConnectionError(e) from e
+        except urllib3.exceptions.ReadTimeoutError as e:
+            raise WebFileTimeoutError(e) from e
+        return chunk

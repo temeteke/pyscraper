@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from pyscraper.webfile import JoinedFile, WebFile, WebFileCached, WebFileError
+from pyscraper.webfile import WebFile, WebFileError
 
 
 @pytest.fixture(scope="session")
@@ -113,7 +113,7 @@ class TestWebFile(MixinTestWebFile):
 
     def test_dnserror(self):
         with pytest.raises(WebFileError):
-            WebFile("http://a.temeteke.com").read()
+            WebFile("http://a.temeteke.com").open()
 
     def test_url_redirect(self):
         assert (
@@ -135,170 +135,3 @@ class TestWebFile(MixinTestWebFile):
 
     def test_filesuffix_jpg(self, webfile):
         return WebFile("https://httpbin.org/image/jpeg").filesuffix == ".jpg"
-
-
-class TestWebFileCached(MixinTestWebFile):
-    @pytest.fixture
-    def webfile(self, url, filename):
-        wfc = WebFileCached(url, filename=filename)
-        yield wfc
-        wfc.unlink()
-
-    def test_read_0_2(self, webfile, content):
-        webfile.seek(0)
-        with webfile.open() as wf:
-            assert wf.read(128) == content[:128]
-
-    def test_read_512_2(self, webfile, content):
-        webfile.seek(512)
-        with webfile.open() as wf:
-            assert wf.read(128) == content[512 : 512 + 128]
-
-    def test_read_576_2(self, webfile, content):
-        webfile.seek(576)
-        with webfile.open() as wf:
-            assert wf.read(128) == content[576 : 576 + 128]
-
-    def test_read_256_2(self, webfile, content):
-        webfile.seek(256)
-        with webfile.open() as wf:
-            assert wf.read() == content[256:]
-
-    def test_read_join(self, webfile, content):
-        webfile.seek(0)
-        with webfile.open() as wf:
-            wf.read(128)
-        webfile.seek(256)
-        with webfile.open() as wf:
-            wf.read()
-        webfile.seek(128)
-        with webfile.open() as wf:
-            wf.read(128)
-        with webfile.filepath.open("rb") as f:
-            actual = f.read()
-        assert actual == content
-
-
-class TestJoinedFile:
-    @pytest.fixture
-    def joinedfile(self, filename):
-        jf = JoinedFile(filename)
-        jf.seek(0)
-        jf.write(b"abcdefg")
-        jf.seek(10)
-        jf.write(b"hijklmn")
-        yield jf
-        jf.unlink()
-
-    def test_size01(self, joinedfile):
-        assert joinedfile.size == 7
-
-    def test_size02(self, joinedfile):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyz")
-        assert joinedfile.size == 17
-
-    def test_read01(self, joinedfile):
-        joinedfile.seek(0)
-        assert joinedfile.read(7) == b"abcdefg"
-
-    def test_read02(self, joinedfile):
-        joinedfile.seek(10)
-        assert joinedfile.read(7) == b"hijklmn"
-
-    def test_read03(self, joinedfile):
-        joinedfile.seek(0)
-        assert joinedfile.read(20) == b"abcdefg"
-
-    def test_read04(self, joinedfile):
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"abcdefg"
-
-    def test_read05(self, joinedfile):
-        joinedfile.seek(8)
-        assert joinedfile.read() == b""
-
-    def test_write_read01(self, joinedfile):
-        joinedfile.seek(0)
-        joinedfile.write(b"xyz")
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"xyzdefg"
-
-    def test_write_read02(self, joinedfile):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyz")
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"abcdefgxyzhijklmn"
-
-    def test_writ_reade03(self, joinedfile):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyzxyz")
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"abcdefgxyzxyzklmn"
-
-    def test_write_read04(self, joinedfile):
-        joinedfile.seek(3)
-        joinedfile.write(b"xyz")
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"abcxyzg"
-
-    def test_write_read05(self, joinedfile):
-        joinedfile.seek(13)
-        joinedfile.write(b"xyz")
-        joinedfile.seek(10)
-        assert joinedfile.read() == b"hijxyzn"
-
-    def test_write_partfile01(self, joinedfile, filename):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyz")
-        with Path(f"{filename}.part0").open("rb") as f:
-            actual = f.read()
-        assert actual == b"abcdefgxyz"
-
-    def test_join_partfile01(self, joinedfile, filename):
-        joinedfile.join()
-        with Path(filename).open("rb") as f:
-            actual = f.read()
-        assert actual == b"abcdefg"
-
-    def test_join_read01(self, joinedfile):
-        joinedfile.join()
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"abcdefg"
-
-    def test_join_write_read01(self, joinedfile):
-        joinedfile.join()
-        joinedfile.seek(0)
-        joinedfile.write(b"xyz")
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"xyzdefg"
-
-    def test_write_join_partfile01(self, joinedfile, filename):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyz")
-        joinedfile.join()
-        with Path(filename).open("rb") as f:
-            actual = f.read()
-        assert actual == b"abcdefgxyzhijklmn"
-
-    def test_write_join_partfile02(self, joinedfile, filename):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyzxyz")
-        joinedfile.join()
-        with Path(filename).open("rb") as f:
-            actual = f.read()
-        assert actual == b"abcdefgxyzxyzklmn"
-
-    def test_write_join_read01(self, joinedfile):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyz")
-        joinedfile.join()
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"abcdefgxyzhijklmn"
-
-    def test_write_join_read02(self, joinedfile):
-        joinedfile.seek(7)
-        joinedfile.write(b"xyzxyz")
-        joinedfile.join()
-        joinedfile.seek(0)
-        assert joinedfile.read() == b"abcdefgxyzxyzklmn"

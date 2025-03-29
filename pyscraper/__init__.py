@@ -2,7 +2,6 @@ from .hlsfile import HlsFile, HlsFileError
 from .constants import HEADERS
 from .webfile import (
     WebFile,
-    WebFileCached,
     WebFileClientError,
     WebFileConnectionError,
     WebFileError,
@@ -29,7 +28,6 @@ __all__ = [
     "WebPageTimeoutError",
     "WebPageNoSuchElementError",
     "WebFile",
-    "WebFileCached",
     "WebFileError",
     "WebFileConnectionError",
     "WebFileTimeoutError",

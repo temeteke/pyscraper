@@ -48,7 +48,7 @@ def web_files():
 def content(web_files):
     content = b""
     for web_file in web_files:
-        with web_file as wf:
+        with web_file.open() as wf:
             content += wf.read()
         web_file.seek(0)
     return content
@@ -181,7 +181,7 @@ video002.ts
 
     def test_read_files(self, hls_file, web_files):
         for hls_file_content, web_file in zip(hls_file.read_files(), web_files):
-            with web_file as wf:
+            with web_file.open() as wf:
                 assert hls_file_content == wf.read()
 
     def test_exists_true(self, hls_file):
