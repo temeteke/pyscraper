@@ -1,4 +1,4 @@
-from functools import cached_property
+from abc import ABC, abstractmethod
 from fake_useragent import UserAgent
 import logging
 import requests
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 user_agent = UserAgent(platforms="desktop")
 
 
-class RequestsMixin:
+class RequestsMixin(ABC):
     @property
     def session(self):
         if not getattr(self, "_session", None):
@@ -23,10 +23,7 @@ class RequestsMixin:
             self._session = session
             if not session.headers.get("User-Agent"):
                 self._session.headers["User-Agent"] = user_agent.random
-        try:
-            del self.response
-        except AttributeError:
-            pass
+        self.clear_cache()
 
     @property
     def headers(self):
@@ -35,10 +32,7 @@ class RequestsMixin:
     @headers.setter
     def headers(self, headers):
         self.session.headers.update(headers)
-        try:
-            del self.response
-        except AttributeError:
-            pass
+        self.clear_cache()
 
     @property
     def cookies(self):
@@ -48,52 +42,7 @@ class RequestsMixin:
     def cookies(self, cookies):
         for k, v in cookies.items():
             self.session.cookies.set(k, v)
-        try:
-            del self.response
-        except AttributeError:
-            pass
-
-    @property
-    def url(self):
-        # Get the cached url if it exists to avoid making another request
-        if url := getattr(self, "cached_url", None):
-            return url
-        try:
-            self.cached_url = self.response_url
-        except requests.exceptions.RequestException as e:
-            logger.error(e)
-            self.cached_url = self.request_url
-        return self.cached_url
-
-    @url.setter
-    def url(self, value):
-        self.request_url = value
         self.clear_cache()
-
-    @property
-    def response_url(self):
-        return self.response.url
-
-    @property
-    def encoding(self):
-        # Get the cached encoding if it exists to avoid making another request
-        if encoding := getattr(self, "cached_encoding", None):
-            return encoding
-        try:
-            self.cached_encoding = self.response_encoding
-        except requests.exceptions.RequestException as e:
-            logger.error(e)
-            self.cached_encoding = self.request_encoding
-        return self.cached_encoding
-
-    @encoding.setter
-    def encoding(self, value):
-        self.request_encoding = value
-        self.clear_cache()
-
-    @property
-    def response_encoding(self):
-        return self.response.encoding
 
     @property
     def timeout(self):
@@ -105,30 +54,10 @@ class RequestsMixin:
     def timeout(self, value):
         self._timeout = value
 
-    @cached_property
-    def response(self):
-        logger.debug("Getting {}".format(self.request_url))
-        logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.get(self.request_url, timeout=self.timeout)
-        logger.debug("Response Headers: " + str(r.headers))
-        if encoding := getattr(self, "request_encoding", None):
-            r.encoding = encoding
-        return r
-
     @property
     def user_agent(self):
         return self.session.headers["User-Agent"]
 
+    @abstractmethod
     def clear_cache(self):
-        try:
-            del self.cached_url
-        except AttributeError:
-            pass
-        try:
-            del self.cached_encoding
-        except AttributeError:
-            pass
-        try:
-            del self.response
-        except AttributeError:
-            pass
+        pass

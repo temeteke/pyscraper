@@ -2,8 +2,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from pyscraper import WebFile, WebFileCached, WebFileError
-from pyscraper.webfile import JoinedFile
+from pyscraper.webfile import JoinedFile, WebFile, WebFileCached, WebFileError
 
 
 @pytest.fixture(scope="session")
@@ -55,24 +54,29 @@ class MixinTestWebFile:
 
     def test_read_0(self, webfile, content):
         webfile.seek(0)
-        assert webfile.read(128) == content[:128]
+        with webfile.open() as wf:
+            assert wf.read(128) == content[:128]
 
     def test_read_512(self, webfile, content):
         webfile.seek(512)
-        assert webfile.read(128) == content[512 : 512 + 128]
+        with webfile.open() as wf:
+            assert wf.read(128) == content[512 : 512 + 128]
 
     def test_read_576(self, webfile, content):
         webfile.seek(576)
-        assert webfile.read(128) == content[576 : 576 + 128]
+        with webfile.open() as wf:
+            assert wf.read(128) == content[576 : 576 + 128]
 
     def test_read_256(self, webfile, content):
         webfile.seek(256)
-        assert webfile.read() == content[256:]
+        with webfile.open() as wf:
+            assert wf.read() == content[256:]
 
     def test_seek_read_0(self, webfile, content):
         webfile.seek(128)
         webfile.seek(0)
-        assert webfile.read(128) == content[:128]
+        with webfile.open() as wf:
+            assert wf.read(128) == content[:128]
 
     def test_download_unlink(self, webfile):
         f = webfile.download()
@@ -142,27 +146,34 @@ class TestWebFileCached(MixinTestWebFile):
 
     def test_read_0_2(self, webfile, content):
         webfile.seek(0)
-        assert webfile.read(128) == content[:128]
+        with webfile.open() as wf:
+            assert wf.read(128) == content[:128]
 
     def test_read_512_2(self, webfile, content):
         webfile.seek(512)
-        assert webfile.read(128) == content[512 : 512 + 128]
+        with webfile.open() as wf:
+            assert wf.read(128) == content[512 : 512 + 128]
 
     def test_read_576_2(self, webfile, content):
         webfile.seek(576)
-        assert webfile.read(128) == content[576 : 576 + 128]
+        with webfile.open() as wf:
+            assert wf.read(128) == content[576 : 576 + 128]
 
     def test_read_256_2(self, webfile, content):
         webfile.seek(256)
-        assert webfile.read() == content[256:]
+        with webfile.open() as wf:
+            assert wf.read() == content[256:]
 
     def test_read_join(self, webfile, content):
         webfile.seek(0)
-        webfile.read(128)
+        with webfile.open() as wf:
+            wf.read(128)
         webfile.seek(256)
-        webfile.read()
+        with webfile.open() as wf:
+            wf.read()
         webfile.seek(128)
-        webfile.read(128)
+        with webfile.open() as wf:
+            wf.read(128)
         with webfile.filepath.open("rb") as f:
             actual = f.read()
         assert actual == content

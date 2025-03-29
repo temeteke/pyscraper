@@ -56,26 +56,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @url.setter
     def url(self, value):
         self.request_url = value
-        try:
-            del self.m3u8_obj
-        except AttributeError:
-            pass
-        try:
-            del self.m3u8_content
-        except AttributeError:
-            pass
-        try:
-            del self.m3u8_content_url
-        except AttributeError:
-            pass
-        try:
-            del self.m3u8_content_filename
-        except AttributeError:
-            pass
-        try:
-            del self.web_files
-        except AttributeError:
-            pass
+        self.clear_cache()
 
     @cached_property
     def m3u8_obj(self):
@@ -137,6 +118,28 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def temp_file(self):
         return self.filepath.with_name("." + self.filepath.name)
 
+    def clear_cache(self):
+        try:
+            del self.m3u8_obj
+        except AttributeError:
+            pass
+        try:
+            del self.m3u8_content
+        except AttributeError:
+            pass
+        try:
+            del self.m3u8_content_url
+        except AttributeError:
+            pass
+        try:
+            del self.m3u8_content_filename
+        except AttributeError:
+            pass
+        try:
+            del self.web_files
+        except AttributeError:
+            pass
+
     def read(self, size=None):
         total_chunk = b""
         web_file_position = self.position
@@ -147,7 +150,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             else:
                 web_file.seek(web_file_position)
                 web_file_position = 0
-            chunk = web_file.read(size)
+            with web_file.open() as wf:
+                chunk = wf.read(size)
             total_chunk += chunk
             if size:
                 size -= len(chunk)
@@ -158,7 +162,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     def read_files(self):
         for web_file in self.web_files:
-            yield web_file.read()
+            with web_file.open() as wf:
+                yield wf.read()
 
     def download(
         self,

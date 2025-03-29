@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import lxml.html
+import requests
 import selenium.common.exceptions
 from retry import retry
 from selenium import webdriver
@@ -233,6 +234,58 @@ class WebPageRequests(RequestsMixin, WebPage):
         self.timeout = timeout
 
     @property
+    def url(self):
+        # Get the cached url if it exists to avoid making another request
+        if url := getattr(self, "cached_url", None):
+            return url
+        try:
+            self.cached_url = self.response_url
+        except requests.exceptions.RequestException as e:
+            logger.error(e)
+            self.cached_url = self.request_url
+        return self.cached_url
+
+    @url.setter
+    def url(self, value):
+        self.request_url = value
+        self.clear_cache()
+
+    @property
+    def response_url(self):
+        return self.response.url
+
+    @property
+    def encoding(self):
+        # Get the cached encoding if it exists to avoid making another request
+        if encoding := getattr(self, "cached_encoding", None):
+            return encoding
+        try:
+            self.cached_encoding = self.response_encoding
+        except requests.exceptions.RequestException as e:
+            logger.error(e)
+            self.cached_encoding = self.request_encoding
+        return self.cached_encoding
+
+    @encoding.setter
+    def encoding(self, value):
+        self.request_encoding = value
+        self.clear_cache()
+
+    @property
+    def response_encoding(self):
+        return self.response.encoding
+
+    @cached_property
+    def response(self):
+        logger.debug("Getting {}".format(self.request_url))
+        logger.debug("Request Headers: " + str(self.session.headers))
+        r = self.session.get(self.request_url, timeout=self.timeout)
+        logger.debug("Response Headers: " + str(r.headers))
+        if encoding := getattr(self, "request_encoding", None):
+            r.encoding = encoding
+        return r
+
+    @property
     def html(self):
         return self.response.text
 
@@ -245,8 +298,23 @@ class WebPageRequests(RequestsMixin, WebPage):
 
         return super().lxml_html
 
+    def clear_cache(self):
+        try:
+            del self.cached_url
+        except AttributeError:
+            pass
+        try:
+            del self.cached_encoding
+        except AttributeError:
+            pass
+        try:
+            del self.response
+        except AttributeError:
+            pass
+
     def open(self):
         self.session
+        return self
 
     def close(self):
         self.session.close()
