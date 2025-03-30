@@ -185,32 +185,31 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def url(self):
-        if self.response:
-            return self.response.url
-        else:
+        if self.response is None:
             return self.request_url
+        else:
+            return self.response.url
 
     @url.setter
     def url(self, url):
         self.request_url = url
 
         # Reopen response if it was already opened
-        if self.response:
+        if self.response is not None:
             self.open_response()
 
     @property
     def size(self):
-        if not self.response:
+        if self.response is None:
             raise WebFileError("Response is not opened.")
 
-        if self.response:
-            if content_range := self.response.headers.get("Content-Range"):
-                return int(content_range.split("/")[-1].strip())
-            elif content_length := self.response.headers.get("Content-Length"):
-                return int(content_length)
+        if content_range := self.response.headers.get("Content-Range"):
+            return int(content_range.split("/")[-1].strip())
+        elif content_length := self.response.headers.get("Content-Length"):
+            return int(content_length)
 
     def get_filename(self):
-        if self.response:
+        if self.response is not None:
             if content_disposition := self.response.headers.get("Content-Disposition"):
                 if m := re.search('filename="?([^"]+)"?', content_disposition):
                     return m.group(1)
@@ -279,7 +278,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     def read(self, size=None):
         """Read and return contents."""
-        if not self.response:
+        if self.response is None:
             raise WebFileError("Response is not opened.")
 
         try:
@@ -291,11 +290,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         return chunk
 
     def seek(self, offset: int):
-        if not self.response:
+        if self.response is None:
             raise WebFileError("Response is not opened.")
 
         # check the server supports range requests
-        if not self.response.headers.get("Accept-Ranges") == "bytes":
+        if self.response.headers.get("Accept-Ranges") != "bytes":
             raise WebFileSeekError("Server does not support range requests.")
 
         # check if offset is within range
@@ -401,11 +400,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.tempfile.unlink(missing_ok=True)
 
     def exists(self):
-        if self.response:
-            return self.response.ok
-        else:
+        if self.response is None:
             try:
                 with self as wf:
                     return wf.response.ok
             except WebFileClientError:
                 return False
+        else:
+            return self.response.ok

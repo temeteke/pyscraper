@@ -236,44 +236,44 @@ class WebPageRequests(RequestsMixin, WebPage):
 
     @property
     def url(self):
-        if self.response:
-            return self.response.url
-        else:
+        if self.response is None:
             return self.request_url
+        else:
+            return self.response.url
 
     @url.setter
     def url(self, url):
         self.request_url = url
 
         # Reopen response if it was already opened
-        if self.response:
+        if self.response is not None:
             self.open_response()
 
     @property
     def encoding(self):
-        if self.response:
-            return self.response.encoding
-        else:
+        if self.response is None:
             return self.request_encoding
+        else:
+            return self.response.encoding
 
     @encoding.setter
     def encoding(self, value):
         self.request_encoding = value
 
         # Reopen response if it was already opened
-        if self.response:
+        if self.response is not None:
             self.open_response()
 
     @property
     def html(self):
-        if not self.response:
+        if self.response is None:
             raise WebPageError("Response is not opened yet")
 
         return self.response.text
 
     @property
     def lxml_html(self):
-        if not self.response:
+        if self.response is None:
             raise WebPageError("Response is not opened yet")
 
         # encodingが指定されていなかった場合、デコード前のcontentを処理する
@@ -295,7 +295,7 @@ class WebPageRequests(RequestsMixin, WebPage):
             self.response.encoding = encoding
 
     def close_response(self):
-        if self.response:
+        if self.response is not None:
             self.response.close()
             self.response = None
 
@@ -379,52 +379,52 @@ class WebPageSelenium(WebPage, ABC):
 
     @property
     def url(self):
-        if self.driver:
-            return self.driver.current_url
-        else:
+        if self.driver is None:
             return self.request_url
+        else:
+            return self.driver.current_url
 
     @url.setter
     def url(self, url):
         self.request_url = url
 
-        if self.driver:
+        if self.driver is not None:
             self.close()
             self.open()
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def html(self):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         return self.driver.page_source
 
     @property
     def cookies(self):
-        if self.driver:
+        if self.driver is None:
+            return self.request_cookies
+        else:
             cookies = {}
             for cookie in self.driver.get_cookies():
                 cookies[cookie["name"]] = cookie["value"]
             return cookies
-        else:
-            return self.request_cookies
 
     @cookies.setter
     def cookies(self, cookies):
         self.request_cookies = cookies
 
-        if self.driver:
+        if self.driver is not None:
             self.close()
             self.open()
 
     @property
     def user_agent(self):
-        if self.driver:
+        if self.driver is not None:
             return self.driver.execute_script("return navigator.userAgent")
 
     def set_cookies_from_file(self, cookies_file):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         cookies = MozillaCookieJar(cookies_file)
@@ -433,7 +433,7 @@ class WebPageSelenium(WebPage, ABC):
             self.driver.add_cookie(cookie.__dict__)
 
     def wait(self, xpath, timeout=10):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         try:
@@ -444,7 +444,7 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageTimeoutError from e
 
     def get(self, xpath, timeout=0):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         if timeout:
@@ -455,7 +455,7 @@ class WebPageSelenium(WebPage, ABC):
         ]
 
     def click(self, xpath, timeout=10):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         try:
@@ -466,7 +466,7 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageNoSuchElementError from e
 
     def move_to(self, xpath):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         actions = ActionChains(self.driver)
@@ -474,7 +474,7 @@ class WebPageSelenium(WebPage, ABC):
         actions.perform()
 
     def switch_to_frame(self, xpath):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         iframe = self.driver.find_element(By.XPATH, xpath)
@@ -483,7 +483,7 @@ class WebPageSelenium(WebPage, ABC):
         return iframe_url
 
     def go(self, url, params={}):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         if params:
@@ -494,37 +494,37 @@ class WebPageSelenium(WebPage, ABC):
         self.driver.get(url)
 
     def forward(self):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         self.driver.forward()
 
     def back(self):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         self.driver.back()
 
     def refresh(self):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         self.driver.refresh()
 
     def execute_script(self, *args, **kwargs):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         return self.driver.execute_script(*args, **kwargs)
 
     def execute_async_script(self, *args, **kwargs):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         return self.driver.execute_async_script(*args, **kwargs)
 
     def dump(self, filestem=None):
-        if not self.driver:
+        if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
         if not filestem:
@@ -566,7 +566,7 @@ class WebPageSelenium(WebPage, ABC):
             self.close()
 
     def close(self):
-        if self.driver:
+        if self.driver is not None:
             self.driver.quit()
             self.driver = None
 

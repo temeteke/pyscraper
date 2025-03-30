@@ -10,7 +10,7 @@ user_agent = UserAgent(platforms="desktop")
 
 class RequestsMixin:
     def open_session(self):
-        if not self.session:
+        if self.session is None:
             self.session = requests.Session()
             self.session.headers["User-Agent"] = user_agent.random
 
@@ -23,38 +23,38 @@ class RequestsMixin:
             self.session.cookies.set(k, v)
 
     def close_session(self):
-        if self.session:
+        if self.session is not None:
             self.session.close()
             self.session = None
 
     @property
     def headers(self):
-        if self.session:
-            return dict(self.session.headers)
-        else:
+        if self.session is None:
             return self.request_headers
+        else:
+            return dict(self.session.headers)
 
     @headers.setter
     def headers(self, headers):
         self.request_headers = headers
 
         # Reopen session if it was already opened
-        if self.session:
+        if self.session is not None:
             self.open_session()
 
     @property
     def cookies(self):
-        if self.session:
-            return dict(self.session.cookies)
-        else:
+        if self.session is None:
             return self.request_cookies
+        else:
+            return dict(self.session.cookies)
 
     @cookies.setter
     def cookies(self, cookies):
         self.request_cookies = cookies
 
         # Reopen session if it was already opened
-        if self.session:
+        if self.session is not None:
             self.open_session()
 
     @property
