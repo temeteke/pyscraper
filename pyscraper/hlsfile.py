@@ -30,9 +30,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
         url,
-        session=None,
         headers={},
         cookies={},
+        session=None,
         directory=".",
         filename=None,
         filestem=None,
@@ -40,10 +40,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     ):
         super().__init__()
 
-        self.url = url
+        self.request_url = url
+        self.request_headers = headers
+        self.request_cookies = cookies
         self.session = session
-        self.headers = headers
-        self.cookies = cookies
         self.directory = directory
         self.filename = filename
         self.filestem = filestem

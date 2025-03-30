@@ -151,14 +151,14 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
         url: str,
-        session: requests.Session = None,
         headers: dict = {},
         cookies: dict = {},
+        session: requests.Session = None,
+        timeout: int = 30,
         directory: str = ".",
         filename: str = None,
         filestem: str = None,
         filesuffix: str = None,
-        timeout: int = 30,
     ):
         self.response = None
 
@@ -166,12 +166,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         self.logger.debug(url)
 
-        self.url = url
+        self.request_url = url
+        self.request_headers = headers
+        self.request_cookies = cookies
         self.session = session
-        self.headers = headers
-        self.cookies = cookies
         self.timeout = timeout
-
         self.directory = directory
         self.filename = filename
         self.filestem = filestem

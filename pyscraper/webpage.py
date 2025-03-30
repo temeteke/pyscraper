@@ -223,15 +223,15 @@ class WebPage(WebPageParserMixin):
 
 class WebPageRequests(RequestsMixin, WebPage):
     def __init__(
-        self, url, params={}, session=None, headers={}, cookies={}, encoding=None, timeout=10
+        self, url, params={}, encoding=None, headers={}, cookies={}, session=None, timeout=10
     ):
         self.response = None
 
         super().__init__(url, params=params, encoding=encoding)
 
+        self.request_headers = headers
+        self.request_cookies = cookies
         self.session = session
-        self.headers = headers
-        self.cookies = cookies
         self.timeout = timeout
 
     @property

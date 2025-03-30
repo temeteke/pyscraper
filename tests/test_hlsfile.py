@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 import pytest
+import requests
 
 from pyscraper.webfile import WebFile
 from pyscraper.hlsfile import HlsFile
@@ -210,3 +211,8 @@ video002.ts
 
         hls_file.unlink()
         assert not f.exists()
+
+    def test_session(self):
+        session = requests.Session()
+        session.headers["test"] = "test"
+        assert HlsFile("https://httpbin.org/headers", session=session).headers["test"] == "test"

@@ -186,3 +186,8 @@ class TestWebFile:
     def test_user_agent_open(self):
         with WebFile("https://httpbin.org/user-agent") as wf:
             assert "requests" not in wf.user_agent
+
+    def test_session(self):
+        session = requests.Session()
+        session.headers["test"] = "test"
+        assert WebFile("https://httpbin.org/headers", session=session).headers["test"] == "test"

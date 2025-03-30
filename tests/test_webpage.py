@@ -1,6 +1,7 @@
 import os
 
 import pytest
+import requests
 
 from pyscraper.webpage import (
     WebPageChrome,
@@ -224,6 +225,14 @@ class TestWebPageRequests(MixinTestWebPage, MixinTestWebPageOpenClose):
     def test_headers_open(self, web_page_class):
         with web_page_class("https://httpbin.org/headers", headers={"test": "test"}) as wp:
             assert wp.headers["test"] == "test"
+
+    def test_session(self, web_page_class):
+        session = requests.Session()
+        session.headers["test"] = "test"
+        assert (
+            web_page_class("https://httpbin.org/headers", session=session).headers["test"]
+            == "test"
+        )
 
 
 class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestWebPageSelenium):
