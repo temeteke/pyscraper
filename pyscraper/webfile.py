@@ -401,8 +401,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.tempfile.unlink(missing_ok=True)
 
     def exists(self):
-        try:
-            with self as wf:
-                return wf.response.ok
-        except WebFileClientError:
-            return False
+        if self.response:
+            return self.response.ok
+        else:
+            try:
+                with self as wf:
+                    return wf.response.ok
+            except WebFileClientError:
+                return False

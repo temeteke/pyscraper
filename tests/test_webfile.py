@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from pyscraper.webfile import WebFile, WebFileError, WebFileSeekError
+from pyscraper.webfile import WebFile, WebFileClientError, WebFileError, WebFileSeekError
 
 
 @pytest.fixture(scope="session")
@@ -123,15 +123,25 @@ class TestWebFile:
     def test_eq01(self, webfile, url):
         assert webfile == WebFile(url)
 
-    def test_exists(self):
+    def test_exists_close(self):
         assert WebFile("https://httpbin.org/status/200").exists() is True
 
-    def test_not_exists(self):
+    def test_exists_open(self):
+        with WebFile("https://httpbin.org/status/200") as wf:
+            wf.exists() is True
+
+    def test_not_exists_close(self):
         assert WebFile("https://httpbin.org/status/404").exists() is False
+
+    def test_not_found_error(self):
+        with pytest.raises(WebFileClientError):
+            with WebFile("https://httpbin.org/status/404"):
+                pass
 
     def test_dnserror(self):
         with pytest.raises(WebFileError):
-            WebFile("http://a.temeteke.com").open()
+            with WebFile("http://a.temeteke.com"):
+                pass
 
     def test_url_close(self):
         assert (
