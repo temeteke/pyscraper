@@ -263,7 +263,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.response.raw.decode_content = True
 
     def close_response(self):
-        if self.response:
+        if self.response is not None:
             self.response.close()
             self.response = None
 
