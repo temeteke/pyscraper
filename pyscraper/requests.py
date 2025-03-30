@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from fake_useragent import UserAgent
 import logging
 import requests
@@ -9,10 +8,11 @@ logger = logging.getLogger(__name__)
 user_agent = UserAgent(platforms="desktop")
 
 
-class RequestsMixin(ABC):
+class RequestsMixin:
     def open_session(self):
         if not self.session:
             self.session = requests.Session()
+            self.session.headers["User-Agent"] = user_agent.random
 
         if not self.session.headers.get("User-Agent"):
             self.session.headers["User-Agent"] = user_agent.random
