@@ -61,7 +61,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @cached_property
     def m3u8_obj(self):
         def get_best_playlist(url):
-            with WebFile(url, session=self.session).open() as wf:
+            with WebFile(url, session=self.session) as wf:
                 m3u8_obj = m3u8.loads(wf.read().decode(), uri=url)
             if m3u8_obj.playlists:
                 return get_best_playlist(
@@ -145,25 +145,25 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         total_chunk = b""
         web_file_position = self.position
         for web_file in self.web_files:
-            if web_file_position >= web_file.size:
-                web_file_position -= web_file.size
-                continue
-            else:
-                web_file.seek(web_file_position)
-                web_file_position = 0
-            with web_file.open() as wf:
-                chunk = wf.read(size)
-            total_chunk += chunk
-            if size:
-                size -= len(chunk)
-                if size == 0:
-                    break
+            with web_file as wf:
+                if web_file_position >= wf.size:
+                    web_file_position -= wf.size
+                    continue
+                else:
+                    wf.seek(web_file_position)
+                    web_file_position = 0
+                    chunk = wf.read(size)
+                total_chunk += chunk
+                if size:
+                    size -= len(chunk)
+                    if size == 0:
+                        break
         self.position += len(total_chunk)
         return total_chunk
 
     def read_files(self):
         for web_file in self.web_files:
-            with web_file.open() as wf:
+            with web_file as wf:
                 yield wf.read()
 
     def download(

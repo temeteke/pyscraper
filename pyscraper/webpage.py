@@ -11,7 +11,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import lxml.html
-import requests
 import selenium.common.exceptions
 from retry import retry
 from selenium import webdriver
@@ -226,6 +225,8 @@ class WebPageRequests(RequestsMixin, WebPage):
     def __init__(
         self, url, params={}, session=None, headers={}, cookies={}, encoding=None, timeout=10
     ):
+        self.response = None
+
         super().__init__(url, params=params, encoding=encoding)
 
         self.session = session
@@ -235,62 +236,46 @@ class WebPageRequests(RequestsMixin, WebPage):
 
     @property
     def url(self):
-        # Get the cached url if it exists to avoid making another request
-        if url := getattr(self, "cached_url", None):
-            return url
-        try:
-            self.cached_url = self.response_url
-        except requests.exceptions.RequestException as e:
-            logger.error(e)
-            self.cached_url = self.request_url
-        return self.cached_url
+        if self.response:
+            return self.response.url
+        else:
+            return self.request_url
 
     @url.setter
-    def url(self, value):
-        self.request_url = value
-        self.clear_cache()
+    def url(self, url):
+        self.request_url = url
 
-    @property
-    def response_url(self):
-        return self.response.url
+        # Reopen response if it was already opened
+        if self.response:
+            self.open_response()
 
     @property
     def encoding(self):
-        # Get the cached encoding if it exists to avoid making another request
-        if encoding := getattr(self, "cached_encoding", None):
-            return encoding
-        try:
-            self.cached_encoding = self.response_encoding
-        except requests.exceptions.RequestException as e:
-            logger.error(e)
-            self.cached_encoding = self.request_encoding
-        return self.cached_encoding
+        if self.response:
+            return self.response.encoding
+        else:
+            return self.request_encoding
 
     @encoding.setter
     def encoding(self, value):
         self.request_encoding = value
-        self.clear_cache()
 
-    @property
-    def response_encoding(self):
-        return self.response.encoding
-
-    @cached_property
-    def response(self):
-        logger.debug("Getting {}".format(self.request_url))
-        logger.debug("Request Headers: " + str(self.session.headers))
-        r = self.session.get(self.request_url, timeout=self.timeout)
-        logger.debug("Response Headers: " + str(r.headers))
-        if encoding := getattr(self, "request_encoding", None):
-            r.encoding = encoding
-        return r
+        # Reopen response if it was already opened
+        if self.response:
+            self.open_response()
 
     @property
     def html(self):
+        if not self.response:
+            raise WebPageError("Response is not opened yet")
+
         return self.response.text
 
     @property
     def lxml_html(self):
+        if not self.response:
+            raise WebPageError("Response is not opened yet")
+
         # encodingが指定されていなかった場合、デコード前のcontentを処理する
         if not self.request_encoding:
             if html := self.response.content:
@@ -298,26 +283,30 @@ class WebPageRequests(RequestsMixin, WebPage):
 
         return super().lxml_html
 
-    def clear_cache(self):
-        try:
-            del self.cached_url
-        except AttributeError:
-            pass
-        try:
-            del self.cached_encoding
-        except AttributeError:
-            pass
-        try:
-            del self.response
-        except AttributeError:
-            pass
+    def open_response(self):
+        logger.debug("Getting {}".format(self.request_url))
+        logger.debug("Request Headers: " + str(self.session.headers))
+
+        self.response = self.session.get(self.request_url, timeout=self.timeout)
+
+        logger.debug("Response Headers: " + str(self.response.headers))
+
+        if encoding := getattr(self, "request_encoding", None):
+            self.response.encoding = encoding
+
+    def close_response(self):
+        if self.response:
+            self.response.close()
+            self.response = None
 
     def open(self):
-        self.session
+        self.open_session()
+        self.open_response()
         return self
 
     def close(self):
-        self.session.close()
+        self.close_response()
+        self.close_session()
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -384,46 +373,69 @@ class SeleniumWebPageElement(WebPageElement):
 
 
 class WebPageSelenium(WebPage, ABC):
-    @property
-    @abstractmethod
-    def driver(self):
-        pass
+    def __init__(self, url, params={}, encoding=None):
+        self.driver = None
+        super().__init__(url, params=params, encoding=encoding)
 
     @property
     def url(self):
-        return self.driver.current_url
+        if self.driver:
+            return self.driver.current_url
+        else:
+            return self.request_url
 
     @url.setter
     def url(self, url):
-        self.go(url)
+        self.request_url = url
+
+        if self.driver:
+            self.close()
+            self.open()
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def html(self):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         return self.driver.page_source
 
     @property
     def cookies(self):
-        cookies = {}
-        for cookie in self.driver.get_cookies():
-            cookies[cookie["name"]] = cookie["value"]
-        return cookies
+        if self.driver:
+            cookies = {}
+            for cookie in self.driver.get_cookies():
+                cookies[cookie["name"]] = cookie["value"]
+            return cookies
+        else:
+            return self.request_cookies
 
     @cookies.setter
     def cookies(self, cookies):
         self.request_cookies = cookies
 
+        if self.driver:
+            self.close()
+            self.open()
+
     @property
     def user_agent(self):
-        return self.driver.execute_script("return navigator.userAgent")
+        if self.driver:
+            return self.driver.execute_script("return navigator.userAgent")
 
     def set_cookies_from_file(self, cookies_file):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         cookies = MozillaCookieJar(cookies_file)
         cookies.load()
         for cookie in cookies:
             self.driver.add_cookie(cookie.__dict__)
 
     def wait(self, xpath, timeout=10):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         try:
             WebDriverWait(self.driver, timeout).until(
                 EC.presence_of_element_located((By.XPATH, xpath))
@@ -432,6 +444,9 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageTimeoutError from e
 
     def get(self, xpath, timeout=0):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         if timeout:
             self.wait(xpath, timeout)
         return [
@@ -440,6 +455,9 @@ class WebPageSelenium(WebPage, ABC):
         ]
 
     def click(self, xpath, timeout=10):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         try:
             element = self.driver.find_element(By.XPATH, xpath)
             # self.driver.execute_script("arguments[0].scrollIntoView();", element)
@@ -448,17 +466,26 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageNoSuchElementError from e
 
     def move_to(self, xpath):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         actions = ActionChains(self.driver)
         actions.move_to_element(self.driver.find_element(By.XPATH, xpath))
         actions.perform()
 
     def switch_to_frame(self, xpath):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         iframe = self.driver.find_element(By.XPATH, xpath)
         iframe_url = iframe.get_attribute("src")
         self.driver.switch_to.frame(iframe)
         return iframe_url
 
     def go(self, url, params={}):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         if params:
             parsed_url = urlparse(url)
             parsed_qs = parse_qs(parsed_url.query)
@@ -467,21 +494,39 @@ class WebPageSelenium(WebPage, ABC):
         self.driver.get(url)
 
     def forward(self):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         self.driver.forward()
 
     def back(self):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         self.driver.back()
 
     def refresh(self):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         self.driver.refresh()
 
     def execute_script(self, *args, **kwargs):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         return self.driver.execute_script(*args, **kwargs)
 
     def execute_async_script(self, *args, **kwargs):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         return self.driver.execute_async_script(*args, **kwargs)
 
     def dump(self, filestem=None):
+        if not self.driver:
+            raise WebPageError("Driver is not opened yet")
+
         if not filestem:
             filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -518,12 +563,12 @@ class WebPageSelenium(WebPage, ABC):
             return self
         except selenium.common.exceptions.WebDriverException as e:
             logger.error(e)
-            self.driver.quit()
-            del self.driver
+            self.close()
 
     def close(self):
-        self.driver.quit()
-        del self.driver
+        if self.driver:
+            self.driver.quit()
+            self.driver = None
 
 
 class WebPageFirefox(WebPageSelenium):
@@ -546,8 +591,7 @@ class WebPageFirefox(WebPageSelenium):
         self.page_load_strategy = page_load_strategy
         self.language = language
 
-    @cached_property
-    def driver(self):
+    def open(self):
         options = webdriver.FirefoxOptions()
 
         if self.page_load_strategy:
@@ -586,16 +630,18 @@ class WebPageFirefox(WebPageSelenium):
             elif netloc not in no_proxy:
                 os.environ["NO_PROXY"] += "," + netloc
 
-            return webdriver.Remote(command_executor=url, options=options)
+            self.driver = webdriver.Remote(command_executor=url, options=options)
 
         else:
             options.headless = True
             if self.profile:
-                return webdriver.Firefox(
+                self.driver = webdriver.Firefox(
                     options=options, firefox_profile=webdriver.FirefoxProfile(self.profile)
                 )
             else:
-                return webdriver.Firefox(options=options)
+                self.driver = webdriver.Firefox(options=options)
+
+        super().open()
 
 
 class WebPageChrome(WebPageSelenium):
@@ -609,8 +655,7 @@ class WebPageChrome(WebPageSelenium):
         self.cookies_file = cookies_file
         self.page_load_strategy = page_load_strategy
 
-    @cached_property
-    def driver(self):
+    def open(self):
         options = webdriver.ChromeOptions()
         if self.page_load_strategy:
             options.page_load_strategy = self.page_load_strategy
@@ -628,12 +673,14 @@ class WebPageChrome(WebPageSelenium):
             elif netloc not in no_proxy:
                 os.environ["NO_PROXY"] += "," + netloc
 
-            return webdriver.Remote(command_executor=url, options=options)
+            self.driver = webdriver.Remote(command_executor=url, options=options)
         else:
             options.headless = True
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
-            return webdriver.Chrome(options=options)
+            self.driver = webdriver.Chrome(options=options)
+
+        super().open()
 
 
 class WebPageCurl(WebPage):

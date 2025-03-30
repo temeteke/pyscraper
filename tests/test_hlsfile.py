@@ -50,7 +50,6 @@ def content(web_files):
     for web_file in web_files:
         with web_file.open() as wf:
             content += wf.read()
-        web_file.seek(0)
     return content
 
 

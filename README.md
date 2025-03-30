@@ -31,9 +31,9 @@ Example usage:
 ```python
 from pyscraper.webpage import WebPageRequests
 
-web_page = WebPageRequests("https://example.com")
-for element in web_page.get("//a"):
-    print(element.text)
+with WebPageRequests("https://example.com") as web_page:
+    for element in web_page.get("//a"):
+        print(element.text)
 ```
 
 ```python
@@ -49,6 +49,14 @@ with WebPageFirefox("https://example.com") as web_page:
 The `WebFile` class is designed to handle file downloads from the web. It supports custom headers and cookies, and provides methods for reading and downloading file content.
 
 Example usage:
+
+```python
+from pyscraper.webfile import WebFile
+
+url = "https://example.com/file.txt"
+with WebFile(url) as web_file:
+    web_file.read()
+```
 
 ```python
 from pyscraper.webfile import WebFile

@@ -10,54 +10,53 @@ user_agent = UserAgent(platforms="desktop")
 
 
 class RequestsMixin(ABC):
-    @property
-    def session(self):
-        if not getattr(self, "_session", None):
-            self._session = requests.Session()
-            self._session.headers["User-Agent"] = user_agent.random
-        return self._session
+    def open_session(self):
+        if not self.session:
+            self.session = requests.Session()
 
-    @session.setter
-    def session(self, session):
-        if session:
-            self._session = session
-            if not session.headers.get("User-Agent"):
-                self._session.headers["User-Agent"] = user_agent.random
-        self.clear_cache()
+        if not self.session.headers.get("User-Agent"):
+            self.session.headers["User-Agent"] = user_agent.random
+
+        self.session.headers.update(self.request_headers)
+
+        for k, v in self.request_cookies.items():
+            self.session.cookies.set(k, v)
+
+    def close_session(self):
+        if self.session:
+            self.session.close()
+            self.session = None
 
     @property
     def headers(self):
-        return dict(self.session.headers)
+        if self.session:
+            return dict(self.session.headers)
+        else:
+            return self.request_headers
 
     @headers.setter
     def headers(self, headers):
-        self.session.headers.update(headers)
-        self.clear_cache()
+        self.request_headers = headers
+
+        # Reopen session if it was already opened
+        if self.session:
+            self.open_session()
 
     @property
     def cookies(self):
-        return dict(self.session.cookies)
+        if self.session:
+            return dict(self.session.cookies)
+        else:
+            return self.request_cookies
 
     @cookies.setter
     def cookies(self, cookies):
-        for k, v in cookies.items():
-            self.session.cookies.set(k, v)
-        self.clear_cache()
+        self.request_cookies = cookies
 
-    @property
-    def timeout(self):
-        if not getattr(self, "_timeout", None):
-            self._timeout = 10
-        return self._timeout
-
-    @timeout.setter
-    def timeout(self, value):
-        self._timeout = value
+        # Reopen session if it was already opened
+        if self.session:
+            self.open_session()
 
     @property
     def user_agent(self):
-        return self.session.headers["User-Agent"]
-
-    @abstractmethod
-    def clear_cache(self):
-        pass
+        return self.headers.get("User-Agent")

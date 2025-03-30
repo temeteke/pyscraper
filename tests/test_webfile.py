@@ -20,25 +20,17 @@ def content(url):
     return requests.get(url).content
 
 
-class MixinTestWebFile:
+class TestWebFile:
+    @pytest.fixture
+    def webfile(self, url, filename):
+        return WebFile(url, filename=filename)
+
     def test_url_01(self, webfile, url):
-        assert not hasattr(webfile, "cached_url")
         assert webfile.url == url
-        assert webfile.cached_url == url
 
     def test_url_02(self, webfile):
-        webfile.exists()
         webfile.url = "https://httpbin.org/range/2048"
-        assert not hasattr(webfile, "cached_url")
         assert webfile.url == "https://httpbin.org/range/2048"
-        assert webfile.cached_url == "https://httpbin.org/range/2048"
-
-    def test_url_03(self, webfile):
-        webfile.exists()
-        webfile.url = "https://httpbin.org/status/404"
-        assert not hasattr(webfile, "cached_url")
-        assert webfile.url == "https://httpbin.org/status/404"
-        assert webfile.cached_url == "https://httpbin.org/status/404"
 
     def test_directory(self, webfile):
         assert webfile.directory == Path(".")
@@ -53,29 +45,29 @@ class MixinTestWebFile:
         assert webfile.filename == "test.txt"
 
     def test_read_0(self, webfile, content):
-        webfile.seek(0)
-        with webfile.open() as wf:
+        with webfile as wf:
+            wf.seek(0)
             assert wf.read(128) == content[:128]
 
     def test_read_512(self, webfile, content):
-        webfile.seek(512)
-        with webfile.open() as wf:
+        with webfile as wf:
+            wf.seek(512)
             assert wf.read(128) == content[512 : 512 + 128]
 
     def test_read_576(self, webfile, content):
-        webfile.seek(576)
         with webfile.open() as wf:
+            wf.seek(576)
             assert wf.read(128) == content[576 : 576 + 128]
 
     def test_read_256(self, webfile, content):
-        webfile.seek(256)
         with webfile.open() as wf:
+            wf.seek(256)
             assert wf.read() == content[256:]
 
     def test_seek_read_0(self, webfile, content):
-        webfile.seek(128)
-        webfile.seek(0)
         with webfile.open() as wf:
+            wf.seek(128)
+            wf.seek(0)
             assert wf.read(128) == content[:128]
 
     def test_download_unlink(self, webfile):
@@ -109,24 +101,24 @@ class MixinTestWebFile:
         webfile.unlink()
         assert f.exists() is False
 
-    def test_seek_range_not_supported(self):
-        webfile = WebFile("https://httpbin.org/bytes/1024")
-        with pytest.raises(WebFileSeekError):
+    def test_seek_error(self, webfile):
+        with pytest.raises(WebFileError):
             webfile.seek(512)
+
+    def test_seek_range_not_supported(self):
+        with pytest.raises(WebFileSeekError):
+            with WebFile("https://httpbin.org/bytes/1024") as wf:
+                wf.seek(512)
 
     def test_seek_large_offset(self, webfile):
         with pytest.raises(WebFileSeekError):
-            webfile.seek(2048)
+            with webfile as wf:
+                wf.seek(2048)
 
     def test_seek_negative_offset(self, webfile):
         with pytest.raises(WebFileSeekError):
-            webfile.seek(-1)
-
-
-class TestWebFile(MixinTestWebFile):
-    @pytest.fixture
-    def webfile(self, url, filename):
-        return WebFile(url, filename=filename)
+            with webfile as wf:
+                wf.seek(-1)
 
     def test_eq01(self, webfile, url):
         assert webfile == WebFile(url)
@@ -141,23 +133,39 @@ class TestWebFile(MixinTestWebFile):
         with pytest.raises(WebFileError):
             WebFile("http://a.temeteke.com").open()
 
-    def test_url_redirect(self):
+    def test_url_close(self):
         assert (
-            WebFile("https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org").url
-            == "https://httpbin.org"
+            WebFile("https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org%2F").url
+            == "https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org%2F"
         )
 
-    def test_headers(self):
+    def test_url_open(self):
+        with WebFile("https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org%2F") as wf:
+            assert wf.url == "https://httpbin.org/"
+
+    def test_headers_close(self):
         assert (
             WebFile("https://httpbin.org/headers", headers={"test": "test"}).headers["test"]
             == "test"
         )
 
-    def test_cookies(self):
+    def test_headers_open(self):
+        with WebFile("https://httpbin.org/headers", headers={"test": "test"}) as wf:
+            assert wf.headers["test"] == "test"
+
+    def test_cookies_close(self):
         assert (
             WebFile("https://httpbin.org/cookies", cookies={"test": "test"}).cookies["test"]
             == "test"
         )
 
-    def test_filesuffix_jpg(self, webfile):
-        return WebFile("https://httpbin.org/image/jpeg").filesuffix == ".jpg"
+    def test_cookies_open(self):
+        with WebFile("https://httpbin.org/cookies", cookies={"test": "test"}) as wf:
+            assert wf.cookies["test"] == "test"
+
+    def test_filesuffix_close(self):
+        assert WebFile("https://httpbin.org/image/jpeg").filesuffix == ""
+
+    def test_filesuffix_open(self):
+        with WebFile("https://httpbin.org/image/jpeg") as wf:
+            assert wf.filesuffix == ".jpg"
