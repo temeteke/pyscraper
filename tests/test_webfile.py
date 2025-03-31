@@ -187,6 +187,13 @@ class TestWebFile:
         with WebFile("https://httpbin.org/cookies", cookies={"test": "test"}) as wf:
             assert wf.cookies["test"] == "test"
 
+    def test_filestem_close(self):
+        assert WebFile("https://httpbin.org/image/jpeg").filestem == "jpeg"
+
+    def test_filestem_open(self):
+        with WebFile("https://httpbin.org/image/jpeg") as wf:
+            assert wf.filestem == "jpeg"
+
     def test_filesuffix_close(self):
         assert WebFile("https://httpbin.org/image/jpeg").filesuffix == ""
 
