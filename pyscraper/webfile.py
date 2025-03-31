@@ -342,36 +342,25 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             if wf.size:
                 if wf.tempfile.exists():
                     downloaded_file_size = wf.tempfile.stat().st_size
+                    try:
+                        wf.seek(downloaded_file_size)
+                    except WebFileSeekError:
+                        wf.tempfile.unlink()
+                        downloaded_file_size = 0
                 else:
                     downloaded_file_size = 0
 
-                wf.seek(downloaded_file_size)
-
-                try:
-                    with MyTqdm(
-                        total=wf.size,
-                        initial=downloaded_file_size,
-                        unit="B",
-                        unit_scale=True,
-                        dynamic_ncols=True,
-                    ) as pbar:
-                        with self.tempfile.open("ab") as f:
-                            for chunk in iter(partial(wf.read, 8192), b""):
-                                f.write(chunk)
-                                pbar.update(len(chunk))
-                except requests.exceptions.HTTPError as e:
-                    wf.logger.warning(e)
-                    if e.response.status_code == 416 and wf.tempfile.exists():
-                        wf.tempfile.unlink()
-                        raise WebFileClientError(
-                            "Range Not Satisfiable. Removed downloaded file."
-                        ) from e
-                    else:
-                        raise WebFileError(e) from e
-                except WebFileSeekError as e:
-                    wf.logger.warning(e)
-                    wf.tempfile.unlink()
-                    raise WebFileClientError("Seek Error. Removed downloaded file.") from e
+                with MyTqdm(
+                    total=wf.size,
+                    initial=downloaded_file_size,
+                    unit="B",
+                    unit_scale=True,
+                    dynamic_ncols=True,
+                ) as pbar:
+                    with self.tempfile.open("ab") as f:
+                        for chunk in iter(partial(wf.read, 8192), b""):
+                            f.write(chunk)
+                            pbar.update(len(chunk))
 
                 # Check file size after download if not compressed
                 if not wf.response.headers.get("Content-Encoding"):

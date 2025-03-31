@@ -70,6 +70,25 @@ class TestWebFile:
             wf.seek(0)
             assert wf.read(128) == content[:128]
 
+    def test_seek_error(self, webfile):
+        with pytest.raises(WebFileError):
+            webfile.seek(512)
+
+    def test_seek_range_not_supported(self):
+        with pytest.raises(WebFileSeekError):
+            with WebFile("https://httpbin.org/bytes/1024") as wf:
+                wf.seek(512)
+
+    def test_seek_large_offset(self, webfile):
+        with pytest.raises(WebFileSeekError):
+            with webfile as wf:
+                wf.seek(2048)
+
+    def test_seek_negative_offset(self, webfile):
+        with pytest.raises(WebFileSeekError):
+            with webfile as wf:
+                wf.seek(-1)
+
     def test_download_unlink(self, webfile):
         f = webfile.download()
         assert f.exists() is True
@@ -101,24 +120,19 @@ class TestWebFile:
         webfile.unlink()
         assert f.exists() is False
 
-    def test_seek_error(self, webfile):
-        with pytest.raises(WebFileError):
-            webfile.seek(512)
+    def test_download_range_not_supported(self, content):
+        webfile = WebFile("https://httpbin.org/bytes/1024", filename="test.txt")
+        temp_file = Path("test.txt.part")
 
-    def test_seek_range_not_supported(self):
-        with pytest.raises(WebFileSeekError):
-            with WebFile("https://httpbin.org/bytes/1024") as wf:
-                wf.seek(512)
+        with open(temp_file, "wb") as f:
+            f.write(content[:128])
 
-    def test_seek_large_offset(self, webfile):
-        with pytest.raises(WebFileSeekError):
-            with webfile as wf:
-                wf.seek(2048)
+        f = webfile.download(filename="test.txt")
+        assert f.exists() is True
+        assert temp_file.exists() is False
 
-    def test_seek_negative_offset(self, webfile):
-        with pytest.raises(WebFileSeekError):
-            with webfile as wf:
-                wf.seek(-1)
+        webfile.unlink()
+        assert f.exists() is False
 
     def test_eq01(self, webfile, url):
         assert webfile == WebFile(url)
