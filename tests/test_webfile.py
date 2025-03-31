@@ -194,6 +194,13 @@ class TestWebFile:
         with WebFile("https://httpbin.org/image/jpeg") as wf:
             assert wf.filesuffix == ".jpg"
 
+    def test_filename_close(self):
+        assert WebFile("https://httpbin.org/image/jpeg").filename == "jpeg"
+
+    def test_filename_open(self):
+        with WebFile("https://httpbin.org/image/jpeg") as wf:
+            assert wf.filename == "jpeg.jpg"
+
     def test_user_agent_close(self):
         assert not WebFile("https://httpbin.org/user-agent").user_agent
 
