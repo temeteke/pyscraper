@@ -91,7 +91,10 @@ class WebFileMixin:
     @directory.setter
     def directory(self, directory):
         if directory:
-            self._directory = Path(re.sub(r'[:|\s\*\?\\"]', "_", str(directory)))
+            if isinstance(directory, Path):
+                self._directory = directory
+            elif isinstance(directory, str):
+                self._directory = Path(directory)
 
     @property
     def filestem(self):
@@ -105,10 +108,7 @@ class WebFileMixin:
     @filestem.setter
     def filestem(self, filestem):
         if filestem:
-            filestem = unicodedata.normalize("NFC", filestem)
-            while len(filestem.encode()) > 255 - 10:
-                filestem = filestem[:-1]
-            self._filestem = re.sub(r'[/:|\s\*\.\?\\"]', "_", filestem)
+            self._filestem = filestem
 
     @property
     def filesuffix(self):
