@@ -2,7 +2,7 @@ FROM python:3.12-alpine
 
 RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt ffmpeg && \
     apk add --no-cache --virtual .lxml-deps build-base libc-dev libxslt-dev && \
-    pip install lxml && \
+    pip install --no-cache-dir lxml && \
     apk del .lxml-deps && \
     apk add --no-cache --virtual .geckodriver-deps tar && \
     curl -L https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz | tar xz -C /usr/local/bin/ && \
@@ -10,12 +10,11 @@ RUN apk add --no-cache firefox-esr chromium chromium-chromedriver curl libxslt f
 
 # No module named 'setuptools_rust'を回避するため
 RUN apk add --no-cache --virtual .python-deps gcc musl-dev python3-dev libffi-dev openssl-dev cargo && \
-    pip install cryptography && \
+    pip install --no-cache-dir cryptography && \
     apk del .python-deps
 
 WORKDIR /app
-RUN pip install --no-cache-dir --upgrade setuptools
 COPY setup.py setup.cfg ./
 COPY pyscraper pyscraper/
-RUN python setup.py install -n && \
+RUN pip install --no-cache-dir . && \
     rm -r *
