@@ -134,6 +134,19 @@ class TestWebFile:
         webfile.unlink()
         assert f.exists() is False
 
+    def test_download_progress_callback(self, url, filename):
+        web_file = WebFile(url, filename=filename)
+        progresses = []
+
+        def cb(current, total):
+            progresses.append((current, total))
+
+        web_file.download(progress_callback=cb)
+        # The last callback should indicate completion
+        assert progresses[-1][0] == progresses[-1][1] or progresses[-1][1] is None
+
+        web_file.unlink()
+
     def test_eq01(self, webfile, url):
         assert webfile == WebFile(url)
 

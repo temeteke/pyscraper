@@ -212,6 +212,18 @@ video002.ts
         hls_file.unlink()
         assert not f.exists()
 
+    def test_download_progress_callback(self, hls_file):
+        progresses = []
+
+        def cb(current, total):
+            progresses.append((current, total))
+
+        hls_file.download(progress_callback=cb)
+        # The last callback should indicate completion
+        assert progresses[-1][0] == progresses[-1][1]
+
+        hls_file.unlink()
+
     def test_session(self):
         session = requests.Session()
         session.headers["test"] = "test"

@@ -2,7 +2,6 @@ import logging
 import mimetypes
 import re
 import sys
-import unicodedata
 from functools import partial
 from pathlib import Path
 
@@ -322,8 +321,21 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         filestem=None,
         file_suffix=None,
         filesuffix=None,
+        progress_callback=None,
     ):
-        """Read contents and save into a file."""
+        """
+        Download the file from the web and save it locally.
+
+        Args:
+            directory (str or Path, optional): Output directory.
+            file_name, filename, file_stem, filestem, file_suffix, filesuffix: Output file naming options.
+            progress_callback (callable, optional):
+                Callback function to notify download progress.
+                Called as progress_callback(current_size, total_size)
+                where:
+                    current_size (int): Number of bytes downloaded so far.
+                    total_size (int or None): Total number of bytes to download (None if unknown).
+        """
 
         self.directory = directory
         self.filename = file_name or filename
@@ -358,9 +370,13 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                     dynamic_ncols=True,
                 ) as pbar:
                     with self.tempfile.open("ab") as f:
+                        current_size = downloaded_file_size
                         for chunk in iter(partial(wf.read, 8192), b""):
                             f.write(chunk)
                             pbar.update(len(chunk))
+                            current_size += len(chunk)
+                            if progress_callback:
+                                progress_callback(current_size, wf.size)
 
                 # Check file size after download if not compressed
                 if not wf.response.headers.get("Content-Encoding"):
@@ -378,8 +394,12 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
             else:
                 with wf.filepath.open("wb") as f:
+                    current_size = 0
                     for chunk in iter(partial(wf.read, 8192), b""):
                         f.write(chunk)
+                        current_size += len(chunk)
+                        if progress_callback:
+                            progress_callback(current_size, None)
 
         return self.filepath
 

@@ -172,7 +172,23 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         filename=None,
         filestem=None,
         filesuffix=None,
+        progress_callback=None,
     ):
+        """
+        Download all segments and merge into a single file.
+
+        Args:
+            directory (str or Path, optional): Output directory.
+            filename (str, optional): Output filename.
+            filestem (str, optional): Output file stem.
+            filesuffix (str, optional): Output file suffix.
+            progress_callback (callable, optional):
+                Callback function to notify download progress.
+                Called as progress_callback(current_file_count, total_file_count)
+                where:
+                    current_file_count (int): Number of files downloaded so far.
+                    total_file_count (int): Total number of files to download.
+        """
         self.directory = directory
         self.filename = filename
         self.filestem = filestem
@@ -193,13 +209,19 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         with m3u8_file.open("w") as f:
             f.write(self.m3u8_content_filename)
 
+        total_files = len(self.web_files)
+        current_file = 0
         with MyTqdm(
-            total=len(self.web_files),
+            total=total_files,
+            unit="file",
             dynamic_ncols=True,
         ) as pbar:
             for web_file in self.web_files:
                 web_file.download()
-                pbar.update()
+                current_file += 1
+                pbar.update(1)
+                if progress_callback:
+                    progress_callback(current_file, total_files)
 
         ff = ffmpy.FFmpeg(inputs={str(m3u8_file): None}, outputs={str(self.temp_file): "-c copy"})
         ff.run()
