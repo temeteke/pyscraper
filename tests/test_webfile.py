@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
@@ -232,3 +233,51 @@ class TestWebFile:
         session = requests.Session()
         session.headers["test"] = "test"
         assert WebFile("https://httpbin.org/headers", session=session).headers["test"] == "test"
+
+    def test_jpeg_extension_close(self):
+        """Test that .jpeg extension is preserved when WebFile is closed"""
+        wf = WebFile("https://httpbin.org/image.jpeg")
+        assert wf.filesuffix == ".jpeg"
+        assert wf.filename == "image.jpeg"
+
+    def test_jpeg_extension_open(self):
+        """Test that .jpeg extension is preserved when WebFile is opened (Content-Type: image/jpeg)"""
+        wf = WebFile("https://example.com/photo.jpeg")
+
+        # Mock the response with Content-Type: image/jpeg
+        mock_response = Mock()
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.url = "https://example.com/photo.jpeg"
+        wf.response = mock_response
+
+        # Even though Content-Type is image/jpeg (which would default to .jpg),
+        # the URL extension .jpeg should be preserved
+        assert wf.filesuffix == ".jpeg"
+        assert wf.filename == "photo.jpeg"
+
+    def test_jpg_extension_open(self):
+        """Test that .jpg extension is preserved when WebFile is opened"""
+        wf = WebFile("https://example.com/photo.jpg")
+
+        # Mock the response with Content-Type: image/jpeg
+        mock_response = Mock()
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.url = "https://example.com/photo.jpg"
+        wf.response = mock_response
+
+        assert wf.filesuffix == ".jpg"
+        assert wf.filename == "photo.jpg"
+
+    def test_url_without_extension_uses_content_type(self):
+        """Test that Content-Type is used when URL has no extension"""
+        wf = WebFile("https://example.com/image")
+
+        # Mock the response with Content-Type: image/png
+        mock_response = Mock()
+        mock_response.headers = {"Content-Type": "image/png"}
+        mock_response.url = "https://example.com/image"
+        wf.response = mock_response
+
+        # URL has no extension, so should use Content-Type which is image/png -> .png
+        assert wf.filesuffix == ".png"
+        assert wf.filename == "image.png"
