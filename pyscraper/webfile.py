@@ -219,11 +219,15 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return filesuffix
         if filename := getattr(self, "_filename", None):
             return Path(filename).suffix
+        # Prioritize URL extension if present
+        if url_suffix := Path(self.get_filename()).suffix:
+            return url_suffix
+        # Fallback to Content-Type when URL has no extension
         if self.response:
             content_type = self.response.headers.get("Content-Type", "")
             if extension := mimetypes.guess_extension(content_type):
                 return extension
-        return Path(self.get_filename()).suffix
+        return ""
 
     @filesuffix.setter
     def filesuffix(self, filesuffix):
