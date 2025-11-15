@@ -281,3 +281,15 @@ class TestWebFile:
         # URL has no extension, so should use Content-Type which is image/png -> .png
         assert wf.filesuffix == ".png"
         assert wf.filename == "image.png"
+
+    def test_read_without_open_raises_error(self, url, filename):
+        """Test that calling read() without opening raises WebFileError"""
+        wf = WebFile(url, filename=filename)
+        with pytest.raises(WebFileError, match="Response is not opened"):
+            wf.read()
+
+    def test_seek_without_open_raises_error(self, url, filename):
+        """Test that calling seek() without opening raises WebFileError"""
+        wf = WebFile(url, filename=filename)
+        with pytest.raises(WebFileError, match="not opened"):
+            wf.seek(100)
