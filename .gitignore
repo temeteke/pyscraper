@@ -48,6 +48,14 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+.pytest_cache/
+
+# Test generated files
+*.part
+video/
+video_absolute_url/
+video_file/
+test_pyscraper.log
 
 # Translations
 *.mo
