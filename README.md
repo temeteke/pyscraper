@@ -95,10 +95,6 @@ pytest tests/ -m integration -v
 pytest tests/ -m "" -v
 ```
 
-**Test Statistics:**
-- Unit Tests: 114 (runs in ~1 second)
-- Integration Tests: 104 (requires network and browsers)
-
 For detailed testing documentation, see [docs/testing.md](docs/testing.md).
 
 ## Docker

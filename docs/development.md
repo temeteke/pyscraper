@@ -1,102 +1,102 @@
 # Development Guide
 
-pyscraperプロジェクトの開発ガイドです。
+Development guide for the pyscraper project.
 
-## 🚀 セットアップ
+## Setup
 
-### 開発環境の構築
+### Development Environment
 
 ```bash
-# リポジトリのクローン
+# Clone repository
 git clone https://github.com/temeteke/pyscraper.git
 cd pyscraper
 
-# 開発用依存関係のインストール
+# Install development dependencies
 pip install -e ".[dev]"
 
-# テスト実行
+# Run tests
 pytest tests/
 ```
 
-### 推奨ツール
+### Recommended Tools
 
 ```bash
-# コードフォーマッタ
+# Code formatter
 pip install black isort
 
-# リンター
+# Linters
 pip install flake8 pylint
 
-# 型チェック
+# Type checking
 pip install mypy
 ```
 
 ---
 
-## 📁 プロジェクト構造
+## Project Structure
 
 ```
 pyscraper/
-├── pyscraper/          # ソースコード
-│   ├── webpage.py      # Webページ処理（692行）
-│   ├── webfile.py      # Webファイルダウンロード（423行）
-│   ├── hlsfile.py      # HLSストリーム処理（249行）
-│   ├── requests.py     # HTTPリクエストミックスイン
-│   └── utils.py        # ユーティリティ
+├── pyscraper/          # Source code
+│   ├── webpage.py      # Web page handling (692 lines)
+│   ├── webfile.py      # Web file download (423 lines)
+│   ├── hlsfile.py      # HLS stream handling (249 lines)
+│   ├── requests.py     # HTTP request mixin
+│   └── utils.py        # Utilities
 │
-├── tests/              # テストコード
-│   ├── conftest.py     # pytestフィクスチャ・モック
-│   ├── test_webpage.py # WebPage関連テスト
-│   ├── test_webfile.py # WebFile関連テスト（単体・結合）
-│   ├── test_hlsfile.py # HLSFile関連テスト
-│   └── test_utils.py   # ユーティリティテスト
+├── tests/              # Test code
+│   ├── conftest.py     # pytest fixtures & mocks
+│   ├── test_webpage.py # WebPage tests
+│   ├── test_webfile.py # WebFile tests (unit & integration)
+│   ├── test_hlsfile.py # HLSFile tests
+│   └── test_utils.py   # Utility tests
 │
-├── docs/               # ドキュメント
-│   ├── testing.md      # テストガイド
-│   ├── development.md  # 開発ガイド（このファイル）
-│   └── analysis/       # 詳細分析
+├── docs/               # Documentation
+│   ├── testing.md      # Testing guide
+│   ├── development.md  # Development guide (this file)
+│   └── analysis/       # Detailed analysis
 │
-└── pyproject.toml      # プロジェクト設定
+└── pyproject.toml      # Project configuration
 ```
 
-**統計:**
-- 総コード行数: 2,446行（7モジュール）
-- 総メソッド数: 153
-- テスト数: 218（単体114 + 結合104）
+**Statistics:**
+- Total lines of code: 2,446 lines (7 modules)
+- Total methods: 153
+- Total tests: 218 (unit 114 + integration 104)
 
 ---
 
-## 🧪 テスト駆動開発
+## Test-Driven Development
 
-### 開発フロー
+### Development Flow
 
 ```bash
-# 1. 新機能用のテストを書く（tests/test_*.py）
-# 2. テストが失敗することを確認
+# 1. Write tests for new feature (tests/test_*.py)
+# 2. Verify test fails
 pytest tests/test_your_module.py::test_new_feature -v
 
-# 3. 機能を実装
-# 4. テストが成功することを確認
+# 3. Implement feature
+# 4. Verify test passes
 pytest tests/test_your_module.py::test_new_feature -v
 
-# 5. すべての単体テストを実行
+# 5. Run all unit tests
 pytest tests/ -v
 
-# 6. 必要に応じて結合テストを追加・実行
+# 6. Add integration tests if needed
 pytest tests/ -m integration -v
 ```
 
-### テスト作成ガイドライン
+### Test Writing Guidelines
 
-#### 単体テスト（推奨）
+#### Unit Tests (Recommended)
 
 ```python
 # tests/test_your_module.py
 
 def test_download_file():
-    """ファイルダウンロード機能のテスト"""
-    # マーカー不要
-    # 外部HTTP依存は自動的にモック化される
+    """Test file download functionality"""
+    # No marker needed
+    # External HTTP dependencies are automatically mocked
 
     wf = WebFile("https://example.com/file.txt")
     with wf as f:
@@ -104,15 +104,15 @@ def test_download_file():
         assert len(content) > 0
 ```
 
-#### 結合テスト（必要な場合のみ）
+#### Integration Tests (When Necessary)
 
 ```python
 # tests/test_your_module.py
 
 @pytest.mark.integration
 def test_download_real_file():
-    """実際のHTTP通信でファイルダウンロードをテスト"""
-    # 実際のネットワークアクセスが発生
+    """Test file download with actual HTTP communication"""
+    # Real network access occurs
 
     wf = WebFile("https://httpbin.org/bytes/1024")
     with wf as f:
@@ -122,92 +122,92 @@ def test_download_real_file():
 
 ---
 
-## 🔧 コーディング規約
+## Coding Conventions
 
-### Pythonスタイル
+### Python Style
 
 ```python
-# PEP 8に従う
-# インデント: スペース4つ
-# 行の長さ: 最大100文字（推奨）
+# Follow PEP 8
+# Indentation: 4 spaces
+# Line length: 100 characters max (recommended)
 
-# クラス名: PascalCase
+# Class names: PascalCase
 class WebPageRequests:
     pass
 
-# 関数名・変数名: snake_case
+# Function/variable names: snake_case
 def download_file(url, filename):
     file_path = Path(filename)
     ...
 
-# 定数: UPPER_CASE
+# Constants: UPPER_CASE
 DEFAULT_TIMEOUT = 10
 MAX_RETRIES = 3
 ```
 
-### Docstring
+### Docstrings
 
 ```python
 def download_file(url: str, directory: Path) -> Path:
-    """指定URLからファイルをダウンロードする。
+    """Download a file from the specified URL.
 
     Args:
-        url: ダウンロード元URL
-        directory: 保存先ディレクトリ
+        url: Download source URL
+        directory: Destination directory
 
     Returns:
-        ダウンロードしたファイルのパス
+        Path to the downloaded file
 
     Raises:
-        WebFileError: ダウンロード失敗時
+        WebFileError: When download fails
     """
     ...
 ```
 
 ---
 
-## 📊 最近の改善履歴
+## Recent Improvements
 
-### テストインフラの整備（2024年）
+### Test Infrastructure Enhancements (2024)
 
-#### 1. pytestへの統一
-**以前:** unittest と pytest が混在
-**改善:** すべてのテストを pytest に統一
+#### 1. Unified to pytest
+**Before:** unittest and pytest were mixed
+**After:** All tests unified to pytest
 
-**効果:**
-- ✅ フィクスチャの活用
-- ✅ パラメータ化テストの簡素化
-- ✅ プラグインエコシステムの活用
+**Benefits:**
+- ✅ Leverage fixtures
+- ✅ Simplified parametrized tests
+- ✅ Access to plugin ecosystem
 
-#### 2. HTTP通信のモック化
-**以前:** 全テストで実際のHTTP通信を実行（遅い、不安定）
-**改善:** 単体テストではHTTP通信を完全モック化
+#### 2. HTTP Communication Mocking
+**Before:** All tests used real HTTP communication (slow, unstable)
+**After:** Unit tests fully mock HTTP communication
 
-**実装:**
+**Implementation:**
 ```python
 # tests/conftest.py
 
 @pytest.fixture(autouse=True)
 def mock_external_http(request, mocker):
-    """外部HTTPを自動的にモック化"""
+    """Automatically mock external HTTP"""
     if 'integration' in request.keywords:
-        yield  # 結合テストではモックをスキップ
+        yield  # Skip mocks for integration tests
         return
 
-    # requests.Session.get をモック
+    # Mock requests.Session.get
     mocker.patch('requests.Session.get', side_effect=mock_get)
 ```
 
-**効果:**
-- ✅ テスト実行時間: 数分 → 1.2秒（99%削減）
-- ✅ オフライン実行可能
-- ✅ 再現性100%
+**Benefits:**
+- ✅ Test execution time: minutes → 1.2s (99% reduction)
+- ✅ Offline execution possible
+- ✅ 100% reproducibility
 
-#### 3. テストの分類体系化
-**以前:** すべてのテストがデフォルト実行（遅い）
-**改善:** 単体テストと結合テストを明確に分離
+#### 3. Systematized Test Classification
+**Before:** All tests ran by default (slow)
+**After:** Clear separation between unit and integration tests
 
-**実装:**
+**Implementation:**
 ```python
 # pyproject.toml
 
@@ -218,37 +218,37 @@ markers = [
 addopts = "-m 'not integration'"
 ```
 
-**効果:**
-- ✅ デフォルト実行: 単体テストのみ（114テスト、1.2秒）
-- ✅ 明示的実行: 結合テスト（104テスト、数分）
-- ✅ CI/CDコスト削減
+**Benefits:**
+- ✅ Default execution: unit tests only (114 tests, 1.2s)
+- ✅ Explicit execution: integration tests (104 tests, minutes)
+- ✅ CI/CD cost reduction
 
-#### 4. FFmpegのモック化
-**以前:** 実際の ffmpeg コマンドを実行（遅い、環境依存）
-**改善:** subprocess.run をモック化
+#### 4. FFmpeg Mocking
+**Before:** Actual ffmpeg command execution (slow, environment-dependent)
+**After:** subprocess.run mocked
 
-**実装:**
+**Implementation:**
 ```python
 # tests/conftest.py
 
 class MockFFmpeg:
     """Mock FFmpeg that creates output files without running ffmpeg."""
     def run(self, *args, **kwargs):
-        # 出力ファイルを作成（実際のffmpegは実行しない）
+        # Create output file (don't actually run ffmpeg)
         if self.outputs:
             output_file = list(self.outputs.keys())[0]
             Path(output_file).write_bytes(b'mock ffmpeg output')
 ```
 
-**効果:**
-- ✅ HLSテスト: 数分 → 1秒未満
-- ✅ ffmpeg インストール不要（単体テスト）
+**Benefits:**
+- ✅ HLS tests: minutes → <1s
+- ✅ ffmpeg installation not required (unit tests)
 
-#### 5. WebPageCurlの結合テスト化
-**以前:** subprocess.run(['curl', ...]) をモック（本質的な検証ができない）
-**改善:** 結合テストに移行、実際のcurlコマンドを実行
+#### 5. WebPageCurl Integration Test Migration
+**Before:** subprocess.run(['curl', ...]) mocked (can't verify actual behavior)
+**After:** Migrated to integration tests, executes real curl commands
 
-**実装:**
+**Implementation:**
 ```python
 # tests/test_webpage.py
 
@@ -257,74 +257,74 @@ class TestWebPageCurl(MixinTestWebPage):
     """Integration tests for WebPageCurl using actual curl command."""
 ```
 
-**効果:**
-- ✅ 実際のcurl動作を検証可能
-- ✅ 単体テストから除外（高速化）
-- ✅ 環境依存テストとして明確化
+**Benefits:**
+- ✅ Can verify actual curl behavior
+- ✅ Excluded from unit tests (faster)
+- ✅ Clarified as environment-dependent test
 
 ---
 
-## 🏗️ アーキテクチャ
+## Architecture
 
-### 主要クラスの責務
+### Main Class Responsibilities
 
-#### WebPage系
+#### WebPage Family
 ```
-WebPage (抽象基底クラス)
-├── WebPageRequests   # requests ライブラリを使用
-├── WebPageCurl       # curl コマンドを使用
-└── WebPageSelenium   # Selenium を使用
+WebPage (abstract base class)
+├── WebPageRequests   # Uses requests library
+├── WebPageCurl       # Uses curl command
+└── WebPageSelenium   # Uses Selenium
     ├── WebPageFirefox
     └── WebPageChrome
 ```
 
-**責務:**
-- URLからHTMLを取得
-- HTMLのパース（lxml）
-- XPath/CSSセレクタによる要素取得
+**Responsibilities:**
+- Fetch HTML from URLs
+- Parse HTML (lxml)
+- Element retrieval via XPath/CSS selectors
 
 #### WebFile
 ```
 WebFile
-├── RequestsMixin     # HTTPセッション管理
-└── HLSFile          # HLS専用拡張
+├── RequestsMixin     # HTTP session management
+└── HLSFile          # HLS-specific extension
 ```
 
-**責務:**
-- ファイルのダウンロード
-- Range リクエスト対応
-- プログレスコールバック
-- HLSストリームの処理（HLSFile）
+**Responsibilities:**
+- File downloads
+- Range request support
+- Progress callbacks
+- HLS stream processing (HLSFile)
 
 ---
 
-## 🔍 既知の技術的課題
+## Known Technical Issues
 
-### リファクタリング候補
+### Refactoring Candidates
 
-#### 1. 状態検証の共通化 [優先度: 高]
-**問題:** `if self.driver is None:` のような状態チェックが28箇所以上
+#### 1. Consolidate State Validation [Priority: High]
+**Problem:** State checks like `if self.driver is None:` appear in 28+ places
 
-**提案:**
+**Proposal:**
 ```python
 def _ensure_open(self):
     """Ensure driver is opened."""
     if self.driver is None:
         raise WebPageError("Driver is not opened yet")
 
-# 使用例
+# Usage
 @property
 def html(self):
     self._ensure_open()
     return self.driver.page_source
 ```
 
-**効果:** ~50行のボイラープレート削除
+**Impact:** ~50 lines of boilerplate removed
 
-#### 2. Selenium ドライバークラスの統合 [優先度: 中]
-**問題:** `WebPageFirefox` と `WebPageChrome` が95%同じコード
+#### 2. Unify Selenium Driver Classes [Priority: Medium]
+**Problem:** `WebPageFirefox` and `WebPageChrome` have 95% identical code
 
-**提案:**
+**Proposal:**
 ```python
 class WebPageSelenium:
     def __init__(self, url, driver_type='firefox', ...):
@@ -337,21 +337,21 @@ class WebPageSelenium:
             return self._create_chrome_driver()
 ```
 
-**効果:** ~40-50行の重複削除
+**Impact:** ~40-50 lines of duplication removed
 
-#### 3. キャッシュ無効化の簡素化 [優先度: 高]
-**問題:** `hlsfile.py` の `clear_cache()` で同じtry/exceptブロックが5回繰り返し
+#### 3. Simplify Cache Invalidation [Priority: High]
+**Problem:** `hlsfile.py` `clear_cache()` has 5 repeated try/except blocks
 
-**現状:**
+**Current:**
 ```python
 try:
     del self.m3u8_obj
 except AttributeError:
     pass
-# ... 4回繰り返し
+# ... repeated 4 times
 ```
 
-**提案:**
+**Proposal:**
 ```python
 for prop_name in ['m3u8_obj', 'm3u8_content', 'web_files', 'filestem', 'filesuffix']:
     try:
@@ -360,57 +360,57 @@ for prop_name in ['m3u8_obj', 'm3u8_content', 'web_files', 'filestem', 'filesuff
         pass
 ```
 
-**効果:** ~10行の削除、保守性向上
+**Impact:** ~10 lines removed, better maintainability
 
 ---
 
-## 🚀 コントリビューション
+## Contributing
 
-### プルリクエストの流れ
+### Pull Request Workflow
 
-1. **Issueの作成または確認**
-2. **ブランチの作成**
+1. **Create or check Issue**
+2. **Create branch**
    ```bash
    git checkout -b feature/your-feature
    ```
 
-3. **開発**
-   - コードを書く
-   - テストを書く
-   - 単体テストを実行
+3. **Development**
+   - Write code
+   - Write tests
+   - Run unit tests
 
-4. **コミット**
+4. **Commit**
    ```bash
    pytest tests/ -v
    git add -A
    git commit -m "Add your feature"
    ```
 
-5. **プッシュ**
+5. **Push**
    ```bash
    git push origin feature/your-feature
    ```
 
-6. **プルリクエスト作成**
-   - GitHub上でPRを作成
-   - CI/CDが単体テストを実行
-   - レビュー待ち
+6. **Create Pull Request**
+   - Create PR on GitHub
+   - CI/CD runs unit tests
+   - Wait for review
 
-7. **マージ後**
-   - main ブランチで結合テストが実行される
+7. **After Merge**
+   - Integration tests run on main branch
 
 ---
 
-## 📚 参考資料
+## References
 
-### 外部ドキュメント
+### External Documentation
 - [pytest](https://docs.pytest.org/)
 - [requests](https://requests.readthedocs.io/)
 - [lxml](https://lxml.de/)
 - [Selenium](https://selenium-python.readthedocs.io/)
 - [ffmpy](https://github.com/Ch00k/ffmpy)
 
-### プロジェクト内ドキュメント
-- [testing.md](./testing.md) - テストガイド
-- [analysis/codebase.md](./analysis/codebase.md) - コードベース分析
-- [analysis/modules.md](./analysis/modules.md) - モジュール構造
+### Project Documentation
+- [testing.md](./testing.md) - Testing guide
+- [analysis/codebase.md](./analysis/codebase.md) - Codebase analysis
+- [analysis/modules.md](./analysis/modules.md) - Module structure

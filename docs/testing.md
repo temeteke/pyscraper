@@ -1,26 +1,26 @@
 # Testing Guide
 
-このガイドでは、pyscraperプロジェクトのテスト実行方法を説明します。
+This guide explains how to run tests in the pyscraper project.
 
-## 📋 概要
+## Overview
 
-pyscraperでは、**単体テスト（Unit Test）** と **結合テスト（Integration Test）** の2種類を明確に分けて管理しています。
+Pyscraper maintains two distinct types of tests: **Unit Tests** and **Integration Tests**.
 
-| テスト種別 | 外部依存 | 実行速度 | デフォルト実行 | 用途 |
-|-----------|---------|---------|--------------|------|
-| **単体テスト** | なし（モック） | 高速（~1秒） | ✅ はい | 日常開発、CI/CD |
-| **結合テスト** | あり（実環境） | 遅い（数分） | ❌ いいえ | リリース前検証 |
+| Test Type | External Dependencies | Speed | Default Execution | Use Case |
+|-----------|----------------------|-------|-------------------|----------|
+| **Unit Tests** | None (mocked) | Fast (~1s) | ✅ Yes | Daily development, CI/CD |
+| **Integration Tests** | Yes (real services) | Slow (minutes) | ❌ No | Pre-release verification |
 
 ```
-総テスト数: 218
+Total Tests: 218
 
-単体テスト（デフォルト）: 114 (52%)
+Unit Tests (default): 114 (52%)
 ├── WebFile: 47
 ├── HLSFile: 27
 ├── Utils: 14
 └── WebPage (Requests): 26
 
-結合テスト（選択実行）: 104 (48%)
+Integration Tests (opt-in): 104 (48%)
 ├── WebFile (HTTP): 11
 ├── WebPageCurl: 16
 ├── Selenium Firefox: 39
@@ -29,172 +29,172 @@ pyscraperでは、**単体テスト（Unit Test）** と **結合テスト（Int
 
 ---
 
-## クイックスタート
+## Quick Start
 
 ```bash
-# 単体テストのみ（デフォルト・推奨）
+# Unit tests only (default, recommended)
 pytest tests/
 
-# 結合テストのみ
+# Integration tests only
 pytest tests/ -m integration -v
 
-# すべてのテスト
+# All tests
 pytest tests/ -m "" -v
 ```
 
 ---
 
-## ✅ 単体テスト（Unit Test）
+## Unit Tests
 
-### 特徴
+### Characteristics
 
-- ✅ **外部依存なし**: すべての外部サービスをモック化
-- ✅ **高速実行**: 全テスト ~1.2秒で完了
-- ✅ **オフライン実行可能**: インターネット接続不要
-- ✅ **再現性100%**: 環境に依存しない
-- ✅ **CI/CDフレンドリー**: すべてのコミットで実行可能
+- ✅ **No external dependencies**: All external services are mocked
+- ✅ **Fast execution**: Completes in ~1.2 seconds
+- ✅ **Offline capable**: No internet connection required
+- ✅ **100% reproducible**: Environment-independent
+- ✅ **CI/CD friendly**: Can run on every commit
 
-### 実行方法
+### Execution
 
 ```bash
-# デフォルト実行（単体テストのみ）
+# Default execution (unit tests only)
 pytest tests/
 
-# 明示的に指定
+# Explicit specification
 pytest tests/ -m "not integration"
 
-# 詳細出力
+# Verbose output
 pytest tests/ -v
 
-# カバレッジ測定
+# Coverage measurement
 pytest tests/ --cov=pyscraper --cov-report=html
 ```
 
-### 対象テスト（114テスト）
+### Test Coverage (114 tests)
 
-#### WebFile - 47テスト ✅
-- HTTPダウンロード（モック）
-- Rangeリクエスト（モック）
-- エラーハンドリング
-- プログレスコールバック
-- ファイルI/O操作
+#### WebFile - 47 tests ✅
+- HTTP downloads (mocked)
+- Range requests (mocked)
+- Error handling
+- Progress callbacks
+- File I/O operations
 
-#### HLSFile - 27テスト ✅
-- HLSストリーム解析（モック）
-- 動画セグメントダウンロード（モック）
-- FFmpeg統合（モック）
-- キャッシュ管理
+#### HLSFile - 27 tests ✅
+- HLS stream parsing (mocked)
+- Video segment downloads (mocked)
+- FFmpeg integration (mocked)
+- Cache management
 
-#### Utils - 14テスト ✅
+#### Utils - 14 tests ✅
 - CachedGenerator
 - LazyList
 
-#### WebPage (Requests) - 26テスト ✅
-- HTMLパース
-- XPath処理
-- エンコーディング
-- HTTP通信（モック）
+#### WebPage (Requests) - 26 tests ✅
+- HTML parsing
+- XPath processing
+- Encoding
+- HTTP communication (mocked)
 
-### 実行結果
+### Results
 
 ```
 114/114 passed (100%)
-実行時間: 1.22秒
+Execution time: 1.22s
 ```
 
 ---
 
-## 🌐 結合テスト（Integration Test）
+## Integration Tests
 
-### 特徴
+### Characteristics
 
-- ⚠️ **実環境依存**: 実際のHTTP、Curl、Selenium を使用
-- ⚠️ **低速実行**: 数秒〜数分かかる
-- ⚠️ **ネットワーク必須**: インターネット接続が必要
-- ⚠️ **環境依存**: ブラウザ、curlのインストールが必要
-- ⚠️ **選択的実行**: デフォルトでは除外
+- ⚠️ **Environment dependent**: Uses actual HTTP, Curl, Selenium
+- ⚠️ **Slow execution**: Takes seconds to minutes
+- ⚠️ **Network required**: Internet connection necessary
+- ⚠️ **Environment specific**: Requires browsers, curl installation
+- ⚠️ **Selective execution**: Excluded by default
 
-### 実行方法
+### Execution
 
 ```bash
-# 結合テストのみ実行
+# Integration tests only
 pytest tests/ -m integration -v
 
-# 環境変数で制御
+# Control via environment variable
 INTEGRATION_TEST=1 pytest tests/ -v
 
-# すべてのテスト（単体 + 結合）
+# All tests (unit + integration)
 pytest tests/ -m "" -v
 ```
 
-### 対象テスト（104テスト）
+### Test Coverage (104 tests)
 
-#### WebFile HTTP結合テスト - 11テスト
-- 実際のHTTPリクエスト（httpbin.org）
-- Rangeリクエスト
-- リダイレクト処理
-- タイムアウト処理
-- Content-Type検出
+#### WebFile HTTP Integration Tests - 11 tests
+- Real HTTP requests (httpbin.org)
+- Range requests
+- Redirect handling
+- Timeout handling
+- Content-Type detection
 
-**場所:** `tests/test_webfile.py::TestWebFileIntegration`
+**Location:** `tests/test_webfile.py::TestWebFileIntegration`
 
-#### WebPageCurl 結合テスト - 16テスト
-- 実際のcurlコマンド実行
-- HTMLダウンロードと解析
-- XPath処理
+#### WebPageCurl Integration Tests - 16 tests
+- Actual curl command execution
+- HTML download and parsing
+- XPath processing
 
-**場所:** `tests/test_webpage.py::TestWebPageCurl`
+**Location:** `tests/test_webpage.py::TestWebPageCurl`
 
-**注意:** curl コマンドが実際に実行されます。環境によってはアクセス制限でテストが失敗する可能性があります。
+**Note:** Real curl commands are executed. Tests may fail in restricted environments due to access limitations.
 
-#### Selenium結合テスト - 77テスト
-- **Firefox自動化テスト (39個)**
-- **Chrome自動化テスト (38個)**
-- Selenium WebDriver操作
-- JavaScript実行
-- DOM操作
+#### Selenium Integration Tests - 77 tests
+- **Firefox automation tests (39 tests)**
+- **Chrome automation tests (38 tests)**
+- Selenium WebDriver operations
+- JavaScript execution
+- DOM manipulation
 
-**場所:** `tests/test_webpage.py::TestWebPageFirefox`, `TestWebPageChrome`
+**Location:** `tests/test_webpage.py::TestWebPageFirefox`, `TestWebPageChrome`
 
-### 必要な環境
+### Requirements
 
 ```bash
-# ネットワーク接続
+# Network connectivity
 ping httpbin.org
 ping temeteke.github.io
 
-# curlコマンド
+# Curl command
 curl --version
 
-# ブラウザドライバー（Selenium用）
+# Browser drivers (for Selenium)
 # Firefox: geckodriver
 # Chrome: chromedriver
 ```
 
 ---
 
-## 🎯 実行戦略
+## Execution Strategy
 
-### ローカル開発
+### Local Development
 
 ```bash
-# 通常の開発（単体テストのみ）
+# Normal development (unit tests only)
 pytest tests/
 
-# 特定モジュールのみ
+# Specific module only
 pytest tests/test_webfile.py -v
 
-# カバレッジ測定
+# Coverage measurement
 pytest tests/ --cov=pyscraper --cov-report=html
 ```
 
-### コミット前
+### Before Commit
 
 ```bash
-# 単体テストが全て成功することを確認
+# Ensure all unit tests pass
 pytest tests/ -v
 
-# 成功したらコミット
+# Commit if successful
 git add -A
 git commit -m "..."
 ```
@@ -202,281 +202,279 @@ git commit -m "..."
 ### Pull Request (CI/CD)
 
 ```yaml
-# GitHub Actions例
+# GitHub Actions example
 - name: Run unit tests
   run: pytest tests/ -v --cov=pyscraper
 ```
 
-**実行されるテスト:**
-- ✅ 単体テスト（114テスト）
-- ❌ 結合テスト（除外）
+**Executed tests:**
+- ✅ Unit tests (114 tests)
+- ❌ Integration tests (excluded)
 
-### mainブランチマージ後
+### After Main Branch Merge
 
 ```yaml
-# GitHub Actions例
+# GitHub Actions example
 - name: Run integration tests
   run: pytest tests/ -m integration -v
   if: github.ref == 'refs/heads/main'
 ```
 
-**実行されるテスト:**
-- ✅ 結合テスト（104テスト）
+**Executed tests:**
+- ✅ Integration tests (104 tests)
 
-### リリース前
+### Before Release
 
 ```bash
-# すべてのテストを実行
+# Run all tests
 pytest tests/ -m "" -v
 
-# または
+# Or
 pytest tests/ --override-ini="addopts=" -v
 ```
 
-**実行されるテスト:**
-- ✅ 単体テスト（114テスト）
-- ✅ 結合テスト（104テスト）
+**Executed tests:**
+- ✅ Unit tests (114 tests)
+- ✅ Integration tests (104 tests)
 
 ---
 
-## 💡 実践的な使い方
+## Practical Usage
 
-### 特定のテストを実行
+### Running Specific Tests
 
 ```bash
-# ファイル指定
+# By file
 pytest tests/test_webfile.py
 
-# クラス指定
+# By class
 pytest tests/test_webfile.py::TestWebFile
 
-# メソッド指定
+# By method
 pytest tests/test_webfile.py::TestWebFile::test_download_unlink
 
-# パターンマッチ
-pytest tests/ -k download              # 名前に"download"を含むテスト
-pytest tests/ -k "not slow"            # "slow"を含まないテスト
+# Pattern matching
+pytest tests/ -k download              # Tests containing "download"
+pytest tests/ -k "not slow"            # Tests not containing "slow"
 ```
 
-### デバッグオプション
+### Debug Options
 
 ```bash
-# 詳細出力
+# Verbose output
 pytest tests/ -v                       # verbose
 pytest tests/ -vv                      # more verbose
 
-# 失敗時のデバッグ
-pytest tests/ -x                       # 最初の失敗で停止
-pytest tests/ -s                       # 標準出力を表示
-pytest tests/ --lf                     # 最後に失敗したテストのみ
-pytest tests/ --pdb                    # 失敗時にデバッガ起動
+# Debugging on failure
+pytest tests/ -x                       # Stop at first failure
+pytest tests/ -s                       # Show stdout
+pytest tests/ --lf                     # Run last failed tests only
+pytest tests/ --pdb                    # Start debugger on failure
 
-# スタックトレース制御
-pytest tests/ --tb=short               # 簡潔なトレース
-pytest tests/ --tb=no                  # トレースなし
+# Stack trace control
+pytest tests/ --tb=short               # Short trace
+pytest tests/ --tb=no                  # No trace
 ```
 
-### カバレッジ測定
+### Coverage Measurement
 
 ```bash
-# カバレッジ測定
+# Measure coverage
 pytest tests/ --cov=pyscraper
 
-# HTMLレポート生成
+# Generate HTML report
 pytest tests/ --cov=pyscraper --cov-report=html
 open htmlcov/index.html
 
-# カバレッジを表示しながら実行
+# Show missing lines
 pytest tests/ --cov=pyscraper --cov-report=term-missing
 ```
 
-### 並列実行
+### Parallel Execution
 
 ```bash
-# 並列実行（要 pytest-xdist）
+# Parallel execution (requires pytest-xdist)
 pip install pytest-xdist
 
-# 4プロセスで並列化
+# 4 processes
 pytest tests/ -n 4
 
-# 自動でCPUコア数を検出
+# Auto-detect CPU cores
 pytest tests/ -n auto
 ```
 
 ---
 
-## 📝 新しいテストの追加
+## Writing New Tests
 
-### 単体テスト（推奨）
+### Unit Tests (Recommended)
 
 ```python
 # tests/test_your_module.py
 
-def test_new_feature():
-    """新機能のテスト（モック使用）"""
-    # マーカー不要（デフォルトで単体テスト）
-    # 外部依存は自動的にモック化される
-    ...
+def test_download_file():
+    """Test file download functionality"""
+    # No marker needed (defaults to unit test)
+    # External HTTP dependencies are automatically mocked
+
+    wf = WebFile("https://example.com/file.txt")
+    with wf as f:
+        content = f.read()
+        assert len(content) > 0
 ```
 
-### 結合テスト
+### Integration Tests
 
 ```python
 # tests/test_your_module.py
 
 @pytest.mark.integration
-def test_new_feature_integration():
-    """新機能の結合テスト（実際のHTTP）"""
-    # @pytest.mark.integration を付ける
-    # 実際の外部依存を使用
-    ...
+def test_download_real_file():
+    """Test file download with actual HTTP communication"""
+    # Actual network access occurs
 
-@pytest.mark.integration
-class TestRealNetworkAccess:
-    """実際のネットワークアクセスを行うテストクラス"""
-
-    @pytest.mark.integration
-    def test_real_download(self):
-        # 実際のHTTPリクエスト
-        ...
+    wf = WebFile("https://httpbin.org/bytes/1024")
+    with wf as f:
+        content = f.read()
+        assert len(content) == 1024
 ```
 
 ---
 
-## ❓ よくある質問
+## FAQ
 
-### Q: なぜ単体テストと結合テストを分けるのか？
+### Q: Why separate unit and integration tests?
 
-**A:** 開発速度と品質のバランスのためです。
+**A:** To balance development speed and quality.
 
-- **単体テスト**: 高速なフィードバック（~1秒）でTDD可能
-- **結合テスト**: 本番環境との互換性を確認
+- **Unit tests**: Fast feedback (~1s) enables TDD
+- **Integration tests**: Verify real-world compatibility
 
-両方があることで、開発は高速に、リリースは安全に行えます。
+Having both enables fast development cycles and safe releases.
 
-### Q: curlテストとSeleniumテストは別々にすべきでは？
+### Q: Shouldn't curl and Selenium tests be separate categories?
 
-**A:** いいえ、両方とも「実環境依存テスト」として同じカテゴリです。
+**A:** No, both are "environment-dependent tests" in the same category.
 
-- どちらも外部依存が必要
-- どちらもデフォルトでは実行したくない
-- 実行タイミングは同じ（リリース前、定期実行）
+- Both require external dependencies
+- Both should not run by default
+- Same execution timing (pre-release, scheduled runs)
 
-違いは依存の種類（HTTP vs Curl vs Browser）のみで、本質的には同じです。
+The only difference is the type of dependency (HTTP vs Curl vs Browser), but they're essentially the same.
 
-### Q: すべてのテストを毎回実行すべきでは？
+### Q: Should all tests run every time?
 
-**A:** いいえ、状況に応じて使い分けます。
+**A:** No, use different strategies for different situations.
 
-| 状況 | 実行すべきテスト | 理由 |
-|------|----------------|------|
-| 開発中 | 単体テストのみ | 高速フィードバック |
-| コミット前 | 単体テストのみ | CI/CDコスト削減 |
-| リリース前 | すべて | 本番互換性確認 |
+| Situation | Tests to Run | Reason |
+|-----------|-------------|--------|
+| During development | Unit tests only | Fast feedback |
+| Before commit | Unit tests only | CI/CD cost reduction |
+| Before release | All tests | Production compatibility check |
 
 ---
 
-## 🔧 トラブルシューティング
+## Troubleshooting
 
-### テストが見つからない
+### Tests Not Found
 
 ```bash
-# 収集されるテストを確認
+# Check collected tests
 pytest tests/ --collect-only
 
-# 詳細に表示
+# Verbose display
 pytest tests/ --collect-only -v
 
-# マーカーを確認
+# Check markers
 pytest --markers
 ```
 
-### テストが遅い
+### Slow Tests
 
 ```bash
-# 最も遅いテストを特定
+# Identify slowest tests
 pytest tests/ --durations=10
 
-# 並列実行
+# Parallel execution
 pytest tests/ -n auto
 ```
 
-### モックが効かない
+### Mocks Not Working
 
 ```bash
-# フィクスチャを確認
+# Check fixtures
 pytest tests/ --fixtures | grep mock
 
-# マーカーを確認
+# Check markers
 pytest --markers
 
-# 環境変数を確認
+# Check environment variables
 echo $INTEGRATION_TEST
 ```
 
-### 結合テストが失敗する
+### Integration Tests Failing
 
 ```bash
-# ネットワーク接続を確認
+# Check network connectivity
 curl https://httpbin.org/get
 
-# curlコマンドを確認
+# Check curl command
 curl --version
 
-# タイムアウトを延長
+# Extend timeout
 pytest tests/ -m integration -v --timeout=300
 ```
 
 ---
 
-## 便利なエイリアス
+## Useful Aliases
 
-`.bashrc` または `.zshrc` に追加:
+Add to `.bashrc` or `.zshrc`:
 
 ```bash
-# 単体テスト
+# Unit tests
 alias ptu='pytest tests/'
 alias ptuv='pytest tests/ -v'
 
-# 結合テスト
+# Integration tests
 alias pti='pytest tests/ -m integration -v'
 
-# すべてのテスト
+# All tests
 alias pta='pytest tests/ -m "" -v'
 
-# カバレッジ付き単体テスト
+# Unit tests with coverage
 alias ptc='pytest tests/ --cov=pyscraper --cov-report=html'
 
-# 最後に失敗したテストのみ
+# Last failed tests only
 alias ptlf='pytest tests/ --lf -v'
 ```
 
-使用例:
+Usage:
 ```bash
-ptu        # 単体テストを実行
-pti        # 結合テストを実行
-pta        # すべてのテストを実行
-ptc        # カバレッジ測定
+ptu        # Run unit tests
+pti        # Run integration tests
+pta        # Run all tests
+ptc        # Measure coverage
 ```
 
 ---
 
-## ✅ まとめ
+## Summary
 
-**単体テストと結合テストの2種類分類により:**
+**Benefits of two-tier test classification:**
 
-- ✅ **開発速度向上**: 単体テストで高速フィードバック（~1秒）
-- ✅ **品質保証**: 結合テストで本番互換性確認
-- ✅ **CI/CDコスト削減**: デフォルトは単体テストのみ
-- ✅ **明確な戦略**: いつ何を実行するか明確
-- ✅ **標準的アプローチ**: 業界標準のテスト分類
+- ✅ **Faster development**: Unit tests provide fast feedback (~1s)
+- ✅ **Quality assurance**: Integration tests verify production compatibility
+- ✅ **CI/CD cost reduction**: Default is unit tests only
+- ✅ **Clear strategy**:明確 when to run what
+- ✅ **Industry standard**: Standard test classification approach
 
-この戦略により、高速な開発サイクルと高品質なリリースの両立が可能になります。
+This strategy enables both fast development cycles and high-quality releases.
 
 ---
 
-## 参考リンク
+## References
 
-- [pytest 公式ドキュメント](https://docs.pytest.org/)
-- [pytest-cov プラグイン](https://pytest-cov.readthedocs.io/)
-- [pytest-xdist プラグイン](https://pytest-xdist.readthedocs.io/)
+- [pytest official documentation](https://docs.pytest.org/)
+- [pytest-cov plugin](https://pytest-cov.readthedocs.io/)
+- [pytest-xdist plugin](https://pytest-xdist.readthedocs.io/)
