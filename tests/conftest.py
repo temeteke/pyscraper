@@ -122,6 +122,23 @@ def mock_session(mocker, mock_http_response):
 
 
 @pytest.fixture(autouse=True)
+def mock_useragent(request, mocker):
+    """Mock fake_useragent to avoid network calls."""
+    if 'no_mock' in request.keywords:
+        yield
+        return
+
+    # Mock UserAgent to return a static user agent string
+    mock_ua = Mock()
+    mock_ua.random = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    mocker.patch('fake_useragent.UserAgent', return_value=mock_ua)
+    mocker.patch('pyscraper.requests.UserAgent', return_value=mock_ua)
+    mocker.patch('pyscraper.hlsfile.UserAgent', return_value=mock_ua)
+
+    yield
+
+
+@pytest.fixture(autouse=True)
 def mock_ffmpeg(request, mocker):
     """Automatically mock FFmpeg subprocess calls for HLS testing.
 
@@ -142,8 +159,30 @@ def mock_ffmpeg(request, mocker):
         # Mock subprocess.run for direct subprocess usage
         mock_run = mocker.patch('subprocess.run', return_value=mock_result)
 
-        # Also mock ffmpy.FFmpeg.run if the test uses it
-        mocker.patch('ffmpy.FFmpeg.run', return_value=None)
+        # Create a custom mock for ffmpy.FFmpeg that creates the output file when run() is called
+        import ffmpy as ffmpy_module
+        OriginalFFmpeg = ffmpy_module.FFmpeg
+
+        class MockFFmpeg(OriginalFFmpeg):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                # Store outputs for later use
+                self._mock_outputs = kwargs.get('outputs', {})
+
+            def run(self, *args, **kwargs):
+                """Override run to create the output file."""
+                # Extract the output filename from stored outputs
+                if self._mock_outputs:
+                    output_file = list(self._mock_outputs.keys())[0]
+                    # Create the output file with some dummy content
+                    from pathlib import Path
+                    output_path = Path(output_file)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_bytes(b'mock ffmpeg output')
+                return None
+
+        mocker.patch('ffmpy.FFmpeg', MockFFmpeg)
+        mocker.patch('pyscraper.hlsfile.ffmpy.FFmpeg', MockFFmpeg)
 
         yield mock_run
     except Exception:
@@ -191,10 +230,14 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
         yield
         return
 
-    # Track original methods
-    original_get = None
+    def mock_get(session_instance, url, **kwargs):
+        # Get headers from kwargs and merge with session headers
+        headers_dict = kwargs.get('headers', {}) or {}
+        if hasattr(session_instance, 'headers'):
+            # Merge session headers with request headers
+            session_headers = dict(session_instance.headers) if hasattr(session_instance.headers, '__iter__') else {}
+            headers_dict = {**session_headers, **headers_dict}
 
-    def mock_get(url, **kwargs):
         # Mock httpbin.org/range/* requests
         if 'httpbin.org/range/' in url:
             # Extract size from URL
@@ -202,7 +245,6 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
             content = b'x' * size
 
             # Check if Range header is present
-            headers_dict = kwargs.get('headers', {})
             range_header = headers_dict.get('Range', '')
 
             if range_header:
@@ -227,7 +269,6 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
             content = b'x' * size
 
             # Check if Range header is present - should fail
-            headers_dict = kwargs.get('headers', {})
             if headers_dict.get('Range'):
                 # Simulate no Range support
                 return mock_http_response(200, content, {
@@ -252,7 +293,6 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
         # Mock httpbin.org/headers
         elif 'httpbin.org/headers' in url:
             import json
-            headers_dict = kwargs.get('headers', {})
             response_data = {'headers': dict(headers_dict)}
             content = json.dumps(response_data).encode()
             return mock_http_response(200, content, {'Content-Type': 'application/json'}, url)
@@ -270,7 +310,6 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
         # Mock httpbin.org/user-agent
         elif 'httpbin.org/user-agent' in url:
             import json
-            headers_dict = kwargs.get('headers', {})
             user_agent = headers_dict.get('User-Agent', '')
             response_data = {'user-agent': user_agent}
             content = json.dumps(response_data).encode()
@@ -313,6 +352,9 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
 
         # Mock GitHub raw content for HLS tests
         elif 'raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/' in url:
+            # Handle non-existent files (video_.m3u8 is intentionally missing)
+            if 'video_.m3u8' in url:
+                return mock_http_response(404, b'Not Found', {'Content-Type': 'text/plain'}, url)
             if url.endswith('.m3u8'):
                 content = """#EXTM3U
 #EXT-X-VERSION:3
@@ -325,19 +367,72 @@ video001.ts
 video002.ts
 #EXT-X-ENDLIST
 """.encode()
-                return mock_http_response(200, content, {'Content-Type': 'application/vnd.apple.mpegurl'}, url)
+                return mock_http_response(200, content, {
+                    'Content-Type': 'application/vnd.apple.mpegurl',
+                    'Content-Length': str(len(content))
+                }, url)
             elif url.endswith('.ts'):
-                # Mock video segment
-                content = b'\x47' + b'x' * 19999  # TS packet header + dummy data (about 20KB per segment)
-                return mock_http_response(200, content, {'Content-Type': 'video/mp2t'}, url)
+                # Mock video segment - differentiate by filename to create continuous stream
+                # video000.ts starts with TS header, others are plain data
+                if 'video000.ts' in url:
+                    full_content = b'\x47' + b'x' * 19999  # First segment: TS header + data (20000 bytes)
+                else:
+                    full_content = b'x' * 20000  # Other segments: plain data (20000 bytes)
+
+                # Check if Range header is present
+                range_header = headers_dict.get('Range', '')
+
+                if range_header:
+                    # Parse Range header: "bytes=start-end"
+                    range_val = range_header.replace('bytes=', '')
+                    if '-' in range_val:
+                        parts = range_val.split('-')
+                        start = int(parts[0]) if parts[0] else 0
+                        end = int(parts[1]) if parts[1] else len(full_content) - 1
+                        content = full_content[start:end+1]
+                        return mock_range_response(start, end, len(full_content), content)
+                else:
+                    # No Range header - return full content
+                    return mock_http_response(200, full_content, {
+                        'Content-Type': 'video/mp2t',
+                        'Content-Length': str(len(full_content)),
+                        'Accept-Ranges': 'bytes'
+                    }, url)
 
         # If we get here, it's an unmocked URL - let it fail or pass through
         # For testing, we'll return a generic response
         return mock_http_response(200, b'generic response', {}, url)
 
-    # Patch both requests.Session.get and requests.get
-    mocker.patch('requests.Session.get', side_effect=mock_get)
-    mocker.patch('requests.get', side_effect=mock_get)
+    # Import requests module to patch the Session class
+    import requests as requests_module
+
+    # Save original Session class
+    OriginalSession = requests_module.Session
+
+    def mock_session_factory(*args, **kwargs):
+        """Create a real Session but with mocked get method."""
+        session = OriginalSession(*args, **kwargs)
+        original_get = session.get
+
+        def mocked_get(url, **kw):
+            # Call our mock_get with access to the session instance
+            return mock_get(session, url, **kw)
+
+        session.get = mocked_get
+        return session
+
+    # Patch Session constructor to return our wrapped sessions
+    mocker.patch('requests.Session', side_effect=mock_session_factory)
+    mocker.patch('pyscraper.requests.requests.Session', side_effect=mock_session_factory)
+
+    # Also patch the module-level requests.get (doesn't have session context)
+    def module_level_get(url, **kwargs):
+        # For module-level get, create a temporary session-like object
+        class TempSession:
+            headers = kwargs.get('headers', {})
+        return mock_get(TempSession(), url, **kwargs)
+
+    mocker.patch('requests.get', side_effect=module_level_get)
 
     yield
 
