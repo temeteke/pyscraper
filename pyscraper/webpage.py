@@ -382,6 +382,20 @@ class WebPageSelenium(WebPage, ABC):
         if self.driver is None:
             raise WebPageError("Driver is not opened yet")
 
+    def _configure_no_proxy_for_remote(self, remote_url):
+        """Configure NO_PROXY environment variable for remote Selenium connection.
+
+        Args:
+            remote_url: Remote Selenium server URL
+        """
+        no_proxy = os.environ.get("NO_PROXY")
+        netloc = urlparse(remote_url).netloc
+
+        if not no_proxy:
+            os.environ["NO_PROXY"] = netloc
+        elif netloc not in no_proxy:
+            os.environ["NO_PROXY"] += "," + netloc
+
     @property
     def url(self):
         if self.driver is None:
@@ -601,11 +615,7 @@ class WebPageFirefox(WebPageSelenium):
             options.proxy = proxy.Proxy(proxy_dict)
 
             # set NO_PROXY not to use proxy for accessing selenium
-            netloc = urlparse(url).netloc
-            if not no_proxy:
-                os.environ["NO_PROXY"] = netloc
-            elif netloc not in no_proxy:
-                os.environ["NO_PROXY"] += "," + netloc
+            self._configure_no_proxy_for_remote(url)
 
             self.driver = webdriver.Remote(command_executor=url, options=options)
 
@@ -643,12 +653,7 @@ class WebPageChrome(WebPageSelenium):
                 options.add_argument(f"--user-data-dir={profile}")
 
             # set NO_PROXY not to use proxy for accessing selenium
-            no_proxy = os.environ.get("NO_PROXY")
-            netloc = urlparse(url).netloc
-            if not no_proxy:
-                os.environ["NO_PROXY"] = netloc
-            elif netloc not in no_proxy:
-                os.environ["NO_PROXY"] += "," + netloc
+            self._configure_no_proxy_for_remote(url)
 
             self.driver = webdriver.Remote(command_executor=url, options=options)
         else:
