@@ -80,13 +80,22 @@ hls_file = HlsFile(url)
 hls_file.download()
 ```
 
-## Running Tests
+## Testing
 
-To run the tests, use the following command:
+PyScraper uses pytest with two types of tests:
 
 ```sh
-pytest
+# Unit tests only (fast, offline, default)
+pytest tests/
+
+# Integration tests (requires network, browsers)
+pytest tests/ -m integration -v
+
+# All tests
+pytest tests/ -m "" -v
 ```
+
+For detailed testing documentation, see [docs/testing.md](docs/testing.md).
 
 ## Docker
 
@@ -98,3 +107,14 @@ To build and run the Docker containers, use the following commands:
 docker compose build
 docker compose up
 ```
+
+## Documentation
+
+- **[Testing Guide](docs/testing.md)** - Comprehensive testing documentation
+- **[Development Guide](docs/development.md)** - Development setup and guidelines
+- **[Codebase Analysis](docs/analysis/codebase.md)** - Detailed code analysis
+- **[Module Structure](docs/analysis/modules.md)** - Project architecture
+
+## Contributing
+
+Contributions are welcome! Please read the [Development Guide](docs/development.md) for setup instructions and coding standards.

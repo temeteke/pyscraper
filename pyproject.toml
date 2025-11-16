@@ -1,2 +1,13 @@
 [tool.ruff]
 line-length = 99
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: Integration tests that use real external dependencies (HTTP, FFmpeg, Browser)",
+    "no_mock: Skip all automatic mocking for this test",
+    "no_mock_http: Skip HTTP mocking only",
+    "no_mock_ffmpeg: Skip FFmpeg mocking only",
+]
+
+# デフォルトでは単体テスト（モック）のみ実行、結合テストは除外
+addopts = "-m 'not integration'"

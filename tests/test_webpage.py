@@ -235,7 +235,10 @@ class TestWebPageRequests(MixinTestWebPage, MixinTestWebPageOpenClose):
         )
 
 
+@pytest.mark.integration
 class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestWebPageSelenium):
+    """Integration tests using Firefox browser automation."""
+
     @pytest.fixture
     def web_page_class(self):
         return WebPageFirefox
@@ -250,7 +253,10 @@ class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestW
             assert wp.execute_script("return window.navigator.languages") == ["ja"]
 
 
+@pytest.mark.integration
 class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestWebPageSelenium):
+    """Integration tests using Chrome browser automation."""
+
     @pytest.fixture
     def web_page_class(self):
         return WebPageChrome
@@ -261,7 +267,17 @@ class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestWe
             yield wp
 
 
+@pytest.mark.integration
 class TestWebPageCurl(MixinTestWebPage):
+    """Integration tests for WebPageCurl using actual curl command.
+
+    WebPageCurl is a thin wrapper around subprocess.run(['curl', url]).
+    These tests execute real curl commands and may fail in environments
+    where test URLs are inaccessible (e.g., firewall restrictions).
+
+    Run with: pytest tests/test_webpage.py::TestWebPageCurl -m integration -v
+    """
+
     @pytest.fixture
     def web_page_class(self):
         return WebPageCurl

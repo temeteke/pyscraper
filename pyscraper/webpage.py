@@ -377,6 +377,25 @@ class WebPageSelenium(WebPage, ABC):
         self.driver = None
         super().__init__(url, params=params, encoding=encoding)
 
+    def _ensure_open(self):
+        """Ensure driver is opened."""
+        if self.driver is None:
+            raise WebPageError("Driver is not opened yet")
+
+    def _configure_no_proxy_for_remote(self, remote_url):
+        """Configure NO_PROXY environment variable for remote Selenium connection.
+
+        Args:
+            remote_url: Remote Selenium server URL
+        """
+        no_proxy = os.environ.get("NO_PROXY")
+        netloc = urlparse(remote_url).netloc
+
+        if not no_proxy:
+            os.environ["NO_PROXY"] = netloc
+        elif netloc not in no_proxy:
+            os.environ["NO_PROXY"] += "," + netloc
+
     @property
     def url(self):
         if self.driver is None:
@@ -395,9 +414,7 @@ class WebPageSelenium(WebPage, ABC):
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
     def html(self):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         return self.driver.page_source
 
     @property
@@ -424,18 +441,14 @@ class WebPageSelenium(WebPage, ABC):
             return self.driver.execute_script("return navigator.userAgent")
 
     def set_cookies_from_file(self, cookies_file):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         cookies = MozillaCookieJar(cookies_file)
         cookies.load()
         for cookie in cookies:
             self.driver.add_cookie(cookie.__dict__)
 
     def wait(self, xpath, timeout=10):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         try:
             WebDriverWait(self.driver, timeout).until(
                 EC.presence_of_element_located((By.XPATH, xpath))
@@ -444,9 +457,7 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageTimeoutError from e
 
     def get(self, xpath, timeout=0):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         if timeout:
             self.wait(xpath, timeout)
         return [
@@ -455,9 +466,7 @@ class WebPageSelenium(WebPage, ABC):
         ]
 
     def click(self, xpath, timeout=10):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         try:
             element = self.driver.find_element(By.XPATH, xpath)
             # self.driver.execute_script("arguments[0].scrollIntoView();", element)
@@ -466,26 +475,20 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageNoSuchElementError from e
 
     def move_to(self, xpath):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         actions = ActionChains(self.driver)
         actions.move_to_element(self.driver.find_element(By.XPATH, xpath))
         actions.perform()
 
     def switch_to_frame(self, xpath):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         iframe = self.driver.find_element(By.XPATH, xpath)
         iframe_url = iframe.get_attribute("src")
         self.driver.switch_to.frame(iframe)
         return iframe_url
 
     def go(self, url, params={}):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         if params:
             parsed_url = urlparse(url)
             parsed_qs = parse_qs(parsed_url.query)
@@ -494,39 +497,27 @@ class WebPageSelenium(WebPage, ABC):
         self.driver.get(url)
 
     def forward(self):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         self.driver.forward()
 
     def back(self):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         self.driver.back()
 
     def refresh(self):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         self.driver.refresh()
 
     def execute_script(self, *args, **kwargs):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         return self.driver.execute_script(*args, **kwargs)
 
     def execute_async_script(self, *args, **kwargs):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         return self.driver.execute_async_script(*args, **kwargs)
 
     def dump(self, filestem=None):
-        if self.driver is None:
-            raise WebPageError("Driver is not opened yet")
-
+        self._ensure_open()
         if not filestem:
             filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -624,11 +615,7 @@ class WebPageFirefox(WebPageSelenium):
             options.proxy = proxy.Proxy(proxy_dict)
 
             # set NO_PROXY not to use proxy for accessing selenium
-            netloc = urlparse(url).netloc
-            if not no_proxy:
-                os.environ["NO_PROXY"] = netloc
-            elif netloc not in no_proxy:
-                os.environ["NO_PROXY"] += "," + netloc
+            self._configure_no_proxy_for_remote(url)
 
             self.driver = webdriver.Remote(command_executor=url, options=options)
 
@@ -666,12 +653,7 @@ class WebPageChrome(WebPageSelenium):
                 options.add_argument(f"--user-data-dir={profile}")
 
             # set NO_PROXY not to use proxy for accessing selenium
-            no_proxy = os.environ.get("NO_PROXY")
-            netloc = urlparse(url).netloc
-            if not no_proxy:
-                os.environ["NO_PROXY"] = netloc
-            elif netloc not in no_proxy:
-                os.environ["NO_PROXY"] += "," + netloc
+            self._configure_no_proxy_for_remote(url)
 
             self.driver = webdriver.Remote(command_executor=url, options=options)
         else:
