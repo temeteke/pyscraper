@@ -235,7 +235,10 @@ class TestWebPageRequests(MixinTestWebPage, MixinTestWebPageOpenClose):
         )
 
 
+@pytest.mark.integration
 class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestWebPageSelenium):
+    """Integration tests using Firefox browser automation."""
+
     @pytest.fixture
     def web_page_class(self):
         return WebPageFirefox
@@ -250,7 +253,10 @@ class TestWebPageFirefox(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestW
             assert wp.execute_script("return window.navigator.languages") == ["ja"]
 
 
+@pytest.mark.integration
 class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestWebPageSelenium):
+    """Integration tests using Chrome browser automation."""
+
     @pytest.fixture
     def web_page_class(self):
         return WebPageChrome
