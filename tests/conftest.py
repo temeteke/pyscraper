@@ -123,8 +123,16 @@ def mock_session(mocker, mock_http_response):
 
 @pytest.fixture(autouse=True)
 def mock_useragent(request, mocker):
-    """Mock fake_useragent to avoid network calls."""
-    if 'no_mock' in request.keywords:
+    """Mock fake_useragent to avoid network calls.
+
+    Skip mocking for integration tests or when explicitly disabled.
+    """
+    import os
+
+    # Skip mocking for integration tests or when explicitly disabled
+    if ('integration' in request.keywords or
+        'no_mock' in request.keywords or
+        os.getenv('INTEGRATION_TEST') == '1'):
         yield
         return
 
@@ -142,10 +150,16 @@ def mock_useragent(request, mocker):
 def mock_ffmpeg(request, mocker):
     """Automatically mock FFmpeg subprocess calls for HLS testing.
 
-    Tests can opt-out with @pytest.mark.no_mock_ffmpeg
+    Skip mocking for integration tests or when explicitly disabled.
+    Tests can opt-out with @pytest.mark.no_mock_ffmpeg or @pytest.mark.integration
     """
-    # Skip mocking for tests that explicitly don't want it
-    if 'no_mock_ffmpeg' in request.keywords:
+    import os
+
+    # Skip mocking for integration tests or when explicitly disabled
+    if ('integration' in request.keywords or
+        'no_mock' in request.keywords or
+        'no_mock_ffmpeg' in request.keywords or
+        os.getenv('INTEGRATION_TEST') == '1'):
         yield
         return
 
@@ -233,9 +247,16 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
     """Automatically mock external HTTP requests for tests that would fail due to network issues.
 
     This fixture intercepts requests to httpbin.org and temeteke.github.io and returns mock responses.
+
+    Skip mocking for integration tests or when explicitly disabled.
     """
-    # Skip mocking for tests that explicitly don't want it
-    if 'no_mock' in request.keywords:
+    import os
+
+    # Skip mocking for integration tests or when explicitly disabled
+    if ('integration' in request.keywords or
+        'no_mock' in request.keywords or
+        'no_mock_http' in request.keywords or
+        os.getenv('INTEGRATION_TEST') == '1'):
         yield
         return
 
