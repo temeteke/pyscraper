@@ -34,10 +34,10 @@ def mock_http_response():
         chunks = [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)] if content else []
         response.iter_content = Mock(return_value=iter(chunks))
 
-        # Mock raw for direct reading
+        # Mock raw for direct reading using BytesIO for proper stream behavior
         from io import BytesIO
-        response.raw = Mock()
-        response.raw.read = Mock(side_effect=lambda size=-1: content if size == -1 else content[:size])
+        response.raw = BytesIO(content)
+        response.raw.decode_content = True
 
         # Mock cookies
         response.cookies = {}
@@ -163,23 +163,32 @@ def mock_ffmpeg(request, mocker):
         import ffmpy as ffmpy_module
         OriginalFFmpeg = ffmpy_module.FFmpeg
 
-        class MockFFmpeg(OriginalFFmpeg):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                # Store outputs for later use
-                self._mock_outputs = kwargs.get('outputs', {})
+        class MockFFmpeg:
+            """Mock FFmpeg that doesn't actually run ffmpeg."""
+            def __init__(self, inputs=None, outputs=None, global_options=None, executable='ffmpeg'):
+                # Don't call super().__init__() to avoid actual ffmpeg initialization
+                # Just store the parameters we need
+                self.inputs = inputs or {}
+                self.outputs = outputs or {}
+                self.global_options = global_options or []
+                self.executable = executable
+                self.cmd = f'mock ffmpeg: {inputs} -> {outputs}'
+                self.process = None
 
             def run(self, *args, **kwargs):
-                """Override run to create the output file."""
+                """Override run to create the output file without calling ffmpeg."""
                 # Extract the output filename from stored outputs
-                if self._mock_outputs:
-                    output_file = list(self._mock_outputs.keys())[0]
+                if self.outputs:
+                    output_file = list(self.outputs.keys())[0]
                     # Create the output file with some dummy content
                     from pathlib import Path
                     output_path = Path(output_file)
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     output_path.write_bytes(b'mock ffmpeg output')
                 return None
+
+            def __repr__(self):
+                return f"<MockFFmpeg: {self.cmd}>"
 
         mocker.patch('ffmpy.FFmpeg', MockFFmpeg)
         mocker.patch('pyscraper.hlsfile.ffmpy.FFmpeg', MockFFmpeg)
@@ -398,6 +407,11 @@ video002.ts
                         'Content-Length': str(len(full_content)),
                         'Accept-Ranges': 'bytes'
                     }, url)
+
+        # Handle DNS error test case
+        if 'a.temeteke.com' in url:
+            import requests
+            raise requests.exceptions.ConnectionError(f"DNS lookup failed for {url}")
 
         # If we get here, it's an unmocked URL - let it fail or pass through
         # For testing, we'll return a generic response
