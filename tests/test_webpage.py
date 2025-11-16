@@ -267,13 +267,15 @@ class TestWebPageChrome(MixinTestWebPage, MixinTestWebPageOpenClose, MixinTestWe
             yield wp
 
 
+@pytest.mark.integration
 class TestWebPageCurl(MixinTestWebPage):
-    """Unit tests for WebPageCurl using mocked subprocess.run.
+    """Integration tests for WebPageCurl using actual curl command.
 
-    Note: WebPageCurl is a thin wrapper around subprocess.run(['curl', url]).
-    While integration tests (actual curl execution) would be ideal, they are
-    not feasible in environments where test URLs are inaccessible.
-    The HTML parsing logic is thoroughly tested via TestWebPageRequests.
+    WebPageCurl is a thin wrapper around subprocess.run(['curl', url]).
+    These tests execute real curl commands and may fail in environments
+    where test URLs are inaccessible (e.g., firewall restrictions).
+
+    Run with: pytest tests/test_webpage.py::TestWebPageCurl -m integration -v
     """
 
     @pytest.fixture
