@@ -163,15 +163,39 @@ def mock_ffmpeg(request, mocker):
         yield
         return
 
-    mock_result = Mock()
-    mock_result.returncode = 0
-    mock_result.stdout = b''
-    mock_result.stderr = b''
+    # Create a function to handle subprocess.run calls based on command
+    def mock_subprocess_run(cmd, *args, **kwargs):
+        """Mock subprocess.run to handle both curl and ffmpeg calls."""
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stderr = b''
+
+        # Handle curl commands for WebPageCurl
+        if cmd and len(cmd) > 0 and 'curl' in cmd[0]:
+            # Extract URL from curl command
+            url = cmd[1] if len(cmd) > 1 else ''
+
+            # Return appropriate HTML based on URL
+            if 'test2.html' in url:
+                from pathlib import Path
+                test2_path = Path(__file__).parent / 'testdata' / 'test2.html'
+                mock_result.stdout = test2_path.read_bytes()
+            elif 'test.html' in url or 'temeteke.github.io' in url:
+                from pathlib import Path
+                test_path = Path(__file__).parent / 'testdata' / 'test.html'
+                mock_result.stdout = test_path.read_bytes()
+            else:
+                mock_result.stdout = b'<html><body>Mock HTML</body></html>'
+        else:
+            # For ffmpeg and other commands, return empty result
+            mock_result.stdout = b''
+
+        return mock_result
 
     # Check if ffmpy is being used (for HLS tests)
     try:
         # Mock subprocess.run for direct subprocess usage
-        mock_run = mocker.patch('subprocess.run', return_value=mock_result)
+        mock_run = mocker.patch('subprocess.run', side_effect=mock_subprocess_run)
 
         # Create a custom mock for ffmpy.FFmpeg that creates the output file when run() is called
         import ffmpy as ffmpy_module
