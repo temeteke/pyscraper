@@ -120,26 +120,19 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return self.filepath.with_name("." + self.filepath.name)
 
     def clear_cache(self):
-        try:
-            del self.m3u8_obj
-        except AttributeError:
-            pass
-        try:
-            del self.m3u8_content
-        except AttributeError:
-            pass
-        try:
-            del self.m3u8_content_url
-        except AttributeError:
-            pass
-        try:
-            del self.m3u8_content_filename
-        except AttributeError:
-            pass
-        try:
-            del self.web_files
-        except AttributeError:
-            pass
+        """Clear all cached properties."""
+        cached_properties = [
+            'm3u8_obj',
+            'm3u8_content',
+            'm3u8_content_url',
+            'm3u8_content_filename',
+            'web_files'
+        ]
+        for prop_name in cached_properties:
+            try:
+                delattr(self, prop_name)
+            except AttributeError:
+                pass
 
     def read(self, size=None):
         total_chunk = b""
