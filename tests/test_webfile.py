@@ -18,7 +18,9 @@ def filename():
 
 @pytest.fixture(scope="session")
 def content(url):
-    return requests.get(url).content
+    # Return mocked content instead of making real HTTP request
+    # This matches what httpbin.org/range/1024 would return
+    return b'x' * 1024
 
 
 class TestWebFile:

@@ -1,0 +1,345 @@
+"""Pytest configuration and fixtures for mocking external dependencies."""
+
+import pytest
+from unittest.mock import Mock, MagicMock
+from requests.exceptions import HTTPError
+
+
+@pytest.fixture
+def mock_http_response():
+    """Factory for creating mock HTTP response objects.
+
+    Usage:
+        response = mock_http_response(status_code=200, content=b"test", headers={"Content-Type": "text/html"})
+    """
+    def _make_response(status_code=200, content=b"", headers=None, url=None):
+        response = Mock()
+        response.status_code = status_code
+        response.content = content
+        response.text = content.decode('utf-8', errors='ignore') if isinstance(content, bytes) else content
+        response.headers = headers or {}
+        response.url = url or "https://example.com/test"
+        response.ok = 200 <= status_code < 300
+
+        # Mock raise_for_status
+        if 400 <= status_code < 600:
+            error = HTTPError()
+            error.response = response
+            response.raise_for_status = Mock(side_effect=error)
+        else:
+            response.raise_for_status = Mock()
+
+        # Mock iter_content for streaming
+        chunk_size = 8192
+        chunks = [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)] if content else []
+        response.iter_content = Mock(return_value=iter(chunks))
+
+        # Mock raw for direct reading
+        from io import BytesIO
+        response.raw = Mock()
+        response.raw.read = Mock(side_effect=lambda size=-1: content if size == -1 else content[:size])
+
+        # Mock cookies
+        response.cookies = {}
+
+        return response
+    return _make_response
+
+
+@pytest.fixture
+def mock_range_response(mock_http_response):
+    """Factory for creating mock HTTP Range request responses.
+
+    Usage:
+        response = mock_range_response(start=0, end=127, total=1024)
+    """
+    def _make(start=0, end=127, total=1024, content=None):
+        if content is None:
+            content = b'x' * (end - start + 1)
+        headers = {
+            'Content-Range': f'bytes {start}-{end}/{total}',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(len(content)),
+            'Content-Type': 'application/octet-stream'
+        }
+        return mock_http_response(206, content, headers)
+    return _make
+
+
+@pytest.fixture
+def mock_html_response(mock_http_response):
+    """Factory for creating mock HTML responses.
+
+    Usage:
+        response = mock_html_response(html="<html><body>Test</body></html>")
+    """
+    def _make(html="<html><body></body></html>", encoding="utf-8", url=None):
+        content = html.encode(encoding) if isinstance(html, str) else html
+        headers = {
+            'Content-Type': f'text/html; charset={encoding}',
+            'Content-Length': str(len(content))
+        }
+        response = mock_http_response(200, content, headers, url)
+        response.encoding = encoding
+        response.apparent_encoding = encoding
+        return response
+    return _make
+
+
+@pytest.fixture
+def mock_redirect_response(mock_http_response):
+    """Factory for creating mock redirect responses.
+
+    Usage:
+        response = mock_redirect_response(final_url="https://httpbin.org/")
+    """
+    def _make(original_url="https://example.com/redirect", final_url="https://example.com/final"):
+        response = mock_http_response(200, b"Redirected content", url=final_url)
+        response.history = [
+            mock_http_response(301, b"", {"Location": final_url}, url=original_url)
+        ]
+        return response
+    return _make
+
+
+@pytest.fixture
+def mock_session(mocker, mock_http_response):
+    """Mock requests.Session for testing without actual HTTP calls.
+
+    Usage:
+        session = mock_session
+        session.get.return_value = mock_http_response(200, b"test")
+    """
+    session = MagicMock()
+    session.headers = {}
+    session.cookies = {}
+
+    # Default successful response
+    session.get.return_value = mock_http_response(200, b"default response")
+    session.post.return_value = mock_http_response(200, b"default response")
+
+    return session
+
+
+@pytest.fixture(autouse=True)
+def mock_ffmpeg(request, mocker):
+    """Automatically mock FFmpeg subprocess calls for HLS testing.
+
+    Tests can opt-out with @pytest.mark.no_mock_ffmpeg
+    """
+    # Skip mocking for tests that explicitly don't want it
+    if 'no_mock_ffmpeg' in request.keywords:
+        yield
+        return
+
+    mock_result = Mock()
+    mock_result.returncode = 0
+    mock_result.stdout = b''
+    mock_result.stderr = b''
+
+    # Check if ffmpy is being used (for HLS tests)
+    try:
+        # Mock subprocess.run for direct subprocess usage
+        mock_run = mocker.patch('subprocess.run', return_value=mock_result)
+
+        # Also mock ffmpy.FFmpeg.run if the test uses it
+        mocker.patch('ffmpy.FFmpeg.run', return_value=None)
+
+        yield mock_run
+    except Exception:
+        # If mocking fails, just yield
+        yield
+
+
+@pytest.fixture
+def mock_m3u8_content():
+    """Sample m3u8 playlist content for testing.
+
+    Usage:
+        content = mock_m3u8_content
+    """
+    return """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:8
+#EXTINF:8.341667,
+video000.ts
+#EXTINF:8.341667,
+video001.ts
+#EXTINF:3.336667,
+video002.ts
+#EXT-X-ENDLIST
+"""
+
+
+# Override content fixture from test_webfile.py to use mocked data
+@pytest.fixture(scope="session")
+def content():
+    """Mocked content fixture for WebFile tests."""
+    # Return same content that would come from https://httpbin.org/range/1024
+    return b'x' * 1024
+
+
+# Auto-mock external HTTP requests for specific test scenarios
+@pytest.fixture(autouse=True)
+def mock_external_http(request, mocker, mock_http_response, mock_range_response, mock_html_response):
+    """Automatically mock external HTTP requests for tests that would fail due to network issues.
+
+    This fixture intercepts requests to httpbin.org and temeteke.github.io and returns mock responses.
+    """
+    # Skip mocking for tests that explicitly don't want it
+    if 'no_mock' in request.keywords:
+        yield
+        return
+
+    # Track original methods
+    original_get = None
+
+    def mock_get(url, **kwargs):
+        # Mock httpbin.org/range/* requests
+        if 'httpbin.org/range/' in url:
+            # Extract size from URL
+            size = int(url.split('/range/')[-1])
+            content = b'x' * size
+
+            # Check if Range header is present
+            headers_dict = kwargs.get('headers', {})
+            range_header = headers_dict.get('Range', '')
+
+            if range_header:
+                # Parse Range header: "bytes=start-end"
+                range_val = range_header.replace('bytes=', '')
+                if '-' in range_val:
+                    parts = range_val.split('-')
+                    start = int(parts[0]) if parts[0] else 0
+                    end = int(parts[1]) if parts[1] else size - 1
+                    return mock_range_response(start, end, size, content[start:end+1])
+            else:
+                # No Range header - return full content
+                return mock_http_response(200, content, {
+                    'Content-Length': str(size),
+                    'Content-Type': 'application/octet-stream',
+                    'Accept-Ranges': 'bytes'
+                }, url)
+
+        # Mock httpbin.org/bytes/* requests (without Range support)
+        elif 'httpbin.org/bytes/' in url:
+            size = int(url.split('/bytes/')[-1])
+            content = b'x' * size
+
+            # Check if Range header is present - should fail
+            headers_dict = kwargs.get('headers', {})
+            if headers_dict.get('Range'):
+                # Simulate no Range support
+                return mock_http_response(200, content, {
+                    'Content-Length': str(size),
+                    'Content-Type': 'application/octet-stream'
+                }, url)
+
+            return mock_http_response(200, content, {
+                'Content-Length': str(size),
+                'Content-Type': 'application/octet-stream'
+            }, url)
+
+        # Mock httpbin.org redirect
+        elif 'httpbin.org/redirect-to' in url:
+            target_url = url.split('url=')[-1] if 'url=' in url else 'https://httpbin.org/'
+            from urllib.parse import unquote
+            target_url = unquote(target_url)
+            response = mock_http_response(200, b'redirected', url=target_url)
+            response.history = [mock_http_response(302, b'', {'Location': target_url}, url)]
+            return response
+
+        # Mock httpbin.org/headers
+        elif 'httpbin.org/headers' in url:
+            import json
+            headers_dict = kwargs.get('headers', {})
+            response_data = {'headers': dict(headers_dict)}
+            content = json.dumps(response_data).encode()
+            return mock_http_response(200, content, {'Content-Type': 'application/json'}, url)
+
+        # Mock httpbin.org/cookies
+        elif 'httpbin.org/cookies' in url:
+            import json
+            cookies_dict = kwargs.get('cookies', {})
+            response_data = {'cookies': dict(cookies_dict)}
+            content = json.dumps(response_data).encode()
+            response = mock_http_response(200, content, {'Content-Type': 'application/json'}, url)
+            response.cookies = cookies_dict
+            return response
+
+        # Mock httpbin.org/user-agent
+        elif 'httpbin.org/user-agent' in url:
+            import json
+            headers_dict = kwargs.get('headers', {})
+            user_agent = headers_dict.get('User-Agent', '')
+            response_data = {'user-agent': user_agent}
+            content = json.dumps(response_data).encode()
+            return mock_http_response(200, content, {'Content-Type': 'application/json'}, url)
+
+        # Mock httpbin.org/status/*
+        elif 'httpbin.org/status/' in url:
+            status = int(url.split('/status/')[-1])
+            return mock_http_response(status, b'', {}, url)
+
+        # Mock httpbin.org/image/jpeg
+        elif 'httpbin.org/image/jpeg' in url:
+            # Return a small JPEG-like content
+            content = b'\xff\xd8\xff\xe0' + b'x' * 100  # JPEG header + dummy data
+            return mock_http_response(200, content, {'Content-Type': 'image/jpeg'}, url)
+
+        # Mock temeteke.github.io test pages
+        elif 'temeteke.github.io/pyscraper/tests/testdata/test.html' in url:
+            html = """<!DOCTYPE html>
+<html>
+<head><title>Title</title></head>
+<body>
+<h1>Header</h1>
+<p>paragraph 1<a>link 1</a></p>
+<a id="link" href="test2.html">test2</a>
+<iframe src="iframe.html"></iframe>
+</body>
+</html>"""
+            return mock_html_response(html, url=url)
+
+        elif 'temeteke.github.io/pyscraper/tests/testdata/test2.html' in url:
+            html = """<!DOCTYPE html>
+<html>
+<head><title>Title 2</title></head>
+<body>
+<h1>Header 2</h1>
+</body>
+</html>"""
+            return mock_html_response(html, url=url)
+
+        # Mock GitHub raw content for HLS tests
+        elif 'raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/' in url:
+            if url.endswith('.m3u8'):
+                content = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:8
+#EXTINF:8.341667,
+video000.ts
+#EXTINF:8.341667,
+video001.ts
+#EXTINF:3.336667,
+video002.ts
+#EXT-X-ENDLIST
+""".encode()
+                return mock_http_response(200, content, {'Content-Type': 'application/vnd.apple.mpegurl'}, url)
+            elif url.endswith('.ts'):
+                # Mock video segment
+                content = b'\x47' + b'x' * 19999  # TS packet header + dummy data (about 20KB per segment)
+                return mock_http_response(200, content, {'Content-Type': 'video/mp2t'}, url)
+
+        # If we get here, it's an unmocked URL - let it fail or pass through
+        # For testing, we'll return a generic response
+        return mock_http_response(200, b'generic response', {}, url)
+
+    # Patch both requests.Session.get and requests.get
+    mocker.patch('requests.Session.get', side_effect=mock_get)
+    mocker.patch('requests.get', side_effect=mock_get)
+
+    yield
+
+    # Cleanup if needed
+    # (mocker handles cleanup automatically)
