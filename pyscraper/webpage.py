@@ -383,18 +383,19 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageError("Driver is not opened yet")
 
     def _configure_no_proxy_for_remote(self, remote_url):
-        """Configure NO_PROXY environment variable for remote Selenium connection.
+        """Configure no_proxy environment variable for remote Selenium connection.
 
         Args:
             remote_url: Remote Selenium server URL
         """
-        no_proxy = os.environ.get("NO_PROXY")
         netloc = urlparse(remote_url).netloc
 
-        if not no_proxy:
-            os.environ["NO_PROXY"] = netloc
-        elif netloc not in no_proxy:
-            os.environ["NO_PROXY"] += "," + netloc
+        for key in ("no_proxy", "NO_PROXY"):
+            if current := os.environ.get(key):
+                if netloc not in current:
+                    os.environ[key] = current + "," + netloc
+            else:
+                os.environ[key] = netloc
 
     @property
     def url(self):

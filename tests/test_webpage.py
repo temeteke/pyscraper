@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 import pytest
 import requests
@@ -286,3 +287,164 @@ class TestWebPageCurl(MixinTestWebPage):
     def web_page_instance(self, web_page_class, url):
         with web_page_class(url) as wp:
             yield wp
+
+
+class TestConfigureNoProxyForRemote:
+    """Unit tests for WebPageSelenium._configure_no_proxy_for_remote.
+
+    Tests that the method correctly updates lowercase 'no_proxy' and
+    uppercase 'NO_PROXY' env vars when using remote Selenium WebDriver.
+    """
+
+    def _cleanup_env(self, keys):
+        for key in keys:
+            os.environ.pop(key, None)
+
+    def _set_env_and_run(self, env_vars, page_class, url):
+        saved = {}
+        for key, value in env_vars.items():
+            saved[key] = os.environ.get(key)
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        try:
+            with patch("pyscraper.webpage.webdriver.Remote"):
+                with page_class(url):
+                    pass
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_lowercase_updated(self):
+        saved_no_proxy = os.environ.get("no_proxy")
+        saved_NO_PROXY = os.environ.get("NO_PROXY")
+        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
+        saved_http = os.environ.get("HTTP_PROXY")
+        saved_https = os.environ.get("HTTPS_PROXY")
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ["no_proxy"] = "localhost,127.0.0.1"
+            os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            with patch("pyscraper.webpage.webdriver.Remote"):
+                with WebPageFirefox("http://example.com"):
+                    pass
+            assert "firefox:4444" in os.environ["no_proxy"]
+            assert "firefox:4444" in os.environ["NO_PROXY"]
+        finally:
+            for k, v in [("no_proxy", saved_no_proxy), ("NO_PROXY", saved_NO_PROXY),
+                         ("SELENIUM_FIREFOX_URL", saved_ff_url),
+                         ("HTTP_PROXY", saved_http), ("HTTPS_PROXY", saved_https)]:
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_uppercase_only(self):
+        saved_no_proxy = os.environ.get("no_proxy")
+        saved_NO_PROXY = os.environ.get("NO_PROXY")
+        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
+        saved_http = os.environ.get("HTTP_PROXY")
+        saved_https = os.environ.get("HTTPS_PROXY")
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ.pop("no_proxy", None)
+            os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            with patch("pyscraper.webpage.webdriver.Remote"):
+                with WebPageFirefox("http://example.com"):
+                    pass
+            assert "firefox:4444" in os.environ["no_proxy"]
+            assert "firefox:4444" in os.environ["NO_PROXY"]
+        finally:
+            for k, v in [("no_proxy", saved_no_proxy), ("NO_PROXY", saved_NO_PROXY),
+                         ("SELENIUM_FIREFOX_URL", saved_ff_url),
+                         ("HTTP_PROXY", saved_http), ("HTTPS_PROXY", saved_https)]:
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_neither_set(self):
+        saved_no_proxy = os.environ.get("no_proxy")
+        saved_NO_PROXY = os.environ.get("NO_PROXY")
+        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
+        saved_http = os.environ.get("HTTP_PROXY")
+        saved_https = os.environ.get("HTTPS_PROXY")
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ.pop("no_proxy", None)
+            os.environ.pop("NO_PROXY", None)
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            with patch("pyscraper.webpage.webdriver.Remote"):
+                with WebPageFirefox("http://example.com"):
+                    pass
+            assert os.environ["no_proxy"] == "firefox:4444"
+            assert os.environ["NO_PROXY"] == "firefox:4444"
+        finally:
+            for k, v in [("no_proxy", saved_no_proxy), ("NO_PROXY", saved_NO_PROXY),
+                         ("SELENIUM_FIREFOX_URL", saved_ff_url),
+                         ("HTTP_PROXY", saved_http), ("HTTPS_PROXY", saved_https)]:
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_duplicate_not_added(self):
+        saved_no_proxy = os.environ.get("no_proxy")
+        saved_NO_PROXY = os.environ.get("NO_PROXY")
+        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
+        saved_http = os.environ.get("HTTP_PROXY")
+        saved_https = os.environ.get("HTTPS_PROXY")
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ["no_proxy"] = "firefox:4444"
+            os.environ["NO_PROXY"] = "firefox:4444"
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            with patch("pyscraper.webpage.webdriver.Remote"):
+                with WebPageFirefox("http://example.com"):
+                    pass
+            assert os.environ["no_proxy"] == "firefox:4444"
+            assert os.environ["NO_PROXY"] == "firefox:4444"
+        finally:
+            for k, v in [("no_proxy", saved_no_proxy), ("NO_PROXY", saved_NO_PROXY),
+                         ("SELENIUM_FIREFOX_URL", saved_ff_url),
+                         ("HTTP_PROXY", saved_http), ("HTTPS_PROXY", saved_https)]:
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_chrome_lowercase_updated(self):
+        saved_no_proxy = os.environ.get("no_proxy")
+        saved_NO_PROXY = os.environ.get("NO_PROXY")
+        saved_chrome_url = os.environ.get("SELENIUM_CHROME_URL")
+        saved_http = os.environ.get("HTTP_PROXY")
+        saved_https = os.environ.get("HTTPS_PROXY")
+        try:
+            os.environ["SELENIUM_CHROME_URL"] = "http://chrome:9515/wd/hub"
+            os.environ["no_proxy"] = "localhost,127.0.0.1"
+            os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            with patch("pyscraper.webpage.webdriver.Remote"):
+                with WebPageChrome("http://example.com"):
+                    pass
+            assert "chrome:9515" in os.environ["no_proxy"]
+            assert "chrome:9515" in os.environ["NO_PROXY"]
+        finally:
+            for k, v in [("no_proxy", saved_no_proxy), ("NO_PROXY", saved_NO_PROXY),
+                         ("SELENIUM_CHROME_URL", saved_chrome_url),
+                         ("HTTP_PROXY", saved_http), ("HTTPS_PROXY", saved_https)]:
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
