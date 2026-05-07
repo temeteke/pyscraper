@@ -448,3 +448,92 @@ class TestConfigureNoProxyForRemote:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+    def _assert_firefox_proxy(self, mock_remote, http_proxy=None, https_proxy=None, no_proxy=None):
+        mock_remote.assert_called_once()
+        _, kwargs = mock_remote.call_args
+        opts = kwargs["options"]
+
+        if http_proxy:
+            assert opts.proxy.httpProxy == http_proxy
+        else:
+            assert opts.proxy.httpProxy is None
+
+        if https_proxy:
+            assert opts.proxy.sslProxy == https_proxy
+        else:
+            assert opts.proxy.sslProxy is None
+
+        if no_proxy:
+            assert opts.proxy.noProxy == no_proxy
+        else:
+            assert opts.proxy.noProxy is None
+
+    def test_firefox_proxy_lowercase_only(self):
+        saved = {k: os.environ.get(k) for k in ("http_proxy", "https_proxy", "no_proxy",
+                  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SELENIUM_FIREFOX_URL")}
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ["http_proxy"] = "http://lower-proxy:80"
+            os.environ["https_proxy"] = "http://lower-proxy:80"
+            os.environ["no_proxy"] = "localhost,.local"
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            os.environ.pop("NO_PROXY", None)
+            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+                with WebPageFirefox("http://example.com"):
+                    pass
+            self._assert_firefox_proxy(mock_remote,
+                                        http_proxy="http://lower-proxy:80",
+                                        https_proxy="http://lower-proxy:80",
+                                        no_proxy=["localhost", ".local"])
+            assert "firefox:4444" in os.environ["no_proxy"]
+            assert "firefox:4444" in os.environ["NO_PROXY"]
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+    def test_firefox_proxy_both_cases(self):
+        saved = {k: os.environ.get(k) for k in ("http_proxy", "https_proxy", "no_proxy",
+                  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SELENIUM_FIREFOX_URL")}
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ["http_proxy"] = "http://lower-proxy:80"
+            os.environ["https_proxy"] = "http://lower-proxy:80"
+            os.environ["no_proxy"] = "localhost,.local"
+            os.environ["HTTP_PROXY"] = "http://UPPER-proxy:80"
+            os.environ["HTTPS_PROXY"] = "http://UPPER-proxy:80"
+            os.environ["NO_PROXY"] = "192.168.1.0/24"
+            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+                with WebPageFirefox("http://example.com"):
+                    pass
+            self._assert_firefox_proxy(mock_remote,
+                                        http_proxy="http://lower-proxy:80",
+                                        https_proxy="http://lower-proxy:80",
+                                        no_proxy=["localhost", ".local"])
+            assert "firefox:4444" in os.environ["no_proxy"]
+            assert "firefox:4444" in os.environ["NO_PROXY"]
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+    def test_firefox_proxy_uppercase_only(self):
+        saved = {k: os.environ.get(k) for k in ("http_proxy", "https_proxy", "no_proxy",
+                  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SELENIUM_FIREFOX_URL")}
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ["HTTP_PROXY"] = "http://upper-proxy:80"
+            os.environ["HTTPS_PROXY"] = "http://upper-proxy:80"
+            os.environ["NO_PROXY"] = "192.168.1.0/24"
+            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+                with WebPageFirefox("http://example.com"):
+                    pass
+            self._assert_firefox_proxy(mock_remote,
+                                        http_proxy="http://upper-proxy:80",
+                                        https_proxy="http://upper-proxy:80",
+                                        no_proxy=["192.168.1.0/24"])
+            assert "firefox:4444" in os.environ["no_proxy"]
+            assert "firefox:4444" in os.environ["NO_PROXY"]
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)

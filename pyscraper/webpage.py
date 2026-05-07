@@ -26,6 +26,25 @@ from pyscraper.requests import RequestsMixin
 logger = logging.getLogger(__name__)
 
 
+def _get_env_anycase(name):
+    """Read environment variable with lowercase priority (Selenium convention).
+
+    Selenium's ClientConfig.get_proxy_url reads lowercase first:
+
+        os.environ.get("no_proxy", os.environ.get("NO_PROXY"))
+
+    This helper applies the same convention to all proxy-related env vars.
+
+    Args:
+        name: Uppercase variable name (e.g. "HTTP_PROXY", "NO_PROXY")
+
+    Returns:
+        Value of the lowercase variant if set, otherwise uppercase, or None.
+    """
+    lower = name.lower()
+    return os.environ.get(lower, os.environ.get(name))
+
+
 class WebPageError(Exception):
     pass
 
@@ -597,10 +616,10 @@ class WebPageFirefox(WebPageSelenium):
                 options.add_argument("-profile")
                 options.add_argument(profile)
 
-            # get proxy settings from environment variables
-            http_proxy = os.environ.get("HTTP_PROXY")
-            https_proxy = os.environ.get("HTTPS_PROXY")
-            no_proxy = os.environ.get("NO_PROXY")
+            # get proxy settings from environment variables (lowercase priority)
+            http_proxy = _get_env_anycase("HTTP_PROXY")
+            https_proxy = _get_env_anycase("HTTPS_PROXY")
+            no_proxy = _get_env_anycase("NO_PROXY")
 
             # set proxy option for Firefox
             if http_proxy or https_proxy or no_proxy:
