@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+import re
 import subprocess
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -43,6 +44,17 @@ def _get_env_anycase(name):
     """
     lower = name.lower()
     return os.environ.get(lower, os.environ.get(name))
+
+
+def _normalize_proxy_for_selenium(value):
+    if not value:
+        return value
+    stripped = value.strip()
+    # strip scheme (http:// or https://) if present, Selenium rejects it
+    if re.match(r"^https?://", stripped):
+        result = urlparse(stripped).netloc
+        return result
+    return stripped
 
 
 class WebPageError(Exception):
@@ -625,9 +637,9 @@ class WebPageFirefox(WebPageSelenium):
             if http_proxy or https_proxy or no_proxy:
                 proxy_dict = {"proxyType": proxy.ProxyType.MANUAL}
                 if http_proxy:
-                    proxy_dict["httpProxy"] = http_proxy
+                    proxy_dict["httpProxy"] = _normalize_proxy_for_selenium(http_proxy)
                 if https_proxy:
-                    proxy_dict["sslProxy"] = https_proxy
+                    proxy_dict["sslProxy"] = _normalize_proxy_for_selenium(https_proxy)
                 if no_proxy:
                     proxy_dict["noProxy"] = no_proxy.split(",")
             else:

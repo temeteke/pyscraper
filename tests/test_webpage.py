@@ -484,8 +484,8 @@ class TestConfigureNoProxyForRemote:
                 with WebPageFirefox("http://example.com"):
                     pass
             self._assert_firefox_proxy(mock_remote,
-                                        http_proxy="http://lower-proxy:80",
-                                        https_proxy="http://lower-proxy:80",
+                                        http_proxy="lower-proxy:80",
+                                        https_proxy="lower-proxy:80",
                                         no_proxy=["localhost", ".local"])
             assert "firefox:4444" in os.environ["no_proxy"]
             assert "firefox:4444" in os.environ["NO_PROXY"]
@@ -508,8 +508,8 @@ class TestConfigureNoProxyForRemote:
                 with WebPageFirefox("http://example.com"):
                     pass
             self._assert_firefox_proxy(mock_remote,
-                                        http_proxy="http://lower-proxy:80",
-                                        https_proxy="http://lower-proxy:80",
+                                        http_proxy="lower-proxy:80",
+                                        https_proxy="lower-proxy:80",
                                         no_proxy=["localhost", ".local"])
             assert "firefox:4444" in os.environ["no_proxy"]
             assert "firefox:4444" in os.environ["NO_PROXY"]
@@ -529,9 +529,33 @@ class TestConfigureNoProxyForRemote:
                 with WebPageFirefox("http://example.com"):
                     pass
             self._assert_firefox_proxy(mock_remote,
-                                        http_proxy="http://upper-proxy:80",
-                                        https_proxy="http://upper-proxy:80",
+                                        http_proxy="upper-proxy:80",
+                                        https_proxy="upper-proxy:80",
                                         no_proxy=["192.168.1.0/24"])
+            assert "firefox:4444" in os.environ["no_proxy"]
+            assert "firefox:4444" in os.environ["NO_PROXY"]
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+    def test_firefox_proxy_no_scheme_passthrough(self):
+        saved = {k: os.environ.get(k) for k in ("http_proxy", "https_proxy", "no_proxy",
+                  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SELENIUM_FIREFOX_URL")}
+        try:
+            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
+            os.environ["http_proxy"] = "plain-proxy:3128"
+            os.environ["https_proxy"] = "plain-proxy:3128"
+            os.environ["no_proxy"] = "localhost"
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            os.environ.pop("NO_PROXY", None)
+            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+                with WebPageFirefox("http://example.com"):
+                    pass
+            self._assert_firefox_proxy(mock_remote,
+                                        http_proxy="plain-proxy:3128",
+                                        https_proxy="plain-proxy:3128",
+                                        no_proxy=["localhost"])
             assert "firefox:4444" in os.environ["no_proxy"]
             assert "firefox:4444" in os.environ["NO_PROXY"]
         finally:
