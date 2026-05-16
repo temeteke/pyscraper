@@ -90,7 +90,7 @@ class WebPageElement:
         html = ""
         if self.lxml_html.text:
             html += self.lxml_html.text
-        for child in self.lxml_html.getchildren():
+        for child in list(self.lxml_html):
             html += lxml.html.tostring(child, encoding=self.encoding).decode(
                 encoding=self.encoding
             )
@@ -105,7 +105,7 @@ class WebPageElement:
         text = ""
         if self.lxml_html.text:
             text += self.lxml_html.text
-        for child in self.lxml_html.getchildren():
+        for child in list(self.lxml_html):
             if child.text:
                 text += child.text
         return text.strip()
@@ -179,7 +179,7 @@ class WebPageParserMixin(ABC):
             html = ""
             if element.text:
                 html += element.text
-            for child in element.getchildren():
+            for child in list(element):
                 html += lxml.html.tostring(child, encoding=self.encoding).decode(self.encoding)
             htmls.append(html.strip())
         return htmls
@@ -210,7 +210,9 @@ class WebPageParserMixin(ABC):
 
 
 class WebPage(WebPageParserMixin):
-    def __init__(self, url, params={}, encoding=None, params_encoding=None):
+    def __init__(self, url, params: dict | None = None, encoding=None, params_encoding=None):
+        if not params:
+            params = {}
         if not params_encoding:
             params_encoding = encoding
 
@@ -254,14 +256,14 @@ class WebPage(WebPageParserMixin):
 
 class WebPageRequests(RequestsMixin, WebPage):
     def __init__(
-        self, url, params={}, encoding=None, headers={}, cookies={}, session=None, timeout=10
+        self, url, params: dict | None = None, encoding=None, headers: dict | None = None, cookies: dict | None = None, session=None, timeout=10
     ):
         self.response = None
 
         super().__init__(url, params=params, encoding=encoding)
 
-        self.request_headers = headers
-        self.request_cookies = cookies
+        self.request_headers = headers or {}
+        self.request_cookies = cookies or {}
         self.session = session
         self.timeout = timeout
 
@@ -404,7 +406,7 @@ class SeleniumWebPageElement(WebPageElement):
 
 
 class WebPageSelenium(WebPage, ABC):
-    def __init__(self, url, params={}, encoding=None):
+    def __init__(self, url, params: dict | None = None, encoding=None):
         self.driver = None
         super().__init__(url, params=params, encoding=encoding)
 
@@ -519,7 +521,7 @@ class WebPageSelenium(WebPage, ABC):
         self.driver.switch_to.frame(iframe)
         return iframe_url
 
-    def go(self, url, params={}):
+    def go(self, url, params: dict | None = None):
         self._ensure_open()
         if params:
             parsed_url = urlparse(url)
@@ -598,8 +600,8 @@ class WebPageFirefox(WebPageSelenium):
     def __init__(
         self,
         url=None,
-        params={},
-        cookies={},
+        params: dict | None = None,
+        cookies: dict | None = None,
         cookies_file=None,
         profile=None,
         page_load_strategy=None,
@@ -608,7 +610,7 @@ class WebPageFirefox(WebPageSelenium):
         if not url:
             url = "about:home"
         super().__init__(url, params=params)
-        self.cookies = cookies
+        self.cookies = cookies or {}
         self.cookies_file = cookies_file
         self.profile = profile
         self.page_load_strategy = page_load_strategy
@@ -665,12 +667,12 @@ class WebPageFirefox(WebPageSelenium):
 
 class WebPageChrome(WebPageSelenium):
     def __init__(
-        self, url=None, params={}, cookies={}, cookies_file=None, page_load_strategy=None
+        self, url=None, params: dict | None = None, cookies: dict | None = None, cookies_file=None, page_load_strategy=None
     ):
         if not url:
             url = "chrome://new-tab-page"
         super().__init__(url, params=params)
-        self.cookies = cookies
+        self.cookies = cookies or {}
         self.cookies_file = cookies_file
         self.page_load_strategy = page_load_strategy
 
