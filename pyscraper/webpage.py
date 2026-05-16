@@ -94,8 +94,6 @@ class WebPageElement:
             html += lxml.html.tostring(child, encoding=self.encoding).decode(
                 encoding=self.encoding
             )
-            if child.tail:
-                html += child.tail
         return html.strip()
 
     @property
@@ -185,8 +183,6 @@ class WebPageParserMixin(ABC):
                 html += element.text
             for child in list(element):
                 html += lxml.html.tostring(child, encoding=self.encoding).decode(self.encoding)
-                if child.tail:
-                    html += child.tail
             htmls.append(html.strip())
         return htmls
 
@@ -268,8 +264,8 @@ class WebPageRequests(RequestsMixin, WebPage):
 
         super().__init__(url, params=params, encoding=encoding)
 
-        self.request_headers = headers or {}
-        self.request_cookies = cookies or {}
+        self.request_headers = dict(headers) if headers else {}
+        self.request_cookies = dict(cookies) if cookies else {}
         self.session = session
         self.timeout = timeout
 

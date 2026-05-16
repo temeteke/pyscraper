@@ -41,8 +41,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         super().__init__()
 
         self.request_url = url
-        self.request_headers = headers or {}
-        self.request_cookies = cookies or {}
+        self.request_headers = dict(headers) if headers else {}
+        self.request_cookies = dict(cookies) if cookies else {}
         self.session = session
         self.directory = directory
         self.filename = filename

@@ -429,7 +429,20 @@ class TestWebFileIntegration:
         wf.unlink()
 
 
-@pytest.mark.integration
+class TestWebFileMutableDefaults:
+    def test_request_headers_not_shared(self):
+        w1 = WebFile("https://a.com")
+        w2 = WebFile("https://b.com")
+        w1.request_headers["X"] = "1"
+        assert "X" not in w2.request_headers
+
+    def test_request_cookies_not_shared(self):
+        w1 = WebFile("https://a.com")
+        w2 = WebFile("https://b.com")
+        w1.request_cookies["session"] = "abc"
+        assert "session" not in w2.request_cookies
+
+
 class TestWebFileIntegrationEdgeCases:
     """Integration tests for edge cases and error conditions."""
 

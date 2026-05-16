@@ -288,3 +288,10 @@ video002.ts
         # Objects should have same content but different identity (new instance)
         assert first_id != second_id
         assert first_obj.is_variant == second_obj.is_variant
+
+    def test_web_files_headers_cookies_not_shared(self):
+        hls = HlsFile("https://a.com/playlist.m3u8")
+        wf1 = WebFile("https://a.com/seg0.ts", headers=dict(hls.headers), cookies=dict(hls.cookies))
+        wf2 = WebFile("https://a.com/seg1.ts", headers=dict(hls.headers), cookies=dict(hls.cookies))
+        wf1.request_headers["X"] = "1"
+        assert "X" not in wf2.request_headers

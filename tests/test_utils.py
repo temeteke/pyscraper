@@ -126,3 +126,10 @@ class TestLazyList:
         lazy = LazyList([], lambda x: x * 2)
         assert len(lazy) == 0
         assert list(lazy) == []
+
+    def test_contains_caches_all_traversed_elements(self):
+        gen = CachedGenerator(iter([1, 2, 3, 4, 5]))
+        assert 3 in gen
+        assert len(gen.cache) == 3
+        assert 5 in gen
+        assert len(gen.cache) == 5

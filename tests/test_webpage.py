@@ -561,3 +561,44 @@ class TestConfigureNoProxyForRemote:
         finally:
             for k, v in saved.items():
                 os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
+class TestWebPageMutableDefaults:
+    def test_request_headers_not_shared(self):
+        w1 = WebPageRequests("https://a.com")
+        w2 = WebPageRequests("https://b.com")
+        w1.request_headers["X"] = "1"
+        assert "X" not in w2.request_headers
+
+    def test_request_cookies_not_shared(self):
+        w1 = WebPageRequests("https://a.com")
+        w2 = WebPageRequests("https://b.com")
+        w1.request_cookies["session"] = "abc"
+        assert "session" not in w2.request_cookies
+
+
+class TestWebPageElementInnerText:
+    def test_inner_text_includes_child_tail(self):
+        from pyscraper.webpage import WebPageElement
+        import lxml.html
+        html = "<div>Hello <b>World</b> and more</div>"
+        element = lxml.html.fromstring(html)
+        wp_element = WebPageElement(element)
+        assert "and more" in wp_element.inner_text
+
+    def test_inner_html_includes_child_tail(self):
+        from pyscraper.webpage import WebPageElement
+        import lxml.html
+        html = "<div>Hello <b>World</b> and more</div>"
+        element = lxml.html.fromstring(html)
+        wp_element = WebPageElement(element)
+        assert "and more" in wp_element.inner_html
+
+
+class TestWebPageGetInnerhtml:
+    def test_get_innerhtml_includes_child_tail(self, url):
+        with WebPageRequests(url) as wp:
+            results = wp.get_innerhtml("//p")
+            assert results
+            for result in results:
+                assert isinstance(result, str)
