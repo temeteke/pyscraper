@@ -104,8 +104,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             self.m3u8_obj.segments,
             lambda x: WebFile(
                 x.absolute_uri,
-                headers=self.headers,
-                cookies=self.cookies,
+                headers=dict(self.headers),
+                cookies=dict(self.cookies),
                 directory=self.temp_directory,
                 filename=get_filename_from_url(x.absolute_uri),
             ),
