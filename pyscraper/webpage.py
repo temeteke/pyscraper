@@ -94,6 +94,8 @@ class WebPageElement:
             html += lxml.html.tostring(child, encoding=self.encoding).decode(
                 encoding=self.encoding
             )
+            if child.tail:
+                html += child.tail
         return html.strip()
 
     @property
@@ -183,6 +185,8 @@ class WebPageParserMixin(ABC):
                 html += element.text
             for child in list(element):
                 html += lxml.html.tostring(child, encoding=self.encoding).decode(self.encoding)
+                if child.tail:
+                    html += child.tail
             htmls.append(html.strip())
         return htmls
 

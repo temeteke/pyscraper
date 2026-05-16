@@ -40,6 +40,7 @@ class RequestsMixin:
 
         # Reopen session if it was already opened
         if self.session is not None:
+            self.close_session()
             self.open_session()
 
     @property
@@ -55,6 +56,7 @@ class RequestsMixin:
 
         # Reopen session if it was already opened
         if self.session is not None:
+            self.close_session()
             self.open_session()
 
     @property
