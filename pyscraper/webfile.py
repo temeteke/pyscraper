@@ -150,8 +150,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def __init__(
         self,
         url: str,
-        headers: dict = {},
-        cookies: dict = {},
+        headers: dict | None = None,
+        cookies: dict | None = None,
         session: requests.Session = None,
         timeout: int = 30,
         directory: str = ".",
@@ -166,8 +166,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.logger.debug(url)
 
         self.request_url = url
-        self.request_headers = headers
-        self.request_cookies = cookies
+        self.request_headers = headers or {}
+        self.request_cookies = cookies or {}
         self.session = session
         self.timeout = timeout
         self.directory = directory
