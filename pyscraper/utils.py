@@ -52,10 +52,9 @@ class CachedGenerator:
         if item in self.cache:
             return True
         for element in self.generator:
-            if element == item:
-                self.cache.append(element)
-                return True
             self.cache.append(element)
+            if element == item:
+                return True
         return False
 
 

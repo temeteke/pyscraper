@@ -108,6 +108,8 @@ class WebPageElement:
         for child in list(self.lxml_html):
             if child.text:
                 text += child.text
+            if child.tail:
+                text += child.tail
         return text.strip()
 
     @property
@@ -280,6 +282,7 @@ class WebPageRequests(RequestsMixin, WebPage):
 
         # Reopen response if it was already opened
         if self.response is not None:
+            self.close_response()
             self.open_response()
 
     @property
@@ -295,6 +298,7 @@ class WebPageRequests(RequestsMixin, WebPage):
 
         # Reopen response if it was already opened
         if self.response is not None:
+            self.close_response()
             self.open_response()
 
     @property
@@ -589,6 +593,7 @@ class WebPageSelenium(WebPage, ABC):
         except selenium.common.exceptions.WebDriverException as e:
             logger.error(e)
             self.close()
+            raise
 
     def close(self):
         if self.driver is not None:

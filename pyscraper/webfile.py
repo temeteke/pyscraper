@@ -194,6 +194,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         # Reopen response if it was already opened
         if self.response is not None:
+            self.close_response()
             self.open_response()
 
     @property
