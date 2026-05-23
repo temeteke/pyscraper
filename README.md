@@ -29,7 +29,7 @@ The `WebPage` class is designed to handle web page interactions. It provides met
 Example usage:
 
 ```python
-from pyscraper.webpage import WebPageRequests
+from pyscraper import WebPageRequests
 
 with WebPageRequests("https://example.com") as web_page:
     for element in web_page.get("//a"):
@@ -37,7 +37,7 @@ with WebPageRequests("https://example.com") as web_page:
 ```
 
 ```python
-from pyscraper.webpage import WebPageFirefox
+from pyscraper import WebPageFirefox
 
 with WebPageFirefox("https://example.com") as web_page:
     for element in web_page.get("//a"):
