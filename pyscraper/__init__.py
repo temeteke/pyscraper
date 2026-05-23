@@ -16,6 +16,11 @@ from .webpage import (
 )
 from .webpage_curl import WebPageCurl
 from .webpage_requests import WebPageRequests
+from .webpage_playwright import (
+    WebPagePlaywrightChromium,
+    WebPagePlaywrightFirefox,
+    WebPagePlaywrightWebKit,
+)
 from .webpage_selenium import WebPageChrome, WebPageFirefox
 
 __all__ = [
@@ -23,6 +28,9 @@ __all__ = [
     "WebPageFirefox",
     "WebPageChrome",
     "WebPageCurl",
+    "WebPagePlaywrightChromium",
+    "WebPagePlaywrightFirefox",
+    "WebPagePlaywrightWebKit",
     "WebPageError",
     "WebPageTimeoutError",
     "WebPageNoSuchElementError",
