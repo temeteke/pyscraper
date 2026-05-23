@@ -51,5 +51,7 @@
 			"moby": false
 		},
 		"ghcr.io/devcontainers-extra/features/ffmpeg-apt-get:1": {}
-	}
+	},
+
+	"name": "pyscraper"
 }
