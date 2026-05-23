@@ -4,14 +4,10 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from pyscraper.webpage import (
-    WebPageChrome,
-    WebPageCurl,
-    WebPageFirefox,
-    WebPageNoSuchElementError,
-    WebPageRequests,
-    WebPageTimeoutError,
-)
+from pyscraper.webpage import WebPageError, WebPageNoSuchElementError, WebPageTimeoutError
+from pyscraper.webpage_curl import WebPageCurl
+from pyscraper.webpage_requests import WebPageRequests
+from pyscraper.webpage_selenium import WebPageChrome, WebPageFirefox
 
 
 @pytest.fixture
@@ -327,7 +323,7 @@ class TestConfigureNoProxyForRemote:
             else:
                 os.environ[key] = value
         try:
-            with patch("pyscraper.webpage.webdriver.Remote"):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
                 with page_class(url):
                     pass
         finally:
@@ -349,7 +345,7 @@ class TestConfigureNoProxyForRemote:
             os.environ["NO_PROXY"] = "localhost,127.0.0.1"
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage.webdriver.Remote"):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
                 with WebPageFirefox("http://example.com"):
                     pass
             assert "firefox:4444" in os.environ["no_proxy"]
@@ -375,7 +371,7 @@ class TestConfigureNoProxyForRemote:
             os.environ["NO_PROXY"] = "localhost,127.0.0.1"
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage.webdriver.Remote"):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
                 with WebPageFirefox("http://example.com"):
                     pass
             assert "firefox:4444" in os.environ["no_proxy"]
@@ -401,7 +397,7 @@ class TestConfigureNoProxyForRemote:
             os.environ.pop("NO_PROXY", None)
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage.webdriver.Remote"):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
                 with WebPageFirefox("http://example.com"):
                     pass
             assert os.environ["no_proxy"] == "firefox:4444"
@@ -427,7 +423,7 @@ class TestConfigureNoProxyForRemote:
             os.environ["NO_PROXY"] = "firefox:4444"
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage.webdriver.Remote"):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
                 with WebPageFirefox("http://example.com"):
                     pass
             assert os.environ["no_proxy"] == "firefox:4444"
@@ -453,7 +449,7 @@ class TestConfigureNoProxyForRemote:
             os.environ["NO_PROXY"] = "localhost,127.0.0.1"
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage.webdriver.Remote"):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
                 with WebPageChrome("http://example.com"):
                     pass
             assert "chrome:9515" in os.environ["no_proxy"]
@@ -498,7 +494,7 @@ class TestConfigureNoProxyForRemote:
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
             os.environ.pop("NO_PROXY", None)
-            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
                 with WebPageFirefox("http://example.com"):
                     pass
             self._assert_firefox_proxy(mock_remote,
@@ -522,7 +518,7 @@ class TestConfigureNoProxyForRemote:
             os.environ["HTTP_PROXY"] = "http://UPPER-proxy:80"
             os.environ["HTTPS_PROXY"] = "http://UPPER-proxy:80"
             os.environ["NO_PROXY"] = "192.168.1.0/24"
-            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
                 with WebPageFirefox("http://example.com"):
                     pass
             self._assert_firefox_proxy(mock_remote,
@@ -543,7 +539,7 @@ class TestConfigureNoProxyForRemote:
             os.environ["HTTP_PROXY"] = "http://upper-proxy:80"
             os.environ["HTTPS_PROXY"] = "http://upper-proxy:80"
             os.environ["NO_PROXY"] = "192.168.1.0/24"
-            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
                 with WebPageFirefox("http://example.com"):
                     pass
             self._assert_firefox_proxy(mock_remote,
@@ -567,7 +563,7 @@ class TestConfigureNoProxyForRemote:
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
             os.environ.pop("NO_PROXY", None)
-            with patch("pyscraper.webpage.webdriver.Remote") as mock_remote:
+            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
                 with WebPageFirefox("http://example.com"):
                     pass
             self._assert_firefox_proxy(mock_remote,
