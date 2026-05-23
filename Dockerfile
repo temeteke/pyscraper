@@ -1,9 +1,10 @@
-FROM python:3.12-alpine
+FROM python:3.12-slim
 
-RUN apk add --no-cache ffmpeg && \
-    apk add --no-cache --virtual .lxml-deps build-base libc-dev libxslt-dev && \
-    pip install --no-cache-dir lxml && \
-    apk del .lxml-deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libxslt-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir lxml
 
 WORKDIR /app
 COPY setup.py setup.cfg ./
