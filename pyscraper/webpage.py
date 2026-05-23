@@ -213,18 +213,19 @@ class WebPageParserMixin(ABC):
 
 class WebPage(WebPageParserMixin):
     def __init__(self, url, params: dict | None = None, encoding=None, params_encoding=None):
+        self.encoding = encoding
         if not params:
-            params = {}
+            self.request_url = url
+            return
+
         if not params_encoding:
             params_encoding = encoding
-
         parsed_url = urlparse(url)
         parsed_qs = parse_qs(parsed_url.query)
         parsed_qs.update(params)
         self.request_url = urlunparse(
             parsed_url._replace(query=urlencode(parsed_qs, doseq=True, encoding=params_encoding))
         )
-        self.encoding = encoding
 
     def __str__(self):
         return self.url

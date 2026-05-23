@@ -212,6 +212,24 @@ class TestWebPageRequests(MixinTestWebPage, MixinTestWebPageOpenClose):
     def test_params_01(self, url):
         assert WebPageRequests(url, params={"param1": 1}).url == url + "?param1=1"
 
+    def test_bare_param_preserved(self):
+        url = "https://example.com/?key"
+        assert WebPageRequests(url).url == url
+
+    def test_bare_param_preserved_multiple(self):
+        url = "https://example.com/?key&flag"
+        assert WebPageRequests(url).url == url
+
+    def test_bare_param_with_value_param_not_lost(self):
+        url = "https://example.com/?key=value"
+        assert WebPageRequests(url).url == url
+
+    def test_mixed_bare_and_keyvalue(self):
+        assert WebPageRequests("https://example.com/?flag&key=value").url == "https://example.com/?flag&key=value"
+
+    def test_params_with_existing_query(self):
+        assert WebPageRequests("https://example.com/?a=1", params={"b": 2}).url == "https://example.com/?a=1&b=2"
+
     def test_dump_01(self, web_page_instance):
         f = web_page_instance.dump()
         assert f.exists()
