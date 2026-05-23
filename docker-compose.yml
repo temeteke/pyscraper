@@ -5,21 +5,21 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      - SELENIUM_FIREFOX_URL=http://firefox:4444/wd/hub
+      - SELENIUM_FIREFOX_URL=http://selenium-firefox:4444/wd/hub
       - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
-      - SELENIUM_CHROME_URL=http://chrome:4444/wd/hub
+      - SELENIUM_CHROME_URL=http://selenium-chrome:4444/wd/hub
       - SELENIUM_CHROME_PROFILE=/tmp/chrome-profile
 
-  firefox:
+  selenium-firefox:
     image: selenium/standalone-firefox
     ports:
       - 7900:7900
     volumes:
       - firefox-profile:/tmp/firefox-profile
     depends_on:
-      - init-firefox
+      - init-selenium-firefox
 
-  init-firefox:
+  init-selenium-firefox:
     image: busybox
     command:
       - sh
@@ -28,16 +28,16 @@ services:
     volumes:
       - firefox-profile:/tmp/firefox-profile
 
-  chrome:
+  selenium-chrome:
     image: selenium/standalone-chrome
     ports:
       - 7901:7900
     volumes:
       - chrome-profile:/tmp/chrome-profile
     depends_on:
-      - init-chrome
+      - init-selenium-chrome
 
-  init-chrome:
+  init-selenium-chrome:
     image: busybox
     command:
       - sh
@@ -45,6 +45,36 @@ services:
       - chown -R 1200:1201 /tmp/chrome-profile
     volumes:
       - chrome-profile:/tmp/chrome-profile
+
+  playwright-chromium:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright-chromium
+    environment:
+      - PLAYWRIGHT_BROWSER=chromium
+      - PLAYWRIGHT_PORT=3000
+    ports:
+      - "3000:3000"
+
+  playwright-firefox:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright-firefox
+    environment:
+      - PLAYWRIGHT_BROWSER=firefox
+      - PLAYWRIGHT_PORT=3002
+    ports:
+      - "3002:3002"
+
+  playwright-webkit:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright-webkit
+    environment:
+      - PLAYWRIGHT_BROWSER=webkit
+      - PLAYWRIGHT_PORT=3003
+    ports:
+      - "3003:3003"
 
 volumes:
   firefox-profile:

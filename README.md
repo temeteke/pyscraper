@@ -12,12 +12,10 @@ PyScraper is a Python library for scraping web content and downloading files. It
 
 ## Installation
 
-To install PyScraper, clone the repository and install the dependencies:
+To install PyScraper:
 
 ```sh
-git clone https://github.com/temeteke/pyscraper.git
-cd pyscraper
-pip install -r requirements.txt
+pip install pyscraper
 ```
 
 ## Usage
