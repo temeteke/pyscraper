@@ -10,14 +10,13 @@ from .webfile import (
     WebFileTimeoutError,
 )
 from .webpage import (
-    WebPageChrome,
-    WebPageCurl,
     WebPageError,
-    WebPageFirefox,
     WebPageNoSuchElementError,
-    WebPageRequests,
     WebPageTimeoutError,
 )
+from .webpage_curl import WebPageCurl
+from .webpage_requests import WebPageRequests
+from .webpage_selenium import WebPageChrome, WebPageFirefox
 
 __all__ = [
     "WebPageRequests",
