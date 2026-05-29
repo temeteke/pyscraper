@@ -372,12 +372,18 @@ class TestHlsFileWithMap:
         assert "#EXTINF:" in content
         assert "seg0.m4s" in content
 
-    def test_init_web_files(self, hls_file_with_map):
-        inits = hls_file_with_map.init_web_files
-        assert len(inits) == 1
-        wf = inits[0]
-        assert "init_" in wf.filename
-        assert wf.filename.endswith(".mp4")
+    def test_web_files_order(self, hls_file_with_map):
+        files = hls_file_with_map.web_files
+        assert len(files) == 3
+        assert "init_" in files[0].filename
+        assert files[0].filename.endswith(".mp4")
+        assert files[1].filename == "seg0.m4s"
+        assert files[2].filename == "seg1.m4s"
+
+    def test_read_contains_init(self, hls_file_with_map):
+        data = hls_file_with_map.read()
+        assert data[:5] == b'i' * 5
+        assert b'xx' in data
 
     def test_download_with_map(self, hls_file_with_map):
         f = hls_file_with_map.download()
@@ -435,11 +441,14 @@ class TestHlsFileCollideSeg:
         filenames = [wf.filename for wf in hls_file_collide_seg.web_files]
         assert len(filenames) == len(set(filenames))
 
-    def test_init_web_files_count(self, hls_file_collide_seg):
-        inits = hls_file_collide_seg.init_web_files
-        assert len(inits) == 2
-        filenames = [wf.filename for wf in inits]
-        assert len(filenames) == len(set(filenames))
+    def test_web_files_order(self, hls_file_collide_seg):
+        files = hls_file_collide_seg.web_files
+        assert len(files) == 4
+        assert files[0].filename.endswith(".mp4")
+        assert files[1].filename.endswith(".ts")
+        assert files[2].filename.endswith(".mp4")
+        assert files[3].filename.endswith(".ts")
+        assert files[0].filename != files[2].filename
 
     def test_download(self, hls_file_collide_seg):
         f = hls_file_collide_seg.download()
@@ -466,11 +475,14 @@ class TestHlsFileCollideInitQuery:
         f0, f1 = (mapping[u] for u in init_uris)
         assert f0 != f1
 
-    def test_init_web_files_count(self, hls_file_collide_query):
-        inits = hls_file_collide_query.init_web_files
-        assert len(inits) == 2
-        filenames = [wf.filename for wf in inits]
-        assert len(filenames) == len(set(filenames))
+    def test_web_files_order(self, hls_file_collide_query):
+        files = hls_file_collide_query.web_files
+        assert len(files) == 4
+        assert files[0].filename.endswith(".mp4")
+        assert "seg0" in files[1].filename
+        assert files[2].filename.endswith(".mp4")
+        assert "seg1" in files[3].filename
+        assert files[0].filename != files[2].filename
 
     def test_m3u8_content_filename_uses_local(self, hls_file_collide_query):
         content = hls_file_collide_query.m3u8_content_filename

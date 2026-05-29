@@ -472,7 +472,7 @@ video002.ts
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
-            elif url.endswith('.m4s') or 'init.mp4' in url:
+            elif url.endswith('.m4s'):
                 full_content = b'x' * 20000
                 range_header = headers_dict.get('Range', '')
                 if range_header:
@@ -489,6 +489,13 @@ video002.ts
                         'Content-Length': str(len(full_content)),
                         'Accept-Ranges': 'bytes'
                     }, url)
+            elif 'init.mp4' in url:
+                full_content = b'i' * 200
+                return mock_http_response(200, full_content, {
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Length': str(len(full_content)),
+                    'Accept-Ranges': 'bytes'
+                }, url)
             elif url.endswith('.ts'):
                 # Mock video segment - differentiate by filename to create continuous stream
                 # video000.ts starts with TS header, others are plain data

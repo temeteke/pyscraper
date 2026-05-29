@@ -142,50 +142,31 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @cached_property
     def web_files(self):
         mapping = self._local_name_map
-        return LazyList(
-            self.m3u8_obj.segments,
-            lambda x: WebFile(
-                x.absolute_uri,
-                headers=dict(self.headers),
-                cookies=dict(self.cookies),
-                directory=self.temp_directory,
-                filename=mapping[x.absolute_uri],
-            ),
-        )
-
-    @cached_property
-    def init_web_files(self):
-        mapping = self._local_name_map
-        seen = set()
-        inits = []
-        for init_section in list(self.m3u8_obj.segment_map):
-            uri = init_section.absolute_uri
-            if uri not in seen:
-                seen.add(uri)
-                inits.append(
+        files = []
+        last_init_uri = None
+        for segment in self.m3u8_obj.segments:
+            init = segment.init_section
+            if init and init.absolute_uri != last_init_uri:
+                files.append(
                     WebFile(
-                        uri,
+                        init.absolute_uri,
                         headers=dict(self.headers),
                         cookies=dict(self.cookies),
                         directory=self.temp_directory,
-                        filename=mapping[uri],
+                        filename=mapping[init.absolute_uri],
                     )
                 )
-        for segment in self.m3u8_obj.segments:
-            if segment.init_section:
-                uri = segment.init_section.absolute_uri
-                if uri not in seen:
-                    seen.add(uri)
-                    inits.append(
-                        WebFile(
-                            uri,
-                            headers=dict(self.headers),
-                            cookies=dict(self.cookies),
-                            directory=self.temp_directory,
-                            filename=mapping[uri],
-                        )
-                    )
-        return inits
+                last_init_uri = init.absolute_uri
+            files.append(
+                WebFile(
+                    segment.absolute_uri,
+                    headers=dict(self.headers),
+                    cookies=dict(self.cookies),
+                    directory=self.temp_directory,
+                    filename=mapping[segment.absolute_uri],
+                )
+            )
+        return files
 
     @property
     def temp_directory(self):
@@ -203,8 +184,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             'm3u8_content_url',
             'm3u8_content_filename',
             '_local_name_map',
-            'web_files',
-            'init_web_files'
+            'web_files'
         ]
         for prop_name in cached_properties:
             try:
@@ -279,9 +259,6 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         m3u8_file = self.temp_directory / Path(self.filestem + ".m3u8")
         with m3u8_file.open("w") as f:
             f.write(self.m3u8_content_filename)
-
-        for wf in self.init_web_files:
-            wf.download()
 
         total_files = len(self.web_files)
         current_file = 0
