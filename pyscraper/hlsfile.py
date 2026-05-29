@@ -281,6 +281,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             shutil.rmtree(temp_directory)
 
     def exists(self):
+        # NOTE: checks reachability of the first resource in playlist order.
+        # For fMP4 this is the EXT-X-MAP init section, not necessarily a segment.
+        # Not a complete validity check for all segments.
         try:
             return self.web_files[0].exists()
         except IndexError:

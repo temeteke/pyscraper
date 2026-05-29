@@ -437,9 +437,9 @@ class TestHlsFileCollideSeg:
     def test_read_order(self, hls_file_collide_seg):
         data = hls_file_collide_seg.read()
         assert data[:200] == b'i' * 200
-        seg_start = data.find(b'x')
-        assert seg_start == 200
-        assert b'xx' in data[200:]
+        assert data[200:20200] == b'x' * 20000
+        assert data[20200:20400] == b'i' * 200
+        assert data[20400:] == b'x' * 20000
 
 
 class TestHlsFileCollideInitQuery:
