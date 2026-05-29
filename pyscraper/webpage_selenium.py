@@ -7,7 +7,7 @@ from datetime import datetime
 from http.client import RemoteDisconnected
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import lxml.html
 import selenium.common.exceptions
@@ -106,9 +106,27 @@ class SeleniumWebPageElement(WebPageElement):
 
 
 class WebPageSelenium(WebPage, ABC):
-    def __init__(self, url, params: dict | None = None, encoding=None):
+    DEFAULT_URL = None
+
+    def __init__(
+        self,
+        url=None,
+        params: dict | None = None,
+        encoding=None,
+        cookies: dict | None = None,
+        cookies_file=None,
+        page_load_strategy=None,
+    ):
         self.driver = None
+        self.cookies = cookies or {}
+        self.cookies_file = cookies_file
+        self.page_load_strategy = page_load_strategy
+        if not url:
+            url = self.DEFAULT_URL
         super().__init__(url, params=params, encoding=encoding)
+
+    def _create_driver(self):
+        raise NotImplementedError
 
     def _ensure_open(self):
         if self.driver is None:
@@ -267,8 +285,9 @@ class WebPageSelenium(WebPage, ABC):
         return files
 
     def open(self):
-        logger.debug("Getting {}".format(self.request_url))
+        self.driver = self._create_driver()
 
+        logger.debug("Getting {}".format(self.request_url))
         try:
             self.driver.get(self.request_url)
             if self.request_cookies:
@@ -291,26 +310,31 @@ class WebPageSelenium(WebPage, ABC):
 
 
 class WebPageFirefox(WebPageSelenium):
+    DEFAULT_URL = "about:home"
+
     def __init__(
         self,
         url=None,
         params: dict | None = None,
+        encoding=None,
         cookies: dict | None = None,
         cookies_file=None,
-        profile=None,
         page_load_strategy=None,
+        profile=None,
         language=None,
     ):
-        if not url:
-            url = "about:home"
-        super().__init__(url, params=params)
-        self.cookies = cookies or {}
-        self.cookies_file = cookies_file
+        super().__init__(
+            url,
+            params=params,
+            encoding=encoding,
+            cookies=cookies,
+            cookies_file=cookies_file,
+            page_load_strategy=page_load_strategy,
+        )
         self.profile = profile
-        self.page_load_strategy = page_load_strategy
         self.language = language
 
-    def open(self):
+    def _create_driver(self):
         options = webdriver.FirefoxOptions()
 
         if self.page_load_strategy:
@@ -342,32 +366,39 @@ class WebPageFirefox(WebPageSelenium):
 
             self._configure_no_proxy_for_remote(url)
 
-            self.driver = webdriver.Remote(command_executor=url, options=options)
+            return webdriver.Remote(command_executor=url, options=options)
 
         else:
             options.headless = True
             if self.profile:
-                self.driver = webdriver.Firefox(
+                return webdriver.Firefox(
                     options=options, firefox_profile=webdriver.FirefoxProfile(self.profile)
                 )
-            else:
-                self.driver = webdriver.Firefox(options=options)
-
-        super().open()
+            return webdriver.Firefox(options=options)
 
 
 class WebPageChrome(WebPageSelenium):
-    def __init__(
-        self, url=None, params: dict | None = None, cookies: dict | None = None, cookies_file=None, page_load_strategy=None
-    ):
-        if not url:
-            url = "chrome://new-tab-page"
-        super().__init__(url, params=params)
-        self.cookies = cookies or {}
-        self.cookies_file = cookies_file
-        self.page_load_strategy = page_load_strategy
+    DEFAULT_URL = "chrome://new-tab-page"
 
-    def open(self):
+    def __init__(
+        self,
+        url=None,
+        params: dict | None = None,
+        encoding=None,
+        cookies: dict | None = None,
+        cookies_file=None,
+        page_load_strategy=None,
+    ):
+        super().__init__(
+            url,
+            params=params,
+            encoding=encoding,
+            cookies=cookies,
+            cookies_file=cookies_file,
+            page_load_strategy=page_load_strategy,
+        )
+
+    def _create_driver(self):
         options = webdriver.ChromeOptions()
         if self.page_load_strategy:
             options.page_load_strategy = self.page_load_strategy
@@ -379,11 +410,9 @@ class WebPageChrome(WebPageSelenium):
 
             self._configure_no_proxy_for_remote(url)
 
-            self.driver = webdriver.Remote(command_executor=url, options=options)
+            return webdriver.Remote(command_executor=url, options=options)
         else:
             options.headless = True
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
-            self.driver = webdriver.Chrome(options=options)
-
-        super().open()
+            return webdriver.Chrome(options=options)
