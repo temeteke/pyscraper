@@ -5,7 +5,7 @@ import pytest
 import requests
 
 from pyscraper.webfile import WebFile
-from pyscraper.hlsfile import HlsFile
+from pyscraper.hlsfile import HlsFile, _stable_local_name
 
 logger = logging.getLogger("pyscraper")
 logger.setLevel(logging.DEBUG)
@@ -23,6 +23,11 @@ def url():
 @pytest.fixture(scope="session")
 def url_absolute():
     return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_absolute_url.m3u8"
+
+
+@pytest.fixture(scope="session")
+def url_with_map():
+    return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_with_map.m3u8"
 
 
 @pytest.fixture(scope="session")
@@ -295,3 +300,74 @@ video002.ts
         wf2 = WebFile("https://a.com/seg1.ts", headers=dict(hls.headers), cookies=dict(hls.cookies))
         wf1.request_headers["X"] = "1"
         assert "X" not in wf2.request_headers
+
+    def test_no_map_in_segment_only_playlist(self, hls_file):
+        content = hls_file.m3u8_content_filename
+        assert "#EXT-X-MAP:" not in content
+        assert content.strip() == """
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:8
+#EXTINF:8.341667,
+video000.ts
+#EXTINF:8.341667,
+video001.ts
+#EXTINF:3.336667,
+video002.ts
+#EXT-X-ENDLIST
+""".strip()
+
+
+@pytest.mark.no_mock
+class TestStableLocalName:
+    def test_no_query_returns_basename(self):
+        assert _stable_local_name("https://example.com/init.mp4") == "init.mp4"
+
+    def test_query_different_uri_different_name(self):
+        a = _stable_local_name("https://example.com/init.mp4?token=abc")
+        b = _stable_local_name("https://example.com/init.mp4?token=xyz")
+        assert a != b
+
+    def test_query_name_format(self):
+        name = _stable_local_name("https://example.com/init.mp4?token=abc")
+        assert name.startswith("init_")
+        assert name.endswith(".mp4")
+        assert "?" not in name
+
+    def test_same_query_same_name(self):
+        a = _stable_local_name("https://example.com/init.mp4?token=abc")
+        b = _stable_local_name("https://example.com/init.mp4?token=abc")
+        assert a == b
+
+
+class TestHlsFileWithMap:
+    @pytest.fixture
+    def hls_file_with_map(self, url_with_map):
+        return HlsFile(url_with_map)
+
+    def test_m3u8_content_filename_has_map(self, hls_file_with_map):
+        content = hls_file_with_map.m3u8_content_filename
+        assert "#EXT-X-MAP:" in content
+        assert "init.mp4?token=abc" not in content
+        assert "#EXT-X-MAP:URI=\"init_" in content
+        assert "BYTERANGE" in content
+
+    def test_m3u8_content_filename_segments(self, hls_file_with_map):
+        content = hls_file_with_map.m3u8_content_filename
+        assert "seg0.m4s" in content
+        assert "seg1.m4s" in content
+        assert "#EXTINF:" in content
+        assert "seg0.m4s" in content
+
+    def test_init_web_files(self, hls_file_with_map):
+        inits = hls_file_with_map.init_web_files
+        assert len(inits) == 1
+        wf = inits[0]
+        assert "init_" in wf.filename
+        assert wf.filename.endswith(".mp4")
+
+    def test_download_with_map(self, hls_file_with_map):
+        f = hls_file_with_map.download()
+        assert f.exists()
+        hls_file_with_map.unlink()
+        assert not f.exists()

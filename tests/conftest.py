@@ -409,6 +409,21 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
             # Handle non-existent files (video_.m3u8 is intentionally missing)
             if 'video_.m3u8' in url:
                 return mock_http_response(404, b'Not Found', {'Content-Type': 'text/plain'}, url)
+            if 'video_with_map.m3u8' in url:
+                content = """#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:4
+#EXT-X-MAP:URI="init.mp4?token=abc",BYTERANGE="720@0"
+#EXTINF:4.0,
+seg0.m4s
+#EXTINF:4.0,
+seg1.m4s
+#EXT-X-ENDLIST
+""".encode()
+                return mock_http_response(200, content, {
+                    'Content-Type': 'application/vnd.apple.mpegurl',
+                    'Content-Length': str(len(content))
+                }, url)
             if url.endswith('.m3u8'):
                 content = """#EXTM3U
 #EXT-X-VERSION:3
@@ -425,6 +440,23 @@ video002.ts
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
+            elif url.endswith('.m4s') or 'init.mp4' in url:
+                full_content = b'x' * 20000
+                range_header = headers_dict.get('Range', '')
+                if range_header:
+                    range_val = range_header.replace('bytes=', '')
+                    if '-' in range_val:
+                        parts = range_val.split('-')
+                        start = int(parts[0]) if parts[0] else 0
+                        end = int(parts[1]) if parts[1] else len(full_content) - 1
+                        content = full_content[start:end+1]
+                        return mock_range_response(start, end, len(full_content), content)
+                else:
+                    return mock_http_response(200, full_content, {
+                        'Content-Type': 'application/octet-stream',
+                        'Content-Length': str(len(full_content)),
+                        'Accept-Ranges': 'bytes'
+                    }, url)
             elif url.endswith('.ts'):
                 # Mock video segment - differentiate by filename to create continuous stream
                 # video000.ts starts with TS header, others are plain data

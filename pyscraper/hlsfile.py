@@ -1,8 +1,11 @@
+import copy
+import hashlib
 import logging
+import os
 import shutil
 from functools import cached_property
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from fake_useragent import UserAgent
 
 import ffmpy
@@ -14,7 +17,15 @@ from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, W
 
 logger = logging.getLogger(__name__)
 
-user_agent = UserAgent(platforms="desktop")
+
+def _stable_local_name(uri, length=8):
+    parsed = urlparse(uri)
+    basename = parsed.path.split("/")[-1]
+    if parsed.query:
+        h = hashlib.sha256(uri.encode()).hexdigest()[:length]
+        stem, ext = os.path.splitext(basename)
+        return f"{stem}_{h}{ext}"
+    return basename
 
 
 class HlsFileError(Exception):
@@ -90,13 +101,16 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def m3u8_content_filename(self):
-        output_lines = []
-        for input_line in self.m3u8_content.split("\n"):
-            if input_line.startswith("#"):
-                output_lines.append(input_line)
-            elif input_line:
-                output_lines.append(get_filename_from_url(input_line))
-        return "\n".join(output_lines)
+        obj = copy.deepcopy(self.m3u8_obj)
+        for init_section in obj.segment_map:
+            init_section.uri = _stable_local_name(init_section.absolute_uri)
+        for segment in obj.segments:
+            if segment.init_section:
+                segment.init_section.uri = _stable_local_name(
+                    segment.init_section.absolute_uri
+                )
+            segment.uri = get_filename_from_url(segment.uri)
+        return obj.dumps()
 
     @cached_property
     def web_files(self):
@@ -110,6 +124,29 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 filename=get_filename_from_url(x.absolute_uri),
             ),
         )
+
+    @cached_property
+    def init_web_files(self):
+        seen = set()
+        inits = []
+        all_init_sections = list(self.m3u8_obj.segment_map)
+        for segment in self.m3u8_obj.segments:
+            if segment.init_section:
+                all_init_sections.append(segment.init_section)
+        for init_section in all_init_sections:
+            uri = init_section.absolute_uri
+            if uri not in seen:
+                seen.add(uri)
+                inits.append(
+                    WebFile(
+                        uri,
+                        headers=dict(self.headers),
+                        cookies=dict(self.cookies),
+                        directory=self.temp_directory,
+                        filename=_stable_local_name(uri),
+                    )
+                )
+        return inits
 
     @property
     def temp_directory(self):
@@ -126,7 +163,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             'm3u8_content',
             'm3u8_content_url',
             'm3u8_content_filename',
-            'web_files'
+            'web_files',
+            'init_web_files'
         ]
         for prop_name in cached_properties:
             try:
@@ -201,6 +239,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         m3u8_file = self.temp_directory / Path(self.filestem + ".m3u8")
         with m3u8_file.open("w") as f:
             f.write(self.m3u8_content_filename)
+
+        for wf in self.init_web_files:
+            wf.download()
 
         total_files = len(self.web_files)
         current_file = 0
