@@ -424,6 +424,38 @@ seg1.m4s
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
+            if 'video_collide_seg.m3u8' in url:
+                content = """#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:4
+#EXT-X-MAP:URI="a/init.mp4"
+#EXTINF:4.0,
+a/seg.ts
+#EXT-X-MAP:URI="b/init.mp4"
+#EXTINF:4.0,
+b/seg.ts
+#EXT-X-ENDLIST
+""".encode()
+                return mock_http_response(200, content, {
+                    'Content-Type': 'application/vnd.apple.mpegurl',
+                    'Content-Length': str(len(content))
+                }, url)
+            if 'video_collide_init_query.m3u8' in url:
+                content = """#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:4
+#EXT-X-MAP:URI="init.mp4?token=a"
+#EXTINF:4.0,
+seg0.m4s
+#EXT-X-MAP:URI="init.mp4?token=b"
+#EXTINF:4.0,
+seg1.m4s
+#EXT-X-ENDLIST
+""".encode()
+                return mock_http_response(200, content, {
+                    'Content-Type': 'application/vnd.apple.mpegurl',
+                    'Content-Length': str(len(content))
+                }, url)
             if url.endswith('.m3u8'):
                 content = """#EXTM3U
 #EXT-X-VERSION:3

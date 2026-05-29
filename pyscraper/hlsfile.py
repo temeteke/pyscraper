@@ -100,20 +100,48 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return "\n".join(output_lines)
 
     @cached_property
+    def _local_name_map(self):
+        all_uris = []
+        for segment in self.m3u8_obj.segments:
+            all_uris.append(segment.absolute_uri)
+            if segment.init_section:
+                all_uris.append(segment.init_section.absolute_uri)
+        for init_section in self.m3u8_obj.segment_map:
+            all_uris.append(init_section.absolute_uri)
+
+        basename_groups = {}
+        for uri in all_uris:
+            basename = get_filename_from_url(uri)
+            if basename not in basename_groups:
+                basename_groups[basename] = []
+            basename_groups[basename].append(uri)
+
+        name_map = {}
+        for basename, uris in basename_groups.items():
+            if len(uris) == 1:
+                name_map[uris[0]] = basename
+            else:
+                stem, ext = os.path.splitext(basename)
+                for uri in uris:
+                    h = hashlib.sha256(uri.encode()).hexdigest()[:8]
+                    name_map[uri] = f"{stem}_{h}{ext}"
+        return name_map
+
+    @cached_property
     def m3u8_content_filename(self):
+        mapping = self._local_name_map
         obj = copy.deepcopy(self.m3u8_obj)
         for init_section in obj.segment_map:
-            init_section.uri = _stable_local_name(init_section.absolute_uri)
+            init_section.uri = mapping[init_section.absolute_uri]
         for segment in obj.segments:
             if segment.init_section:
-                segment.init_section.uri = _stable_local_name(
-                    segment.init_section.absolute_uri
-                )
-            segment.uri = get_filename_from_url(segment.uri)
+                segment.init_section.uri = mapping[segment.init_section.absolute_uri]
+            segment.uri = mapping[segment.absolute_uri]
         return obj.dumps()
 
     @cached_property
     def web_files(self):
+        mapping = self._local_name_map
         return LazyList(
             self.m3u8_obj.segments,
             lambda x: WebFile(
@@ -121,19 +149,16 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 headers=dict(self.headers),
                 cookies=dict(self.cookies),
                 directory=self.temp_directory,
-                filename=get_filename_from_url(x.absolute_uri),
+                filename=mapping[x.absolute_uri],
             ),
         )
 
     @cached_property
     def init_web_files(self):
+        mapping = self._local_name_map
         seen = set()
         inits = []
-        all_init_sections = list(self.m3u8_obj.segment_map)
-        for segment in self.m3u8_obj.segments:
-            if segment.init_section:
-                all_init_sections.append(segment.init_section)
-        for init_section in all_init_sections:
+        for init_section in list(self.m3u8_obj.segment_map):
             uri = init_section.absolute_uri
             if uri not in seen:
                 seen.add(uri)
@@ -143,9 +168,23 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                         headers=dict(self.headers),
                         cookies=dict(self.cookies),
                         directory=self.temp_directory,
-                        filename=_stable_local_name(uri),
+                        filename=mapping[uri],
                     )
                 )
+        for segment in self.m3u8_obj.segments:
+            if segment.init_section:
+                uri = segment.init_section.absolute_uri
+                if uri not in seen:
+                    seen.add(uri)
+                    inits.append(
+                        WebFile(
+                            uri,
+                            headers=dict(self.headers),
+                            cookies=dict(self.cookies),
+                            directory=self.temp_directory,
+                            filename=mapping[uri],
+                        )
+                    )
         return inits
 
     @property
@@ -163,6 +202,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             'm3u8_content',
             'm3u8_content_url',
             'm3u8_content_filename',
+            '_local_name_map',
             'web_files',
             'init_web_files'
         ]

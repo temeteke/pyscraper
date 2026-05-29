@@ -31,6 +31,16 @@ def url_with_map():
 
 
 @pytest.fixture(scope="session")
+def url_collide_seg():
+    return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_collide_seg.m3u8"
+
+
+@pytest.fixture(scope="session")
+def url_collide_init_query():
+    return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_collide_init_query.m3u8"
+
+
+@pytest.fixture(scope="session")
 def url_error():
     return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_.m3u8"
 
@@ -241,6 +251,7 @@ video002.ts
         _ = hls_file.m3u8_content
         _ = hls_file.m3u8_content_url
         _ = hls_file.m3u8_content_filename
+        _ = hls_file._local_name_map
         _ = hls_file.web_files
 
         # Verify properties are cached (accessing __dict__ directly)
@@ -248,6 +259,7 @@ video002.ts
         assert "m3u8_content" in hls_file.__dict__
         assert "m3u8_content_url" in hls_file.__dict__
         assert "m3u8_content_filename" in hls_file.__dict__
+        assert "_local_name_map" in hls_file.__dict__
         assert "web_files" in hls_file.__dict__
 
         # Clear cache
@@ -258,6 +270,7 @@ video002.ts
         assert "m3u8_content" not in hls_file.__dict__
         assert "m3u8_content_url" not in hls_file.__dict__
         assert "m3u8_content_filename" not in hls_file.__dict__
+        assert "_local_name_map" not in hls_file.__dict__
         assert "web_files" not in hls_file.__dict__
 
     def test_url_change_clears_cache(self, hls_file, url_error):
@@ -370,4 +383,102 @@ class TestHlsFileWithMap:
         f = hls_file_with_map.download()
         assert f.exists()
         hls_file_with_map.unlink()
+        assert not f.exists()
+
+
+class TestHlsFileCollideSeg:
+    @pytest.fixture
+    def hls_file_collide_seg(self, url_collide_seg):
+        return HlsFile(url_collide_seg)
+
+    def test_local_name_map_uses_hash(self, hls_file_collide_seg):
+        mapping = hls_file_collide_seg._local_name_map
+        uris = list(mapping.keys())
+        assert len(uris) == 4
+        names = list(mapping.values())
+        for name in names:
+            assert "_" in name
+
+    def test_seg_filenames_differ(self, hls_file_collide_seg):
+        mapping = hls_file_collide_seg._local_name_map
+        seg_uris = [
+            s.absolute_uri for s in hls_file_collide_seg.m3u8_obj.segments
+        ]
+        f0, f1 = (mapping[u] for u in seg_uris)
+        assert f0 != f1
+        assert f0.endswith(".ts")
+        assert f1.endswith(".ts")
+        assert f0 != "seg.ts"
+        assert f1 != "seg.ts"
+
+    def test_init_filenames_differ(self, hls_file_collide_seg):
+        mapping = hls_file_collide_seg._local_name_map
+        init_uris = [
+            s.init_section.absolute_uri
+            for s in hls_file_collide_seg.m3u8_obj.segments
+        ]
+        f0, f1 = (mapping[u] for u in init_uris)
+        assert f0 != f1
+        assert f0.endswith(".mp4")
+        assert f1.endswith(".mp4")
+        assert f0 != "init.mp4"
+        assert f1 != "init.mp4"
+
+    def test_m3u8_content_filename_no_original(self, hls_file_collide_seg):
+        content = hls_file_collide_seg.m3u8_content_filename
+        assert "a/init.mp4" not in content
+        assert "b/init.mp4" not in content
+        assert "a/seg.ts" not in content
+        assert "b/seg.ts" not in content
+
+    def test_web_files_filenames_differ(self, hls_file_collide_seg):
+        filenames = [wf.filename for wf in hls_file_collide_seg.web_files]
+        assert len(filenames) == len(set(filenames))
+
+    def test_init_web_files_count(self, hls_file_collide_seg):
+        inits = hls_file_collide_seg.init_web_files
+        assert len(inits) == 2
+        filenames = [wf.filename for wf in inits]
+        assert len(filenames) == len(set(filenames))
+
+    def test_download(self, hls_file_collide_seg):
+        f = hls_file_collide_seg.download()
+        assert f.exists()
+        hls_file_collide_seg.unlink()
+        assert not f.exists()
+
+
+class TestHlsFileCollideInitQuery:
+    @pytest.fixture
+    def hls_file_collide_query(self, url_collide_init_query):
+        return HlsFile(url_collide_init_query)
+
+    def test_local_name_map_size(self, hls_file_collide_query):
+        mapping = hls_file_collide_query._local_name_map
+        assert len(mapping) == 4
+
+    def test_init_filenames_differ(self, hls_file_collide_query):
+        mapping = hls_file_collide_query._local_name_map
+        init_uris = [
+            s.init_section.absolute_uri
+            for s in hls_file_collide_query.m3u8_obj.segments
+        ]
+        f0, f1 = (mapping[u] for u in init_uris)
+        assert f0 != f1
+
+    def test_init_web_files_count(self, hls_file_collide_query):
+        inits = hls_file_collide_query.init_web_files
+        assert len(inits) == 2
+        filenames = [wf.filename for wf in inits]
+        assert len(filenames) == len(set(filenames))
+
+    def test_m3u8_content_filename_uses_local(self, hls_file_collide_query):
+        content = hls_file_collide_query.m3u8_content_filename
+        assert "init.mp4?token=a" not in content
+        assert "init.mp4?token=b" not in content
+
+    def test_download(self, hls_file_collide_query):
+        f = hls_file_collide_query.download()
+        assert f.exists()
+        hls_file_collide_query.unlink()
         assert not f.exists()
