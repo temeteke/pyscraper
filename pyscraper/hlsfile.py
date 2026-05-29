@@ -91,20 +91,24 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def _local_name_map(self):
-        all_uris = []
+        seen = set()
+        ordered_uris = []
         for segment in self.m3u8_obj.segments:
-            all_uris.append(segment.absolute_uri)
-            if segment.init_section:
-                all_uris.append(segment.init_section.absolute_uri)
+            if segment.absolute_uri not in seen:
+                seen.add(segment.absolute_uri)
+                ordered_uris.append(segment.absolute_uri)
+            if segment.init_section and segment.init_section.absolute_uri not in seen:
+                seen.add(segment.init_section.absolute_uri)
+                ordered_uris.append(segment.init_section.absolute_uri)
         for init_section in self.m3u8_obj.segment_map:
-            all_uris.append(init_section.absolute_uri)
+            if init_section.absolute_uri not in seen:
+                seen.add(init_section.absolute_uri)
+                ordered_uris.append(init_section.absolute_uri)
 
         basename_groups = {}
-        for uri in all_uris:
+        for uri in ordered_uris:
             basename = get_filename_from_url(uri)
-            if basename not in basename_groups:
-                basename_groups[basename] = []
-            basename_groups[basename].append(uri)
+            basename_groups.setdefault(basename, []).append(uri)
 
         name_map = {}
         for basename, uris in basename_groups.items():
@@ -216,7 +220,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         progress_callback=None,
     ):
         """
-        Download all segments and merge into a single file.
+        Download all playlist resources (init segments, media segments) and merge into a single file.
+
+        Resources are processed in playlist order. For fMP4 playlists, EXT-X-MAP init
+        sections are downloaded before the segments that reference them.
 
         Args:
             directory (str or Path, optional): Output directory.
@@ -225,10 +232,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             filesuffix (str, optional): Output file suffix.
             progress_callback (callable, optional):
                 Callback function to notify download progress.
-                Called as progress_callback(current_file_count, total_file_count)
+                Called as progress_callback(current_resource_count, total_resource_count)
                 where:
-                    current_file_count (int): Number of files downloaded so far.
-                    total_file_count (int): Total number of files to download.
+                    current_resource_count (int): Number of resources downloaded so far.
+                    total_resource_count (int): Total number of resources to download.
         """
         self.directory = directory
         self.filename = filename
