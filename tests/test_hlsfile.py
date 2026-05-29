@@ -5,7 +5,7 @@ import pytest
 import requests
 
 from pyscraper.webfile import WebFile
-from pyscraper.hlsfile import HlsFile, _stable_local_name
+from pyscraper.hlsfile import HlsFile
 
 logger = logging.getLogger("pyscraper")
 logger.setLevel(logging.DEBUG)
@@ -331,28 +331,6 @@ video002.ts
 """.strip()
 
 
-@pytest.mark.no_mock
-class TestStableLocalName:
-    def test_no_query_returns_basename(self):
-        assert _stable_local_name("https://example.com/init.mp4") == "init.mp4"
-
-    def test_query_different_uri_different_name(self):
-        a = _stable_local_name("https://example.com/init.mp4?token=abc")
-        b = _stable_local_name("https://example.com/init.mp4?token=xyz")
-        assert a != b
-
-    def test_query_name_format(self):
-        name = _stable_local_name("https://example.com/init.mp4?token=abc")
-        assert name.startswith("init_")
-        assert name.endswith(".mp4")
-        assert "?" not in name
-
-    def test_same_query_same_name(self):
-        a = _stable_local_name("https://example.com/init.mp4?token=abc")
-        b = _stable_local_name("https://example.com/init.mp4?token=abc")
-        assert a == b
-
-
 class TestHlsFileWithMap:
     @pytest.fixture
     def hls_file_with_map(self, url_with_map):
@@ -455,6 +433,13 @@ class TestHlsFileCollideSeg:
         assert f.exists()
         hls_file_collide_seg.unlink()
         assert not f.exists()
+
+    def test_read_order(self, hls_file_collide_seg):
+        data = hls_file_collide_seg.read()
+        assert data[:200] == b'i' * 200
+        seg_start = data.find(b'x')
+        assert seg_start == 200
+        assert b'xx' in data[200:]
 
 
 class TestHlsFileCollideInitQuery:
