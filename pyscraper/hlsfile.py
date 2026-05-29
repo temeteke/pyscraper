@@ -90,7 +90,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return "\n".join(output_lines)
 
     @cached_property
-    def _local_name_map(self):
+    def _uri_to_local_name(self):
         seen = set()
         ordered_uris = []
         for segment in self.m3u8_obj.segments:
@@ -123,7 +123,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def m3u8_content_filename(self):
-        mapping = self._local_name_map
+        mapping = self._uri_to_local_name
         obj = copy.deepcopy(self.m3u8_obj)
         for init_section in obj.segment_map:
             init_section.uri = mapping[init_section.absolute_uri]
@@ -135,7 +135,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @cached_property
     def web_files(self):
-        mapping = self._local_name_map
+        mapping = self._uri_to_local_name
         files = []
         last_init_uri = None
         for segment in self.m3u8_obj.segments:
@@ -177,7 +177,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             'm3u8_content',
             'm3u8_content_url',
             'm3u8_content_filename',
-            '_local_name_map',
+            '_uri_to_local_name',
             'web_files'
         ]
         for prop_name in cached_properties:
@@ -187,6 +187,18 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 pass
 
     def read(self, size=None):
+        """
+        Read the concatenated content of all playlist resources in order.
+
+        For fMP4 playlists, EXT-X-MAP init sections are included before the
+        segments that reference them, producing a logically complete byte stream.
+
+        Args:
+            size (int, optional): Number of bytes to read. If None, read all.
+
+        Returns:
+            bytes: Concatenated content of all playlist resources.
+        """
         total_chunk = b""
         web_file_position = self.position
         for web_file in self.web_files:
@@ -207,6 +219,15 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return total_chunk
 
     def read_files(self):
+        """
+        Yield the full content of each playlist resource in order.
+
+        For fMP4 playlists, EXT-X-MAP init sections are yielded before the
+        segments that reference them.
+
+        Yields:
+            bytes: Full content of each playlist resource.
+        """
         for web_file in self.web_files:
             with web_file as wf:
                 yield wf.read()

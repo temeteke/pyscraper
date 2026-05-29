@@ -251,7 +251,7 @@ video002.ts
         _ = hls_file.m3u8_content
         _ = hls_file.m3u8_content_url
         _ = hls_file.m3u8_content_filename
-        _ = hls_file._local_name_map
+        _ = hls_file._uri_to_local_name
         _ = hls_file.web_files
 
         # Verify properties are cached (accessing __dict__ directly)
@@ -259,7 +259,7 @@ video002.ts
         assert "m3u8_content" in hls_file.__dict__
         assert "m3u8_content_url" in hls_file.__dict__
         assert "m3u8_content_filename" in hls_file.__dict__
-        assert "_local_name_map" in hls_file.__dict__
+        assert "_uri_to_local_name" in hls_file.__dict__
         assert "web_files" in hls_file.__dict__
 
         # Clear cache
@@ -270,7 +270,7 @@ video002.ts
         assert "m3u8_content" not in hls_file.__dict__
         assert "m3u8_content_url" not in hls_file.__dict__
         assert "m3u8_content_filename" not in hls_file.__dict__
-        assert "_local_name_map" not in hls_file.__dict__
+        assert "_uri_to_local_name" not in hls_file.__dict__
         assert "web_files" not in hls_file.__dict__
 
     def test_url_change_clears_cache(self, hls_file, url_error):
@@ -340,7 +340,7 @@ class TestHlsFileWithMap:
         content = hls_file_with_map.m3u8_content_filename
         assert "#EXT-X-MAP:" in content
         assert "init.mp4?token=abc" not in content
-        assert "#EXT-X-MAP:URI=\"init_" in content
+        assert "#EXT-X-MAP:URI=\"init.mp4\"" in content
         assert "BYTERANGE" in content
 
     def test_m3u8_content_filename_segments(self, hls_file_with_map):
@@ -353,7 +353,7 @@ class TestHlsFileWithMap:
     def test_web_files_order(self, hls_file_with_map):
         files = hls_file_with_map.web_files
         assert len(files) == 3
-        assert "init_" in files[0].filename
+        assert files[0].filename == "init.mp4"
         assert files[0].filename.endswith(".mp4")
         assert files[1].filename == "seg0.m4s"
         assert files[2].filename == "seg1.m4s"
@@ -375,8 +375,8 @@ class TestHlsFileCollideSeg:
     def hls_file_collide_seg(self, url_collide_seg):
         return HlsFile(url_collide_seg)
 
-    def test_local_name_map_uses_hash(self, hls_file_collide_seg):
-        mapping = hls_file_collide_seg._local_name_map
+    def test_uri_to_local_name_uses_hash(self, hls_file_collide_seg):
+        mapping = hls_file_collide_seg._uri_to_local_name
         uris = list(mapping.keys())
         assert len(uris) == 4
         names = list(mapping.values())
@@ -384,7 +384,7 @@ class TestHlsFileCollideSeg:
             assert "_" in name
 
     def test_seg_filenames_differ(self, hls_file_collide_seg):
-        mapping = hls_file_collide_seg._local_name_map
+        mapping = hls_file_collide_seg._uri_to_local_name
         seg_uris = [
             s.absolute_uri for s in hls_file_collide_seg.m3u8_obj.segments
         ]
@@ -396,7 +396,7 @@ class TestHlsFileCollideSeg:
         assert f1 != "seg.ts"
 
     def test_init_filenames_differ(self, hls_file_collide_seg):
-        mapping = hls_file_collide_seg._local_name_map
+        mapping = hls_file_collide_seg._uri_to_local_name
         init_uris = [
             s.init_section.absolute_uri
             for s in hls_file_collide_seg.m3u8_obj.segments
@@ -447,12 +447,12 @@ class TestHlsFileCollideInitQuery:
     def hls_file_collide_query(self, url_collide_init_query):
         return HlsFile(url_collide_init_query)
 
-    def test_local_name_map_size(self, hls_file_collide_query):
-        mapping = hls_file_collide_query._local_name_map
+    def test_uri_to_local_name_size(self, hls_file_collide_query):
+        mapping = hls_file_collide_query._uri_to_local_name
         assert len(mapping) == 4
 
     def test_init_filenames_differ(self, hls_file_collide_query):
-        mapping = hls_file_collide_query._local_name_map
+        mapping = hls_file_collide_query._uri_to_local_name
         init_uris = [
             s.init_section.absolute_uri
             for s in hls_file_collide_query.m3u8_obj.segments
