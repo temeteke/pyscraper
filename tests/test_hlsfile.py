@@ -239,6 +239,29 @@ video002.ts
 
         hls_file.unlink()
 
+    def test_download_uses_allowed_extensions_all(self, url, tmp_path, mocker):
+        from pyscraper.hlsfile import HlsFile
+
+        hls = HlsFile(url)
+        calls = []
+
+        class CaptureFFmpeg:
+            def __init__(self, inputs=None, outputs=None, global_options=None, executable="ffmpeg"):
+                calls.append((inputs, outputs, global_options, executable))
+                self.outputs = outputs or {}
+
+            def run(self, *args, **kwargs):
+                out_file = list(self.outputs.keys())[0] if self.outputs else None
+                if out_file:
+                    Path(out_file).write_bytes(b"mock")
+
+        mocker.patch("pyscraper.hlsfile.ffmpy.FFmpeg", CaptureFFmpeg)
+        hls.download(directory=tmp_path)
+        assert calls
+        inputs, _, _, _ = calls[0]
+        m3u8_key = str(tmp_path / "video" / "video.m3u8")
+        assert "-allowed_extensions ALL" in str(inputs.get(m3u8_key))
+
     def test_session(self):
         session = requests.Session()
         session.headers["test"] = "test"

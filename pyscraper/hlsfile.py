@@ -292,7 +292,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 if progress_callback:
                     progress_callback(current_file, total_files)
 
-        ff = ffmpy.FFmpeg(inputs={str(m3u8_file): None}, outputs={str(self.temp_file): "-c copy"})
+        ff = ffmpy.FFmpeg(inputs={str(m3u8_file): "-allowed_extensions ALL"}, outputs={str(self.temp_file): "-c copy"})
         ff.run()
 
         self.temp_file.rename(self.filepath)
