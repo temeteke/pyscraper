@@ -260,7 +260,9 @@ video002.ts
         assert calls
         inputs, _, _, _ = calls[0]
         m3u8_key = str(tmp_path / "video" / "video.m3u8")
-        assert "-allowed_extensions ALL" in str(inputs.get(m3u8_key))
+        input_opts = str(inputs.get(m3u8_key))
+        assert "-allowed_extensions ALL" in input_opts
+        assert "-extension_picky 0" in input_opts
 
     def test_session(self):
         session = requests.Session()
