@@ -16,7 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
@@ -30,15 +32,17 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
-        with:
-          images: temeteke/pyscraper
-          flavor: |
-            latest=true
-            prefix=
-            suffix=
+      - name: Compute version
+        id: version
+        run: |
+          TAG="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo '0.0')"
+          MAJOR_MINOR="$(echo "$TAG" | grep -oE '^[0-9]+\.[0-9]+' || true)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
+
+      - name: Compute date
+        id: date
+        run: echo "date=$(date +%Y%m%d)" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
@@ -47,20 +51,16 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            temeteke/pyscraper:latest
+            temeteke/pyscraper:${{ steps.version.outputs.tag }}
+            temeteke/pyscraper:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
+            temeteke/pyscraper:${{ steps.version.outputs.major_minor }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+            org.opencontainers.image.created=${{ steps.date.outputs.date }}
           build-args: |
-            VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
-
-      - name: Extract metadata (tags, labels) for Docker standalone
-        id: meta_standalone
-        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
-        with:
-          images: temeteke/pyscraper-standalone
-          flavor: |
-            latest=true
-            prefix=
-            suffix=
+            VERSION=${{ steps.version.outputs.tag }}
 
       - name: Build and push Docker image standalone
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
@@ -69,7 +69,13 @@ jobs:
           file: ./Dockerfile.standalone
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta_standalone.outputs.tags }}
-          labels: ${{ steps.meta_standalone.outputs.labels }}
+          tags: |
+            temeteke/pyscraper-standalone:latest
+            temeteke/pyscraper-standalone:${{ steps.version.outputs.tag }}
+            temeteke/pyscraper-standalone:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
+            temeteke/pyscraper-standalone:${{ steps.version.outputs.major_minor }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+            org.opencontainers.image.created=${{ steps.date.outputs.date }}
           build-args: |
-            VERSION=${{ fromJSON(steps.meta_standalone.outputs.json).labels['org.opencontainers.image.version'] }}
+            VERSION=${{ steps.version.outputs.tag }}

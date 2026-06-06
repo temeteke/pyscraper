@@ -7,10 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir lxml
 
 ARG VERSION=0.0
-ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYSCRAPER=${VERSION}
 
 WORKDIR /app
 COPY pyproject.toml setup.py setup.cfg ./
 COPY pyscraper pyscraper/
-RUN pip install --no-cache-dir . && \
+RUN VERSION_CLEAN="$(echo "$VERSION" | sed 's/^v//' | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' || echo '0.0')" && \
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYSCRAPER="$VERSION_CLEAN" \
+    pip install --no-cache-dir . && \
     rm -r *
