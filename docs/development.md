@@ -100,13 +100,12 @@ Not written to files; obtained at runtime via `pyscraper.__version__`.
 ### Release Procedure
 
 ```bash
-# Create tag at push time
-git tag v1.1.0
-git push origin v1.1.0
+# Create a GitHub Release (creates tag + release notes + triggers Docker build)
+# gh CLI is pre-installed on GitHub Actions runners and in the devcontainer
+gh release create v1.1.0 --generate-notes
 
-# If forgotten, tags can be added later
-git tag v1.1.0 <commit-hash>
-git push origin v1.1.0
+# For hotfixes targeting a specific commit:
+gh release create v1.1.0 --generate-notes --target <commit-hash>
 ```
 
 ---

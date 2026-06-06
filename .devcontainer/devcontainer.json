@@ -50,7 +50,8 @@
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
 			"moby": false
 		},
-		"ghcr.io/devcontainers-extra/features/ffmpeg-apt-get:1": {}
+		"ghcr.io/devcontainers-extra/features/ffmpeg-apt-get:1": {},
+		"ghcr.io/devcontainers/features/github-cli:1": {}
 	},
 
 	"name": "pyscraper"
