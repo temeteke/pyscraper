@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - 'v*'
   schedule:
     - cron: '55 13 * * tue'
   workflow_dispatch:
@@ -47,6 +49,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
 
       - name: Extract metadata (tags, labels) for Docker standalone
         id: meta_standalone
@@ -67,3 +71,5 @@ jobs:
           push: true
           tags: ${{ steps.meta_standalone.outputs.tags }}
           labels: ${{ steps.meta_standalone.outputs.labels }}
+          build-args: |
+            VERSION=${{ fromJSON(steps.meta_standalone.outputs.json).labels['org.opencontainers.image.version'] }}

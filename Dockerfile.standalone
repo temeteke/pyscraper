@@ -19,8 +19,11 @@ RUN pip install --no-cache-dir playwright && \
     playwright install --with-deps chromium && \
     playwright install --with-deps firefox
 
+ARG VERSION=0.0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYSCRAPER=${VERSION}
+
 WORKDIR /app
-COPY setup.py setup.cfg ./
+COPY pyproject.toml setup.py setup.cfg ./
 COPY pyscraper pyscraper/
 RUN pip install --no-cache-dir . && \
     rm -r *
