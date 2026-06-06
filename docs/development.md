@@ -66,6 +66,51 @@ pyscraper/
 
 ---
 
+## Versioning
+
+### Version Scheme
+
+Follows SemVer (major.minor.patch).
+
+| Bump | Criteria |
+|------|----------|
+| major | Incompatible API changes |
+| minor | Backward-compatible feature additions |
+| patch | Backward-compatible bug fixes |
+
+### Tag Format
+
+```
+v<major>.<minor>.<patch>
+```
+
+Examples: `v1.0.0`, `v1.1.0`, `v2.0.0`
+
+### Version Resolution
+
+Resolved automatically by setuptools-scm from Git tags.
+Not written to files; obtained at runtime via `pyscraper.__version__`.
+
+| Git state | `__version__` | Description |
+|-----------|:------------:|-------------|
+| Matches `v1.0.0` | `1.0.0+gfdf2f3ecd` | Release (exact tag) |
+| N commits after `v1.0.0` | `1.0.0+gfdf2f3ecd` | Keeps the tag version regardless of distance |
+| No tag | `0.0+gfdf2f3ecd` | Pre-release development |
+
+### Release Procedure
+
+```bash
+# Create tag at push time
+git tag v1.1.0
+git push origin v1.1.0
+
+# If forgotten, tags can be added later
+git tag v1.1.0 <commit-hash>
+git push origin v1.1.0
+```
+
+---
+
 ## Test-Driven Development
 
 ### Development Flow

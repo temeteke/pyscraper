@@ -23,6 +23,13 @@ from .webpage_playwright import (
 )
 from .webpage_selenium import WebPageChrome, WebPageFirefox
 
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("pyscraper")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
 __all__ = [
     "WebPageRequests",
     "WebPageFirefox",
@@ -44,4 +51,5 @@ __all__ = [
     "HlsFile",
     "HlsFileError",
     "HEADERS",
+    "__version__",
 ]

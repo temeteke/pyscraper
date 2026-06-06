@@ -1,3 +1,10 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+version_scheme = "only-version"
+
 [tool.ruff]
 line-length = 99
 
