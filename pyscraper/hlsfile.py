@@ -5,7 +5,7 @@ import os
 import shutil
 from functools import cached_property
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, urlunparse
 from fake_useragent import UserAgent
 
 import ffmpy
@@ -49,6 +49,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         self.filename = filename
         self.filestem = filestem
         self.filesuffix = filesuffix
+        self._base_query_string = ''
 
     @property
     def url(self):
@@ -63,13 +64,21 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def m3u8_obj(self):
         def get_best_playlist(url):
             with WebFile(url, session=self.session) as wf:
-                m3u8_obj = m3u8.loads(wf.read().decode(), uri=url)
+                content = wf.read().decode()
+                base_uri = wf.response.url
+                self._base_query_string = urlparse(base_uri).query
+                m3u8_obj = m3u8.loads(content, uri=base_uri)
             if m3u8_obj.playlists:
-                return get_best_playlist(
-                    sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[
-                        -1
-                    ].absolute_uri
-                )
+                best = sorted(
+                    m3u8_obj.playlists,
+                    key=lambda x: x.stream_info.bandwidth
+                )[-1]
+                variant_url = best.absolute_uri
+                if self._base_query_string:
+                    parsed = urlparse(variant_url)
+                    if not parsed.query:
+                        variant_url = urlunparse(parsed._replace(query=self._base_query_string))
+                return get_best_playlist(variant_url)
             else:
                 return m3u8_obj
 
@@ -138,12 +147,18 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         mapping = self._uri_to_local_name
         files = []
         last_init_uri = None
+        base_qs = getattr(self, '_base_query_string', '')
         for segment in self.m3u8_obj.segments:
             init = segment.init_section
             if init and init.absolute_uri != last_init_uri:
+                init_url = init.absolute_uri
+                if base_qs:
+                    parsed = urlparse(init_url)
+                    if not parsed.query:
+                        init_url = urlunparse(parsed._replace(query=base_qs))
                 files.append(
                     WebFile(
-                        init.absolute_uri,
+                        init_url,
                         headers=dict(self.headers),
                         cookies=dict(self.cookies),
                         directory=self.temp_directory,
@@ -151,9 +166,14 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                     )
                 )
                 last_init_uri = init.absolute_uri
+            seg_url = segment.absolute_uri
+            if base_qs:
+                parsed = urlparse(seg_url)
+                if not parsed.query:
+                    seg_url = urlunparse(parsed._replace(query=base_qs))
             files.append(
                 WebFile(
-                    segment.absolute_uri,
+                    seg_url,
                     headers=dict(self.headers),
                     cookies=dict(self.cookies),
                     directory=self.temp_directory,
@@ -185,6 +205,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 delattr(self, prop_name)
             except AttributeError:
                 pass
+        self._base_query_string = ''
 
     def read(self, size=None):
         """

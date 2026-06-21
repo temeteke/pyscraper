@@ -285,6 +285,8 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
         return
 
     def mock_get(session_instance, url, **kwargs):
+        # Strip query string for URL pattern matching
+        base_url = url.split('?')[0]
         # Get headers from kwargs and merge with session headers
         headers_dict = kwargs.get('headers', {}) or {}
         if hasattr(session_instance, 'headers'):
@@ -293,9 +295,9 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
             headers_dict = {**session_headers, **headers_dict}
 
         # Mock httpbin.org/range/* requests
-        if 'httpbin.org/range/' in url:
+        if 'httpbin.org/range/' in base_url:
             # Extract size from URL
-            size = int(url.split('/range/')[-1])
+            size = int(base_url.split('/range/')[-1])
             content = b'x' * size
 
             # Check if Range header is present
@@ -318,8 +320,8 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
                 }, url)
 
         # Mock httpbin.org/bytes/* requests (without Range support)
-        elif 'httpbin.org/bytes/' in url:
-            size = int(url.split('/bytes/')[-1])
+        elif 'httpbin.org/bytes/' in base_url:
+            size = int(base_url.split('/bytes/')[-1])
             content = b'x' * size
 
             # Check if Range header is present - should fail
@@ -370,8 +372,8 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
             return mock_http_response(200, content, {'Content-Type': 'application/json'}, url)
 
         # Mock httpbin.org/status/*
-        elif 'httpbin.org/status/' in url:
-            status = int(url.split('/status/')[-1])
+        elif 'httpbin.org/status/' in base_url:
+            status = int(base_url.split('/status/')[-1])
             return mock_http_response(status, b'', {}, url)
 
         # Mock httpbin.org/image/jpeg
@@ -407,9 +409,9 @@ def mock_external_http(request, mocker, mock_http_response, mock_range_response,
         # Mock GitHub raw content for HLS tests
         elif 'raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/' in url:
             # Handle non-existent files (video_.m3u8 is intentionally missing)
-            if 'video_.m3u8' in url:
+            if 'video_.m3u8' in base_url:
                 return mock_http_response(404, b'Not Found', {'Content-Type': 'text/plain'}, url)
-            if 'video_with_map.m3u8' in url:
+            if 'video_with_map.m3u8' in base_url:
                 content = """#EXTM3U
 #EXT-X-VERSION:7
 #EXT-X-TARGETDURATION:4
@@ -424,7 +426,7 @@ seg1.m4s
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
-            if 'video_collide_seg.m3u8' in url:
+            if 'video_collide_seg.m3u8' in base_url:
                 content = """#EXTM3U
 #EXT-X-VERSION:7
 #EXT-X-TARGETDURATION:4
@@ -440,7 +442,7 @@ b/seg.ts
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
-            if 'video_collide_init_query.m3u8' in url:
+            if 'video_collide_init_query.m3u8' in base_url:
                 content = """#EXTM3U
 #EXT-X-VERSION:7
 #EXT-X-TARGETDURATION:4
@@ -456,7 +458,7 @@ seg1.m4s
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
-            if url.endswith('.m3u8'):
+            if base_url.endswith('.m3u8'):
                 content = """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:8
@@ -472,7 +474,7 @@ video002.ts
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
-            elif url.endswith('.m4s'):
+            elif base_url.endswith('.m4s'):
                 full_content = b'x' * 20000
                 range_header = headers_dict.get('Range', '')
                 if range_header:
@@ -489,17 +491,17 @@ video002.ts
                         'Content-Length': str(len(full_content)),
                         'Accept-Ranges': 'bytes'
                     }, url)
-            elif 'init.mp4' in url:
+            elif 'init.mp4' in base_url:
                 full_content = b'i' * 200
                 return mock_http_response(200, full_content, {
                     'Content-Type': 'application/octet-stream',
                     'Content-Length': str(len(full_content)),
                     'Accept-Ranges': 'bytes'
                 }, url)
-            elif url.endswith('.ts'):
+            elif base_url.endswith('.ts'):
                 # Mock video segment - differentiate by filename to create continuous stream
                 # video000.ts starts with TS header, others are plain data
-                if 'video000.ts' in url:
+                if 'video000.ts' in base_url:
                     full_content = b'\x47' + b'x' * 19999  # First segment: TS header + data (20000 bytes)
                 else:
                     full_content = b'x' * 20000  # Other segments: plain data (20000 bytes)

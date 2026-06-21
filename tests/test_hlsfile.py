@@ -504,3 +504,43 @@ class TestHlsFileCollideInitQuery:
         assert f.exists()
         hls_file_collide_query.unlink()
         assert not f.exists()
+
+
+class TestHlsFileQueryString:
+    @pytest.fixture
+    def url_with_qs(self):
+        return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video.m3u8?token=abc123"
+
+    @pytest.fixture
+    def hls_file_qs(self, url_with_qs):
+        return HlsFile(url_with_qs)
+
+    def test_web_files_preserve_query_string(self, hls_file_qs):
+        files = hls_file_qs.web_files
+        for wf in files:
+            assert 'token=abc123' in wf.url, f"Query string missing in {wf.url}"
+
+    def test_web_files_urls(self, hls_file_qs):
+        files = hls_file_qs.web_files
+        assert len(files) == 3
+        assert files[0].url == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts?token=abc123"
+        assert files[1].url == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video001.ts?token=abc123"
+        assert files[2].url == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts?token=abc123"
+
+    def test_m3u8_content_url_no_query_params_in_segments(self, hls_file_qs):
+        content = hls_file_qs.m3u8_content_url
+        assert '?token=abc123' not in content
+
+    def test_with_map_preserves_query_string(self):
+        url = "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_with_map.m3u8?token=xyz"
+        hls = HlsFile(url)
+        files = hls.web_files
+        assert len(files) == 3
+        # init.mp4 already has ?token=abc in the playlist, so it keeps its own query
+        assert '?token=abc' in files[0].url
+        # segments get the parent query string appended
+        assert files[1].url.endswith('?token=xyz')
+        assert files[2].url.endswith('?token=xyz')
+
+    def test_from_url_getter(self, hls_file_qs, url_with_qs):
+        assert hls_file_qs.url == url_with_qs
