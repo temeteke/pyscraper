@@ -63,7 +63,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @cached_property
     def m3u8_obj(self):
         def get_best_playlist(url):
-            with WebFile(url, session=self.session) as wf:
+            with WebFile(url, session=self.session, headers=self.request_headers, cookies=self.request_cookies) as wf:
                 content = wf.read().decode()
                 base_uri = wf.response.url
                 self._base_query_string = urlparse(base_uri).query
