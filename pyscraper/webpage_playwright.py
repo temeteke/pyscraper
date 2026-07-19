@@ -1,10 +1,12 @@
 import contextlib
 import logging
 import os
+import time
 from abc import ABC
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from dataclasses import dataclass
 
 import lxml.html
 
@@ -19,6 +21,28 @@ from pyscraper.webpage import (
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RequestEntry:
+    """Record of a single HTTP request and its corresponding response.
+
+    Attributes:
+        url: Request URL
+        method: HTTP method (GET, POST, etc.)
+        status: HTTP status code (None before response is received)
+        request_headers: Request headers
+        response_headers: Response headers (None before response is received)
+        resource_type: Resource type (document, xhr, media, fetch, etc.)
+        timestamp: Time the request was captured (epoch seconds)
+    """
+    url: str
+    method: str
+    status: int | None
+    request_headers: dict
+    response_headers: dict | None
+    resource_type: str
+    timestamp: float
 
 
 class PlaywrightWebPageElement(WebPageElement):
@@ -271,6 +295,18 @@ class WebPagePlaywright(WebPage, ABC):
     def _start_browser(self):
         raise NotImplementedError
 
+    def capture(self, filter_url=None):
+        """Start a network request capture session.
+
+    Args:
+        filter_url: Function that takes a URL and returns True if the request
+                   should be captured. If None, all requests are captured.
+
+    Returns:
+        A CaptureSession to be used as a context manager.
+    """
+        return CaptureSession(self, filter_url)
+
 
 class WebPagePlaywrightChromium(WebPagePlaywright):
     def __init__(
@@ -330,3 +366,91 @@ class WebPagePlaywrightWebKit(WebPagePlaywright):
                 self._browser = self._playwright.webkit.connect(remote_url)
         else:
             self._browser = self._playwright.webkit.launch(headless=True)
+
+
+class CaptureSession:
+    """Capture network requests from a Playwright page within a scope.
+
+    Use as a context manager. All network requests that occur inside the
+    ``with`` block are captured and accessible via ``requests``.
+
+    Call ``stop()`` or exit the ``with`` block to remove event listeners.
+    The captured ``requests`` list is preserved after stopping.
+
+    Examples::
+
+        cap = CaptureSession(page)
+        with cap:
+            page.goto("https://example.com")
+        for req in cap.requests:
+            print(req.url, req.status)
+    """
+
+    def __init__(self, wp, filter_url=None):
+        self._wp = wp
+        self._filter_url = filter_url
+        self.requests: list[RequestEntry] = []
+        self._request_map: dict = {}
+        self._attached = False
+        self._stopped = False
+
+    def _attach(self):
+        if self._attached or self._stopped:
+            return
+        self._attached = True
+        page = self._wp._page
+        if page is None:
+            logger.debug("CaptureSession: page is not opened yet, listeners deferred")
+            return
+        self._req_handler = self._on_request
+        self._res_handler = self._on_response
+        page.on("request", self._req_handler)
+        page.on("response", self._res_handler)
+
+    def stop(self):
+        """Stop capturing and remove event listeners.
+
+        Idempotent — safe to call multiple times.
+        The ``requests`` list is preserved after stopping.
+        """
+        if self._stopped:
+            return
+        self._stopped = True
+        page = self._wp._page
+        if page is not None and self._attached:
+            req_h = getattr(self, "_req_handler", None)
+            res_h = getattr(self, "_res_handler", None)
+            if req_h:
+                page.remove_listener("request", req_h)
+            if res_h:
+                page.remove_listener("response", res_h)
+        self._request_map.clear()
+
+    def __enter__(self):
+        self._attach()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+
+    def _on_request(self, request):
+        if self._filter_url is not None and not self._filter_url(request.url):
+            return
+        entry = RequestEntry(
+            url=request.url,
+            method=request.method,
+            status=None,
+            request_headers=dict(request.headers),
+            response_headers=None,
+            resource_type=request.resource_type,
+            timestamp=time.time(),
+        )
+        self.requests.append(entry)
+        self._request_map[request] = entry
+
+    def _on_response(self, response):
+        entry = self._request_map.pop(response.request, None)
+        if entry is None:
+            return
+        entry.status = response.status
+        entry.response_headers = dict(response.headers)

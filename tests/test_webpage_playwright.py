@@ -16,7 +16,9 @@ from pyscraper.webpage import (
     WebPageTimeoutError,
 )
 from pyscraper.webpage_playwright import (
+    CaptureSession,
     PlaywrightWebPageElement,
+    RequestEntry,
     WebPagePlaywright,
     WebPagePlaywrightChromium,
     WebPagePlaywrightFirefox,
@@ -572,6 +574,116 @@ class TestWebPagePlaywrightProxy:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+# ---------------------------------------------------------------------------
+# CaptureSession tests
+# ---------------------------------------------------------------------------
+
+class TestCaptureSession:
+    def test_wp_capture_returns_session(self, mock_pw):
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            cap = wp.capture()
+            assert isinstance(cap, CaptureSession)
+            assert cap._wp is wp
+            assert cap._filter_url is None
+            assert cap.requests == []
+
+    def test_wp_capture_with_filter(self, mock_pw):
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            f = lambda u: "api" in u
+            cap = wp.capture(filter_url=f)
+            assert cap._filter_url is f
+
+    def test_enter_registers_listeners(self, mock_pw):
+        page_mock = mock_pw[0]
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            with wp.capture() as cap:
+                request_calls = [c for c in page_mock.on.call_args_list if c.args[0] == "request"]
+                response_calls = [c for c in page_mock.on.call_args_list if c.args[0] == "response"]
+                assert len(request_calls) == 1
+                assert len(response_calls) == 1
+
+    def test_exit_removes_listeners(self, mock_pw):
+        page_mock = mock_pw[0]
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            with wp.capture() as cap:
+                pass
+            remove_calls = page_mock.remove_listener.call_args_list
+            names = [c.args[0] for c in remove_calls]
+            assert names == ["request", "response"]
+
+    def test_captures_request(self, mock_pw):
+        page_mock = mock_pw[0]
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            with wp.capture() as cap:
+                handler = next(c.args[1] for c in page_mock.on.call_args_list if c.args[0] == "request")
+                req = MagicMock()
+                req.url = "https://cdn.example.com/video.mp4"
+                req.method = "GET"
+                req.headers = {"Accept": "*/*"}
+                req.resource_type = "media"
+                handler(req)
+                assert len(cap.requests) == 1
+                assert cap.requests[0].url == "https://cdn.example.com/video.mp4"
+                assert cap.requests[0].method == "GET"
+                assert cap.requests[0].resource_type == "media"
+                assert cap.requests[0].status is None
+
+    def test_response_updates_entry(self, mock_pw):
+        page_mock = mock_pw[0]
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            with wp.capture() as cap:
+                handlers = {c.args[0]: c.args[1] for c in page_mock.on.call_args_list}
+                req = MagicMock()
+                req.url = "https://example.com/data.json"
+                req.method = "GET"
+                req.headers = {}
+                req.resource_type = "xhr"
+                handlers["request"](req)
+                res = MagicMock()
+                res.status = 200
+                res.headers = {"Content-Type": "application/json"}
+                res.request = req
+                handlers["response"](res)
+                entry = cap.requests[0]
+                assert entry.status == 200
+                assert entry.response_headers == {"Content-Type": "application/json"}
+
+    def test_filter_url_excludes_unmatched(self, mock_pw):
+        page_mock = mock_pw[0]
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            with wp.capture(filter_url=lambda u: "api" in u) as cap:
+                handler = next(c.args[1] for c in page_mock.on.call_args_list if c.args[0] == "request")
+                api_req = MagicMock()
+                api_req.url = "https://example.com/api/data"
+                api_req.method = "GET"
+                api_req.headers = {}
+                api_req.resource_type = "xhr"
+                handler(api_req)
+                css_req = MagicMock()
+                css_req.url = "https://example.com/style.css"
+                css_req.method = "GET"
+                css_req.headers = {}
+                css_req.resource_type = "stylesheet"
+                handler(css_req)
+                assert len(cap.requests) == 1
+                assert cap.requests[0].url == "https://example.com/api/data"
+
+    def test_capture_before_open_no_error(self):
+        wp = WebPagePlaywrightChromium("https://example.com")
+        cap = wp.capture()
+        with cap:
+            pass
+        assert cap.requests == []
+
+    def test_stop_idempotent(self, mock_pw):
+        page_mock = mock_pw[0]
+        with WebPagePlaywrightChromium("https://example.com") as wp:
+            with wp.capture() as cap:
+                pass
+            cap.stop()
+            assert cap._stopped
 
 
 # ============================================================================

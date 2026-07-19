@@ -17,6 +17,8 @@ from .webpage import (
 from .webpage_curl import WebPageCurl
 from .webpage_requests import WebPageRequests
 from .webpage_playwright import (
+    CaptureSession,
+    RequestEntry,
     WebPagePlaywrightChromium,
     WebPagePlaywrightFirefox,
     WebPagePlaywrightWebKit,
@@ -31,6 +33,8 @@ except PackageNotFoundError:
     __version__ = "unknown"
 
 __all__ = [
+    "CaptureSession",
+    "RequestEntry",
     "WebPageRequests",
     "WebPageFirefox",
     "WebPageChrome",
