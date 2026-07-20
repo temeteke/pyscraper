@@ -99,6 +99,17 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         return "\n".join(output_lines)
 
     @cached_property
+    def _has_encryption(self):
+        if any(k for k in self.m3u8_obj.keys if k and k.uri):
+            return True
+        if any(k for k in self.m3u8_obj.session_keys if k and k.uri):
+            return True
+        for segment in self.m3u8_obj.segments:
+            if segment.key and segment.key.uri:
+                return True
+        return False
+
+    @cached_property
     def _uri_to_local_name(self):
         seen = set()
         ordered_uris = []
@@ -109,6 +120,18 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             if segment.init_section and segment.init_section.absolute_uri not in seen:
                 seen.add(segment.init_section.absolute_uri)
                 ordered_uris.append(segment.init_section.absolute_uri)
+        for key in filter(None, self.m3u8_obj.keys):
+            if key.uri and key.absolute_uri not in seen:
+                seen.add(key.absolute_uri)
+                ordered_uris.append(key.absolute_uri)
+        for key in filter(None, self.m3u8_obj.session_keys):
+            if key.uri and key.absolute_uri not in seen:
+                seen.add(key.absolute_uri)
+                ordered_uris.append(key.absolute_uri)
+        for segment in self.m3u8_obj.segments:
+            if segment.key and segment.key.uri and segment.key.absolute_uri not in seen:
+                seen.add(segment.key.absolute_uri)
+                ordered_uris.append(segment.key.absolute_uri)
         for init_section in self.m3u8_obj.segment_map:
             if init_section.absolute_uri not in seen:
                 seen.add(init_section.absolute_uri)
@@ -136,9 +159,17 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         obj = copy.deepcopy(self.m3u8_obj)
         for init_section in obj.segment_map:
             init_section.uri = mapping[init_section.absolute_uri]
+        for key in filter(None, obj.keys):
+            if key.uri and key.absolute_uri in mapping:
+                key.uri = mapping[key.absolute_uri]
+        for key in filter(None, obj.session_keys):
+            if key.uri and key.absolute_uri in mapping:
+                key.uri = mapping[key.absolute_uri]
         for segment in obj.segments:
             if segment.init_section:
                 segment.init_section.uri = mapping[segment.init_section.absolute_uri]
+            if segment.key and segment.key.uri and segment.key.absolute_uri in mapping:
+                segment.key.uri = mapping[segment.key.absolute_uri]
             segment.uri = mapping[segment.absolute_uri]
         return obj.dumps()
 
@@ -149,6 +180,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         last_init_uri = None
         base_qs = getattr(self, '_base_query_string', '')
         for segment in self.m3u8_obj.segments:
+            seg_url = segment.absolute_uri
             init = segment.init_section
             if init and init.absolute_uri != last_init_uri:
                 init_url = init.absolute_uri
@@ -166,7 +198,6 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                     )
                 )
                 last_init_uri = init.absolute_uri
-            seg_url = segment.absolute_uri
             if base_qs:
                 parsed = urlparse(seg_url)
                 if not parsed.query:
@@ -180,6 +211,59 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                     filename=mapping[segment.absolute_uri],
                 )
             )
+
+        seen_keys = set()
+        for key in filter(None, self.m3u8_obj.keys):
+            if key.uri and key.absolute_uri in mapping and key.absolute_uri not in seen_keys:
+                seen_keys.add(key.absolute_uri)
+                key_url = key.absolute_uri
+                if base_qs:
+                    parsed = urlparse(key_url)
+                    if not parsed.query:
+                        key_url = urlunparse(parsed._replace(query=base_qs))
+                files.append(
+                    WebFile(
+                        key_url,
+                        headers=dict(self.headers),
+                        cookies=dict(self.cookies),
+                        directory=self.temp_directory,
+                        filename=mapping[key.absolute_uri],
+                    )
+                )
+        for key in filter(None, self.m3u8_obj.session_keys):
+            if key.uri and key.absolute_uri in mapping and key.absolute_uri not in seen_keys:
+                seen_keys.add(key.absolute_uri)
+                key_url = key.absolute_uri
+                if base_qs:
+                    parsed = urlparse(key_url)
+                    if not parsed.query:
+                        key_url = urlunparse(parsed._replace(query=base_qs))
+                files.append(
+                    WebFile(
+                        key_url,
+                        headers=dict(self.headers),
+                        cookies=dict(self.cookies),
+                        directory=self.temp_directory,
+                        filename=mapping[key.absolute_uri],
+                    )
+                )
+        for segment in self.m3u8_obj.segments:
+            if segment.key and segment.key.uri and segment.key.absolute_uri in mapping and segment.key.absolute_uri not in seen_keys:
+                seen_keys.add(segment.key.absolute_uri)
+                key_url = segment.key.absolute_uri
+                if base_qs:
+                    parsed = urlparse(key_url)
+                    if not parsed.query:
+                        key_url = urlunparse(parsed._replace(query=base_qs))
+                files.append(
+                    WebFile(
+                        key_url,
+                        headers=dict(self.headers),
+                        cookies=dict(self.cookies),
+                        directory=self.temp_directory,
+                        filename=mapping[segment.key.absolute_uri],
+                    )
+                )
         return files
 
     @property
@@ -197,6 +281,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             'm3u8_content',
             'm3u8_content_url',
             'm3u8_content_filename',
+            '_has_encryption',
             '_uri_to_local_name',
             'web_files'
         ]
@@ -220,6 +305,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         Returns:
             bytes: Concatenated content of all playlist resources.
         """
+        if self._has_encryption:
+            raise HlsFileError("Cannot read() encrypted HLS stream.")
         total_chunk = b""
         web_file_position = self.position
         for web_file in self.web_files:
@@ -249,6 +336,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         Yields:
             bytes: Full content of each playlist resource.
         """
+        if self._has_encryption:
+            raise HlsFileError("Cannot read_files() encrypted HLS stream.")
         for web_file in self.web_files:
             with web_file as wf:
                 yield wf.read()

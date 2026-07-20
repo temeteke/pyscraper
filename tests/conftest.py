@@ -458,6 +458,28 @@ seg1.m4s
                     'Content-Type': 'application/vnd.apple.mpegurl',
                     'Content-Length': str(len(content))
                 }, url)
+            if 'video_with_key.m3u8' in base_url:
+                content = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-KEY:METHOD=AES-128,URI="https://cdn.example.com/key.bin"
+#EXTINF:10,
+seg-0.ts
+#EXTINF:10,
+seg-1.ts
+#EXTINF:10,
+seg-2.ts
+#EXT-X-ENDLIST
+""".encode()
+                return mock_http_response(200, content, {
+                    'Content-Type': 'application/vnd.apple.mpegurl',
+                    'Content-Length': str(len(content))
+                }, url)
+            if 'key.bin' in base_url:
+                return mock_http_response(200, b'x' * 16, {
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Length': '16'
+                }, url)
             if base_url.endswith('.m3u8'):
                 content = """#EXTM3U
 #EXT-X-VERSION:3

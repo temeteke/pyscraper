@@ -5,7 +5,7 @@ import pytest
 import requests
 
 from pyscraper.webfile import WebFile
-from pyscraper.hlsfile import HlsFile
+from pyscraper.hlsfile import HlsFile, HlsFileError
 
 logger = logging.getLogger("pyscraper")
 logger.setLevel(logging.DEBUG)
@@ -38,6 +38,11 @@ def url_collide_seg():
 @pytest.fixture(scope="session")
 def url_collide_init_query():
     return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_collide_init_query.m3u8"
+
+
+@pytest.fixture(scope="session")
+def url_with_key():
+    return "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_with_key.m3u8"
 
 
 @pytest.fixture(scope="session")
@@ -544,3 +549,49 @@ class TestHlsFileQueryString:
 
     def test_from_url_getter(self, hls_file_qs, url_with_qs):
         assert hls_file_qs.url == url_with_qs
+
+
+class TestHlsFileWithKey:
+    @pytest.fixture
+    def hls_file_with_key(self, url_with_key):
+        return HlsFile(url_with_key)
+
+    def test_uri_to_local_name_contains_key(self, hls_file_with_key):
+        mapping = hls_file_with_key._uri_to_local_name
+        assert "https://cdn.example.com/key.bin" in mapping
+        assert mapping["https://cdn.example.com/key.bin"] == "key.bin"
+
+    def test_m3u8_content_filename_rewrites_key_uri(self, hls_file_with_key):
+        content = hls_file_with_key.m3u8_content_filename
+        assert 'URI="key.bin"' in content
+        assert "https://cdn.example.com/key.bin" not in content
+
+    def test_web_files_contains_key(self, hls_file_with_key):
+        files = hls_file_with_key.web_files
+        assert len(files) == 4
+        assert files[0].filename.endswith(".ts")
+        assert files[3].filename == "key.bin"
+
+    def test_web_files_keys_at_end(self, hls_file_with_key):
+        files = hls_file_with_key.web_files
+        assert files[-1].filename == "key.bin"
+
+    def test_read_raises_on_encrypted(self, hls_file_with_key):
+        with pytest.raises(HlsFileError, match=r"Cannot read\(\) encrypted"):
+            hls_file_with_key.read()
+
+    def test_read_files_raises_on_encrypted(self, hls_file_with_key):
+        with pytest.raises(HlsFileError, match=r"Cannot read_files\(\) encrypted"):
+            list(hls_file_with_key.read_files())
+
+    def test_has_encryption_true(self, hls_file_with_key):
+        assert hls_file_with_key._has_encryption is True
+
+    def test_has_encryption_false(self, url):
+        assert HlsFile(url)._has_encryption is False
+
+    def test_clear_cache_includes_has_encryption(self, hls_file_with_key):
+        _ = hls_file_with_key._has_encryption
+        assert "_has_encryption" in hls_file_with_key.__dict__
+        hls_file_with_key.clear_cache()
+        assert "_has_encryption" not in hls_file_with_key.__dict__
