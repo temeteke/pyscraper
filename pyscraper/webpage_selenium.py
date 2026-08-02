@@ -137,7 +137,7 @@ class WebPageSelenium(WebPage, ABC):
 
         for key in ("no_proxy", "NO_PROXY"):
             if current := os.environ.get(key):
-                if netloc not in current:
+                if netloc not in current.split(","):
                     os.environ[key] = current + "," + netloc
             else:
                 os.environ[key] = netloc

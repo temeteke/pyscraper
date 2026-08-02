@@ -241,6 +241,16 @@ class WebPagePlaywright(WebPage, ABC):
 
         return files
 
+    def _configure_no_proxy_for_remote(self, remote_url):
+        netloc = urlparse(remote_url).netloc
+
+        for key in ("no_proxy", "NO_PROXY"):
+            if current := os.environ.get(key):
+                if netloc not in current.split(","):
+                    os.environ[key] = current + "," + netloc
+            else:
+                os.environ[key] = netloc
+
     def _setup_proxy_context(self):
         proxy_settings = {}
         http_proxy = _get_env_anycase("HTTP_PROXY")
@@ -327,6 +337,7 @@ class WebPagePlaywrightChromium(WebPagePlaywright):
 
     def _start_browser(self):
         if remote_url := os.environ.get("PLAYWRIGHT_CHROMIUM_URL"):
+            self._configure_no_proxy_for_remote(remote_url)
             if remote_url.startswith("http://") or remote_url.startswith("https://"):
                 self._browser = self._playwright.chromium.connect_over_cdp(remote_url)
             else:
@@ -356,6 +367,7 @@ class WebPagePlaywrightFirefox(WebPagePlaywright):
 
     def _start_browser(self):
         if remote_url := os.environ.get("PLAYWRIGHT_FIREFOX_URL"):
+            self._configure_no_proxy_for_remote(remote_url)
             if remote_url.startswith("http://") or remote_url.startswith("https://"):
                 self._browser = self._playwright.firefox.connect_over_cdp(remote_url)
             else:
@@ -385,6 +397,7 @@ class WebPagePlaywrightWebKit(WebPagePlaywright):
 
     def _start_browser(self):
         if remote_url := os.environ.get("PLAYWRIGHT_WEBKIT_URL"):
+            self._configure_no_proxy_for_remote(remote_url)
             if remote_url.startswith("http://") or remote_url.startswith("https://"):
                 self._browser = self._playwright.webkit.connect_over_cdp(remote_url)
             else:

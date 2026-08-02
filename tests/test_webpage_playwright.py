@@ -473,6 +473,16 @@ class TestWebPagePlaywrightConcreteClasses:
 class TestWebPagePlaywrightRemote:
     REMOTE_URL = "ws://playwright:4444/ws"
 
+    @pytest.fixture(autouse=True)
+    def _cleanup_proxy_env(self):
+        saved = {k: os.environ.get(k) for k in ("no_proxy", "NO_PROXY")}
+        yield
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
     def test_chromium_remote(self, mock_pw):
         page_mock, browser, context, pw_instance = mock_pw
         saved = os.environ.get("PLAYWRIGHT_CHROMIUM_URL")
@@ -630,6 +640,114 @@ class TestWebPagePlaywrightProxy:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+# ---------------------------------------------------------------------------
+# no_proxy configuration for remote Playwright servers
+# ---------------------------------------------------------------------------
+
+class TestConfigureNoProxyForRemote:
+    """Unit tests for WebPagePlaywright._configure_no_proxy_for_remote.
+
+    Tests that the method correctly updates lowercase 'no_proxy' and
+    uppercase 'NO_PROXY' env vars when connecting to a remote Playwright
+    server, mirroring WebPageSelenium._configure_no_proxy_for_remote.
+    """
+
+    BROWSERS = [
+        (WebPagePlaywrightChromium, "PLAYWRIGHT_CHROMIUM_URL",
+         "ws://playwright:4444/ws", "playwright:4444"),
+        (WebPagePlaywrightFirefox, "PLAYWRIGHT_FIREFOX_URL",
+         "ws://playwright:4444/ws", "playwright:4444"),
+        (WebPagePlaywrightWebKit, "PLAYWRIGHT_WEBKIT_URL",
+         "ws://playwright:4444/ws", "playwright:4444"),
+    ]
+
+    ENV_KEYS = (
+        "no_proxy", "NO_PROXY",
+        "PLAYWRIGHT_CHROMIUM_URL", "PLAYWRIGHT_FIREFOX_URL", "PLAYWRIGHT_WEBKIT_URL",
+        "HTTP_PROXY", "HTTPS_PROXY",
+    )
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_env(self):
+        saved = {k: os.environ.get(k) for k in self.ENV_KEYS}
+        yield
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    @pytest.mark.parametrize("page_class,env_var,remote_url,netloc", BROWSERS)
+    def test_lowercase_updated(self, mock_pw, page_class, env_var, remote_url, netloc):
+        os.environ[env_var] = remote_url
+        os.environ["no_proxy"] = "localhost,127.0.0.1"
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        with page_class("https://example.com"):
+            pass
+        assert netloc in os.environ["no_proxy"]
+        assert netloc in os.environ["NO_PROXY"]
+
+    @pytest.mark.parametrize("page_class,env_var,remote_url,netloc", BROWSERS)
+    def test_uppercase_only(self, mock_pw, page_class, env_var, remote_url, netloc):
+        os.environ[env_var] = remote_url
+        os.environ.pop("no_proxy", None)
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        with page_class("https://example.com"):
+            pass
+        assert netloc in os.environ["no_proxy"]
+        assert netloc in os.environ["NO_PROXY"]
+
+    @pytest.mark.parametrize("page_class,env_var,remote_url,netloc", BROWSERS)
+    def test_neither_set(self, mock_pw, page_class, env_var, remote_url, netloc):
+        os.environ[env_var] = remote_url
+        os.environ.pop("no_proxy", None)
+        os.environ.pop("NO_PROXY", None)
+        with page_class("https://example.com"):
+            pass
+        assert os.environ["no_proxy"] == netloc
+        assert os.environ["NO_PROXY"] == netloc
+
+    @pytest.mark.parametrize("page_class,env_var,remote_url,netloc", BROWSERS)
+    def test_duplicate_not_added(self, mock_pw, page_class, env_var, remote_url, netloc):
+        os.environ[env_var] = remote_url
+        os.environ["no_proxy"] = netloc
+        os.environ["NO_PROXY"] = netloc
+        with page_class("https://example.com"):
+            pass
+        assert os.environ["no_proxy"] == netloc
+        assert os.environ["NO_PROXY"] == netloc
+
+    def test_partial_hostname_not_matched(self, mock_pw):
+        os.environ["PLAYWRIGHT_CHROMIUM_URL"] = "ws://playwright:4444/ws"
+        os.environ["no_proxy"] = "myplaywright:4444"
+        os.environ["NO_PROXY"] = "myplaywright:4444"
+        with WebPagePlaywrightChromium("https://example.com"):
+            pass
+        assert "playwright:4444" in os.environ["no_proxy"]
+        assert "playwright:4444" in os.environ["NO_PROXY"]
+
+    def test_cdp_http_url(self, mock_pw):
+        os.environ["PLAYWRIGHT_CHROMIUM_URL"] = "http://playwright:9222"
+        with WebPagePlaywrightChromium("https://example.com"):
+            pass
+        assert "playwright:9222" in os.environ["no_proxy"]
+        assert "playwright:9222" in os.environ["NO_PROXY"]
+
+    def test_bypass_includes_remote_host(self, mock_pw):
+        _, browser, _, pw_instance = mock_pw
+        pw_instance.chromium.connect.return_value = browser
+        os.environ["PLAYWRIGHT_CHROMIUM_URL"] = "ws://playwright:4444/ws"
+        os.environ["HTTP_PROXY"] = "http://proxy:8080"
+        os.environ["no_proxy"] = "localhost,.local"
+        os.environ["NO_PROXY"] = "localhost,.local"
+        with WebPagePlaywrightChromium("https://example.com"):
+            pass
+        kwargs = browser.new_context.call_args[1]
+        assert kwargs["proxy"]["server"] == "http://proxy:8080"
+        assert "localhost" in kwargs["proxy"]["bypass"]
+        assert "playwright:4444" in kwargs["proxy"]["bypass"]
 
 
 # ---------------------------------------------------------------------------
