@@ -1,4 +1,5 @@
 import contextlib
+import json
 import logging
 import os
 import time
@@ -310,62 +311,89 @@ class WebPagePlaywright(WebPage, ABC):
 
 class WebPagePlaywrightChromium(WebPagePlaywright):
     def __init__(
-        self, url=None, params: dict | None = None, cookies: dict | None = None, cookies_file=None
+        self,
+        url=None,
+        params: dict | None = None,
+        cookies: dict | None = None,
+        cookies_file=None,
+        headless: bool = True,
     ):
         if not url:
             url = "about:blank"
         super().__init__(url, params=params)
         self._cookies = cookies or {}
         self._cookies_file = cookies_file
+        self._headless = headless
 
     def _start_browser(self):
         if remote_url := os.environ.get("PLAYWRIGHT_CHROMIUM_URL"):
             if remote_url.startswith("http://") or remote_url.startswith("https://"):
                 self._browser = self._playwright.chromium.connect_over_cdp(remote_url)
             else:
-                self._browser = self._playwright.chromium.connect(remote_url)
+                self._browser = self._playwright.chromium.connect(
+                    remote_url,
+                    headers={"x-playwright-launch-options": json.dumps({"headless": self._headless})},
+                )
         else:
-            self._browser = self._playwright.chromium.launch(headless=True)
+            self._browser = self._playwright.chromium.launch(headless=self._headless)
 
 
 class WebPagePlaywrightFirefox(WebPagePlaywright):
     def __init__(
-        self, url=None, params: dict | None = None, cookies: dict | None = None, cookies_file=None
+        self,
+        url=None,
+        params: dict | None = None,
+        cookies: dict | None = None,
+        cookies_file=None,
+        headless: bool = True,
     ):
         if not url:
             url = "about:blank"
         super().__init__(url, params=params)
         self._cookies = cookies or {}
         self._cookies_file = cookies_file
+        self._headless = headless
 
     def _start_browser(self):
         if remote_url := os.environ.get("PLAYWRIGHT_FIREFOX_URL"):
             if remote_url.startswith("http://") or remote_url.startswith("https://"):
                 self._browser = self._playwright.firefox.connect_over_cdp(remote_url)
             else:
-                self._browser = self._playwright.firefox.connect(remote_url)
+                self._browser = self._playwright.firefox.connect(
+                    remote_url,
+                    headers={"x-playwright-launch-options": json.dumps({"headless": self._headless})},
+                )
         else:
-            self._browser = self._playwright.firefox.launch(headless=True)
+            self._browser = self._playwright.firefox.launch(headless=self._headless)
 
 
 class WebPagePlaywrightWebKit(WebPagePlaywright):
     def __init__(
-        self, url=None, params: dict | None = None, cookies: dict | None = None, cookies_file=None
+        self,
+        url=None,
+        params: dict | None = None,
+        cookies: dict | None = None,
+        cookies_file=None,
+        headless: bool = True,
     ):
         if not url:
             url = "about:blank"
         super().__init__(url, params=params)
         self._cookies = cookies or {}
         self._cookies_file = cookies_file
+        self._headless = headless
 
     def _start_browser(self):
         if remote_url := os.environ.get("PLAYWRIGHT_WEBKIT_URL"):
             if remote_url.startswith("http://") or remote_url.startswith("https://"):
                 self._browser = self._playwright.webkit.connect_over_cdp(remote_url)
             else:
-                self._browser = self._playwright.webkit.connect(remote_url)
+                self._browser = self._playwright.webkit.connect(
+                    remote_url,
+                    headers={"x-playwright-launch-options": json.dumps({"headless": self._headless})},
+                )
         else:
-            self._browser = self._playwright.webkit.launch(headless=True)
+            self._browser = self._playwright.webkit.launch(headless=self._headless)
 
 
 class CaptureSession:

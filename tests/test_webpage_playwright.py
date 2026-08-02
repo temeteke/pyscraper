@@ -4,6 +4,7 @@ Unit tests mock the Playwright API to avoid requiring an actual browser.
 Integration tests are marked with @pytest.mark.integration.
 """
 
+import json
 import os
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -444,6 +445,21 @@ class TestWebPagePlaywrightConcreteClasses:
         with WebPagePlaywrightWebKit("https://example.com"):
             pw_instance.webkit.launch.assert_called_once_with(headless=True)
 
+    def test_chromium_launch_headless_false(self, mock_pw):
+        page_mock, browser, context, pw_instance = mock_pw
+        with WebPagePlaywrightChromium("https://example.com", headless=False):
+            pw_instance.chromium.launch.assert_called_once_with(headless=False)
+
+    def test_firefox_launch_headless_false(self, mock_pw):
+        page_mock, browser, context, pw_instance = mock_pw
+        with WebPagePlaywrightFirefox("https://example.com", headless=False):
+            pw_instance.firefox.launch.assert_called_once_with(headless=False)
+
+    def test_webkit_launch_headless_false(self, mock_pw):
+        page_mock, browser, context, pw_instance = mock_pw
+        with WebPagePlaywrightWebKit("https://example.com", headless=False):
+            pw_instance.webkit.launch.assert_called_once_with(headless=False)
+
     def test_cookies_passed_to_context(self, mock_pw):
         page_mock, browser, context, pw_instance = mock_pw
         with WebPagePlaywrightChromium("https://example.com", cookies={"sess": "val"}):
@@ -463,7 +479,10 @@ class TestWebPagePlaywrightRemote:
         os.environ["PLAYWRIGHT_CHROMIUM_URL"] = self.REMOTE_URL
         try:
             with WebPagePlaywrightChromium("https://example.com"):
-                pw_instance.chromium.connect.assert_called_once_with(self.REMOTE_URL)
+                pw_instance.chromium.connect.assert_called_once_with(
+                    self.REMOTE_URL,
+                    headers={"x-playwright-launch-options": json.dumps({"headless": True})},
+                )
         finally:
             if saved is None:
                 del os.environ["PLAYWRIGHT_CHROMIUM_URL"]
@@ -476,7 +495,10 @@ class TestWebPagePlaywrightRemote:
         os.environ["PLAYWRIGHT_FIREFOX_URL"] = self.REMOTE_URL
         try:
             with WebPagePlaywrightFirefox("https://example.com"):
-                pw_instance.firefox.connect.assert_called_once_with(self.REMOTE_URL)
+                pw_instance.firefox.connect.assert_called_once_with(
+                    self.REMOTE_URL,
+                    headers={"x-playwright-launch-options": json.dumps({"headless": True})},
+                )
         finally:
             if saved is None:
                 del os.environ["PLAYWRIGHT_FIREFOX_URL"]
@@ -489,7 +511,10 @@ class TestWebPagePlaywrightRemote:
         os.environ["PLAYWRIGHT_WEBKIT_URL"] = self.REMOTE_URL
         try:
             with WebPagePlaywrightWebKit("https://example.com"):
-                pw_instance.webkit.connect.assert_called_once_with(self.REMOTE_URL)
+                pw_instance.webkit.connect.assert_called_once_with(
+                    self.REMOTE_URL,
+                    headers={"x-playwright-launch-options": json.dumps({"headless": True})},
+                )
         finally:
             if saved is None:
                 del os.environ["PLAYWRIGHT_WEBKIT_URL"]
@@ -504,6 +529,37 @@ class TestWebPagePlaywrightRemote:
                 pw_instance.chromium.launch.assert_not_called()
         finally:
             del os.environ["PLAYWRIGHT_CHROMIUM_URL"]
+
+    def test_remote_headless_false(self, mock_pw):
+        page_mock, browser, context, pw_instance = mock_pw
+        saved = os.environ.get("PLAYWRIGHT_CHROMIUM_URL")
+        os.environ["PLAYWRIGHT_CHROMIUM_URL"] = self.REMOTE_URL
+        try:
+            with WebPagePlaywrightChromium("https://example.com", headless=False):
+                pw_instance.chromium.connect.assert_called_once_with(
+                    self.REMOTE_URL,
+                    headers={"x-playwright-launch-options": json.dumps({"headless": False})},
+                )
+        finally:
+            if saved is None:
+                del os.environ["PLAYWRIGHT_CHROMIUM_URL"]
+            else:
+                os.environ["PLAYWRIGHT_CHROMIUM_URL"] = saved
+
+    def test_cdp_connect_no_launch_options(self, mock_pw):
+        page_mock, browser, context, pw_instance = mock_pw
+        cdp_url = "http://playwright:9222"
+        saved = os.environ.get("PLAYWRIGHT_CHROMIUM_URL")
+        os.environ["PLAYWRIGHT_CHROMIUM_URL"] = cdp_url
+        try:
+            with WebPagePlaywrightChromium("https://example.com", headless=False):
+                pw_instance.chromium.connect_over_cdp.assert_called_once_with(cdp_url)
+                pw_instance.chromium.connect.assert_not_called()
+        finally:
+            if saved is None:
+                del os.environ["PLAYWRIGHT_CHROMIUM_URL"]
+            else:
+                os.environ["PLAYWRIGHT_CHROMIUM_URL"] = saved
 
 
 # ---------------------------------------------------------------------------
