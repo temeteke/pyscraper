@@ -1,3 +1,4 @@
+import logging
 import os
 from unittest.mock import patch
 
@@ -601,6 +602,226 @@ class TestConfigureNoProxyForRemote:
         finally:
             for k, v in saved.items():
                 os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
+class TestWebPageSeleniumCapabilitiesAndProfile:
+    """Unit tests for WebPageFirefox/WebPageChrome capabilities and profile arguments."""
+
+    _ENV_KEYS = (
+        "SELENIUM_FIREFOX_URL",
+        "SELENIUM_CHROME_URL",
+        "SELENIUM_FIREFOX_PROFILE",
+        "SELENIUM_CHROME_PROFILE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+    )
+
+    def _run(self, page_class, env_vars=None, **kwargs):
+        saved = {key: os.environ.get(key) for key in self._ENV_KEYS}
+        for key in self._ENV_KEYS:
+            os.environ.pop(key, None)
+        for key, value in (env_vars or {}).items():
+            os.environ[key] = value
+        try:
+            return page_class("http://example.com", **kwargs)._create_driver()
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def _remote_options(self, mock_remote):
+        mock_remote.assert_called_once()
+        _, kwargs = mock_remote.call_args
+        return kwargs["options"]
+
+    def test_firefox_grid_capabilities(self):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        caps = {"grid:profile": "fixed-profile", "se:name": "my-session"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, capabilities=caps)
+        options = self._remote_options(mock_remote)
+        assert options.capabilities["grid:profile"] == "fixed-profile"
+        assert options.capabilities["se:name"] == "my-session"
+
+    def test_firefox_grid_profile_argument(self):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, profile="/tmp/arg-profile")
+        options = self._remote_options(mock_remote)
+        assert "-profile" in options.arguments
+        assert "/tmp/arg-profile" in options.arguments
+
+    def test_firefox_grid_profile_env_fallback(self):
+        env = {
+            "SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub",
+            "SELENIUM_FIREFOX_PROFILE": "/tmp/env-profile",
+        }
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env)
+        options = self._remote_options(mock_remote)
+        assert "-profile" in options.arguments
+        assert "/tmp/env-profile" in options.arguments
+
+    def test_firefox_grid_profile_argument_precedence(self):
+        env = {
+            "SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub",
+            "SELENIUM_FIREFOX_PROFILE": "/tmp/env-profile",
+        }
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, profile="/tmp/arg-profile")
+        options = self._remote_options(mock_remote)
+        assert "-profile" in options.arguments
+        assert "/tmp/arg-profile" in options.arguments
+        assert "/tmp/env-profile" not in options.arguments
+
+    def test_chrome_grid_capabilities(self):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        caps = {"grid:profile": "fixed-profile", "se:name": "my-session"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageChrome, env, capabilities=caps)
+        options = self._remote_options(mock_remote)
+        assert options.capabilities["grid:profile"] == "fixed-profile"
+        assert options.capabilities["se:name"] == "my-session"
+
+    def test_chrome_grid_profile_argument(self):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageChrome, env, profile="/tmp/arg-profile")
+        options = self._remote_options(mock_remote)
+        assert "--user-data-dir=/tmp/arg-profile" in options.arguments
+
+    def test_chrome_grid_profile_env_fallback(self):
+        env = {
+            "SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub",
+            "SELENIUM_CHROME_PROFILE": "/tmp/env-profile",
+        }
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageChrome, env)
+        options = self._remote_options(mock_remote)
+        assert "--user-data-dir=/tmp/env-profile" in options.arguments
+
+    def test_chrome_grid_profile_argument_precedence(self):
+        env = {
+            "SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub",
+            "SELENIUM_CHROME_PROFILE": "/tmp/env-profile",
+        }
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageChrome, env, profile="/tmp/arg-profile")
+        options = self._remote_options(mock_remote)
+        assert "--user-data-dir=/tmp/arg-profile" in options.arguments
+        assert "--user-data-dir=/tmp/env-profile" not in options.arguments
+
+    def test_chrome_local_profile(self):
+        with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
+            self._run(WebPageChrome, profile="/tmp/local-profile")
+        mock_chrome.assert_called_once()
+        _, kwargs = mock_chrome.call_args
+        assert "--user-data-dir=/tmp/local-profile" in kwargs["options"].arguments
+
+    def test_chrome_local_no_profile(self):
+        with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
+            self._run(WebPageChrome)
+        mock_chrome.assert_called_once()
+        _, kwargs = mock_chrome.call_args
+        assert not any(
+            argument.startswith("--user-data-dir") for argument in kwargs["options"].arguments
+        )
+
+    def test_firefox_local_profile(self):
+        import tempfile
+        profile_dir = tempfile.mkdtemp()
+        try:
+            with patch("pyscraper.webpage_selenium.webdriver.Firefox") as mock_firefox:
+                self._run(WebPageFirefox, profile=profile_dir)
+        finally:
+            import shutil
+            shutil.rmtree(profile_dir, ignore_errors=True)
+        mock_firefox.assert_called_once()
+        _, kwargs = mock_firefox.call_args
+        assert kwargs["firefox_profile"] is not None
+
+    def test_firefox_grid_page_load_strategy_argument_wins(self):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        caps = {"pageLoadStrategy": "eager"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, capabilities=caps, page_load_strategy="none")
+        options = self._remote_options(mock_remote)
+        assert options.capabilities["pageLoadStrategy"] == "none"
+
+    def test_chrome_grid_page_load_strategy_argument_wins(self):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        caps = {"pageLoadStrategy": "eager"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageChrome, env, capabilities=caps, page_load_strategy="none")
+        options = self._remote_options(mock_remote)
+        assert options.capabilities["pageLoadStrategy"] == "none"
+
+    def test_firefox_grid_proxy_env_wins(self):
+        env = {
+            "SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub",
+            "HTTP_PROXY": "http://proxy.example:80",
+        }
+        caps = {"proxy": {"proxyType": "system"}}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, capabilities=caps)
+        options = self._remote_options(mock_remote)
+        assert options.proxy.httpProxy == "proxy.example:80"
+
+    def test_firefox_grid_language_argument_wins(self):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        caps = {"moz:firefoxOptions": {"prefs": {"intl.accept_languages": "en"}}}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, capabilities=caps, language="ja")
+        options = self._remote_options(mock_remote)
+        prefs = options.to_capabilities()["moz:firefoxOptions"]["prefs"]
+        assert prefs["intl.accept_languages"] == "ja"
+
+    def test_capabilities_defensive_copy(self):
+        caps = {"grid:profile": "fixed"}
+        page = WebPageFirefox("http://example.com", capabilities=caps)
+        caps["grid:profile"] = "mutated"
+        assert page.capabilities["grid:profile"] == "fixed"
+
+    def test_firefox_grid_reserved_key_warns(self, caplog):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        caps = {"moz:firefoxOptions": {"binary": "/custom/ff"}}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote"):
+            self._run(WebPageFirefox, env, capabilities=caps)
+        assert any("moz:firefoxOptions" in record.message for record in caplog.records)
+
+    def test_chrome_grid_reserved_key_warns(self, caplog):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        caps = {"goog:chromeOptions": {"binary": "/custom/chrome"}}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote"):
+            self._run(WebPageChrome, env, capabilities=caps)
+        assert any("goog:chromeOptions" in record.message for record in caplog.records)
+
+    def test_firefox_grid_proxy_key_warns(self, caplog):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        caps = {"proxy": {"proxyType": "system"}}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote"):
+            self._run(WebPageFirefox, env, capabilities=caps)
+        assert any(repr("proxy") in record.message for record in caplog.records)
+
+    def test_firefox_grid_non_json_value_warns(self, caplog):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        caps = {"weird": {1, 2}}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote"):
+            self._run(WebPageFirefox, env, capabilities=caps)
+        assert any("not JSON serializable" in record.message for record in caplog.records)
+
+    def test_firefox_grid_normal_key_no_warning(self, caplog):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        caps = {"grid:profile": "fixed-profile"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote"):
+            self._run(WebPageFirefox, env, capabilities=caps)
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
 
 
 class TestWebPageMutableDefaults:

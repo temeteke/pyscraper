@@ -1,4 +1,5 @@
 import contextlib
+import json
 import logging
 import os
 import re
@@ -40,6 +41,35 @@ def _normalize_proxy_for_selenium(value):
         result = urlparse(stripped).netloc
         return result
     return stripped
+
+
+_RESERVED_CAPABILITY_KEYS = frozenset({"moz:firefoxOptions", "goog:chromeOptions", "proxy"})
+
+
+def _warn_unsupported_capabilities(capabilities):
+    """Log a warning for capabilities that are ignored by the library.
+
+    ``moz:firefoxOptions`` / ``goog:chromeOptions`` are rebuilt from the
+    library's own settings, ``proxy`` is always configured from environment
+    variables, and non-JSON values cannot be sent to a remote WebDriver.
+    These keys are silently dropped, so surface them to callers.
+    """
+    if not capabilities:
+        return
+    for key, value in capabilities.items():
+        if key in _RESERVED_CAPABILITY_KEYS:
+            logger.warning(
+                "Capability key %r is managed by the library and was ignored", key
+            )
+            continue
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as e:
+            logger.warning(
+                "Capability %r value is not JSON serializable and was ignored: %s",
+                key,
+                e,
+            )
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -310,6 +340,23 @@ class WebPageSelenium(WebPage, ABC):
 
 
 class WebPageFirefox(WebPageSelenium):
+    """Web page access via Selenium WebDriver for Firefox.
+
+    When ``SELENIUM_FIREFOX_URL`` is set, a remote WebDriver session is
+    created against the Selenium Grid and any ``capabilities`` are included
+    in the session request so Grid nodes can be matched by stereotype.
+
+    ``capabilities`` is an arbitrary dict of extension capabilities. Keys
+    that overlap with the dedicated arguments/environment (``page_load_strategy``,
+    ``language``, ``profile``) are overridden by those settings. Reserved option
+    keys such as ``moz:firefoxOptions`` are not supported and must not be passed.
+    ``proxy`` cannot be set via ``capabilities``; configure it with the
+    ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` environment variables.
+    Unsupported capabilities are logged as warnings. The ``profile`` argument
+    takes precedence over the legacy ``SELENIUM_FIREFOX_PROFILE`` environment
+    variable.
+    """
+
     DEFAULT_URL = "about:home"
 
     def __init__(
@@ -322,6 +369,7 @@ class WebPageFirefox(WebPageSelenium):
         page_load_strategy=None,
         profile=None,
         language=None,
+        capabilities: dict | None = None,
     ):
         super().__init__(
             url,
@@ -333,18 +381,27 @@ class WebPageFirefox(WebPageSelenium):
         )
         self.profile = profile
         self.language = language
+        self.capabilities = dict(capabilities) if capabilities else None
 
-    def _create_driver(self):
-        options = webdriver.FirefoxOptions()
-
+    def _apply_dedicated_settings(self, options):
         if self.page_load_strategy:
             options.page_load_strategy = self.page_load_strategy
 
         if self.language:
             options.set_preference("intl.accept_languages", self.language)
 
+    def _create_driver(self):
+        options = webdriver.FirefoxOptions()
+
         if url := os.environ.get("SELENIUM_FIREFOX_URL"):
-            if profile := os.environ.get("SELENIUM_FIREFOX_PROFILE"):
+            _warn_unsupported_capabilities(self.capabilities)
+            for key, value in (self.capabilities or {}).items():
+                options.set_capability(key, value)
+
+            self._apply_dedicated_settings(options)
+
+            profile = self.profile or os.environ.get("SELENIUM_FIREFOX_PROFILE")
+            if profile:
                 options.add_argument("-profile")
                 options.add_argument(profile)
 
@@ -369,6 +426,7 @@ class WebPageFirefox(WebPageSelenium):
             return webdriver.Remote(command_executor=url, options=options)
 
         else:
+            self._apply_dedicated_settings(options)
             options.headless = True
             if self.profile:
                 return webdriver.Firefox(
@@ -378,6 +436,23 @@ class WebPageFirefox(WebPageSelenium):
 
 
 class WebPageChrome(WebPageSelenium):
+    """Web page access via Selenium WebDriver for Chrome.
+
+    When ``SELENIUM_CHROME_URL`` is set, a remote WebDriver session is
+    created against the Selenium Grid and any ``capabilities`` are included
+    in the session request so Grid nodes can be matched by stereotype.
+
+    ``capabilities`` is an arbitrary dict of extension capabilities. Keys
+    that overlap with the dedicated arguments/environment (``page_load_strategy``,
+    ``profile``) are overridden by those settings. Reserved option keys
+    such as ``goog:chromeOptions`` are not supported and must not be passed.
+    ``proxy`` cannot be set via ``capabilities``; configure it with the
+    ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` environment variables.
+    Unsupported capabilities are logged as warnings. The ``profile`` argument
+    takes precedence over the legacy ``SELENIUM_CHROME_PROFILE`` environment
+    variable.
+    """
+
     DEFAULT_URL = "chrome://new-tab-page"
 
     def __init__(
@@ -388,6 +463,8 @@ class WebPageChrome(WebPageSelenium):
         cookies: dict | None = None,
         cookies_file=None,
         page_load_strategy=None,
+        profile=None,
+        capabilities: dict | None = None,
     ):
         super().__init__(
             url,
@@ -397,22 +474,36 @@ class WebPageChrome(WebPageSelenium):
             cookies_file=cookies_file,
             page_load_strategy=page_load_strategy,
         )
+        self.profile = profile
+        self.capabilities = dict(capabilities) if capabilities else None
 
-    def _create_driver(self):
-        options = webdriver.ChromeOptions()
+    def _apply_dedicated_settings(self, options):
         if self.page_load_strategy:
             options.page_load_strategy = self.page_load_strategy
 
+    def _create_driver(self):
+        options = webdriver.ChromeOptions()
+
         if url := os.environ.get("SELENIUM_CHROME_URL"):
+            _warn_unsupported_capabilities(self.capabilities)
+            for key, value in (self.capabilities or {}).items():
+                options.set_capability(key, value)
+
+            self._apply_dedicated_settings(options)
+
             options.add_argument("--start-maximized")
-            if profile := os.environ.get("SELENIUM_CHROME_PROFILE"):
+            profile = self.profile or os.environ.get("SELENIUM_CHROME_PROFILE")
+            if profile:
                 options.add_argument(f"--user-data-dir={profile}")
 
             self._configure_no_proxy_for_remote(url)
 
             return webdriver.Remote(command_executor=url, options=options)
         else:
+            self._apply_dedicated_settings(options)
             options.headless = True
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
+            if self.profile:
+                options.add_argument(f"--user-data-dir={self.profile}")
             return webdriver.Chrome(options=options)

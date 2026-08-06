@@ -42,6 +42,38 @@ with WebPageFirefox("https://example.com") as web_page:
         print(element.text)
 ```
 
+#### Selenium Grid and Extension Capabilities
+
+`WebPageFirefox` and `WebPageChrome` connect to a Selenium Grid when
+`SELENIUM_FIREFOX_URL` / `SELENIUM_CHROME_URL` is set. Any extension
+capability can be passed via the `capabilities` argument so that Grid nodes
+are matched by their stereotype (e.g., routing to a fixed-profile node):
+
+```python
+from pyscraper import WebPageFirefox
+
+with WebPageFirefox(
+    "https://example.com",
+    capabilities={"profile:name": "fixed-profile"},
+) as web_page:
+    for element in web_page.get("//a"):
+        print(element.text)
+```
+
+Notes:
+
+- Capability keys that overlap with dedicated arguments/environment
+  (`page_load_strategy`, `language`, `profile`) are overridden by those
+  settings. Reserved option keys such as `moz:firefoxOptions` and
+  `goog:chromeOptions` must not be passed. `proxy` cannot be set via
+  `capabilities`; configure it with `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`
+  environment variables. Unsupported capabilities are logged as warnings.
+- `profile` selects the browser profile directory (Firefox uses `-profile`,
+  Chrome uses `--user-data-dir`). It takes precedence over the legacy
+  `SELENIUM_FIREFOX_PROFILE` / `SELENIUM_CHROME_PROFILE` environment
+  variables.
+- `capabilities` is ignored during local (non-Grid) execution.
+
 ### WebFile Class
 
 The `WebFile` class is designed to handle file downloads from the web. It supports custom headers and cookies, and provides methods for reading and downloading file content.
