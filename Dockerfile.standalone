@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --no-cache-dir lxml
 
-# Selenium用: Firefox + geckodriver + Chromium
+# Selenium: Firefox + geckodriver + Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
     firefox-esr chromium chromium-driver && \
     rm -rf /var/lib/apt/lists/*
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -L https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz \
     | tar xz -C /usr/local/bin/
 
-# Playwright用: ブラウザバイナリ + システム依存ライブラリ
+# Playwright: browser binaries + system dependencies
 RUN pip install --no-cache-dir playwright && \
     playwright install --with-deps chromium && \
     playwright install --with-deps firefox

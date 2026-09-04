@@ -16,5 +16,5 @@ markers = [
     "no_mock_ffmpeg: Skip FFmpeg mocking only",
 ]
 
-# デフォルトでは単体テスト（モック）のみ実行、結合テストは除外
+# Run unit (mocked) tests by default; exclude integration tests
 addopts = "-m 'not integration'"

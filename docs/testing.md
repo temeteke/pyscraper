@@ -40,7 +40,7 @@ pytest tests/ -m "" -v
 ### Characteristics
 
 - ✅ **No external dependencies**: All external services are mocked
-- ✅ **Fast execution**: Completes in ~1.2 seconds
+- ✅ **Fast execution**: Completes in ~1s
 - ✅ **Offline capable**: No internet connection required
 - ✅ **100% reproducible**: Environment-independent
 - ✅ **CI/CD friendly**: Can run on every commit
@@ -75,7 +75,7 @@ Covered components (exact counts vary over time; see above):
 
 ### Characteristics
 
-- ⚠️ **Environment dependent**: Uses actual HTTP, Curl, Selenium
+- ⚠️ **Environment dependent**: Uses actual HTTP, Curl, Selenium, Playwright
 - ⚠️ **Slow execution**: Takes seconds to minutes
 - ⚠️ **Network required**: Internet connection necessary
 - ⚠️ **Environment specific**: Requires browsers, curl installation
@@ -115,6 +115,10 @@ curl --version
 # Firefox: geckodriver
 # Chrome: chromedriver
 ```
+
+Grid and Hub URLs are configured via environment variables; see
+[operations.md](operations.md) for the full setup (`SELENIUM_*_URL`,
+`PLAYWRIGHT_*_URL`, `docker compose` prerequisites).
 
 ---
 
@@ -411,7 +415,7 @@ ptc        # Measure coverage
 - ✅ **Faster development**: Unit tests provide fast feedback (~1s)
 - ✅ **Quality assurance**: Integration tests verify production compatibility
 - ✅ **CI/CD cost reduction**: Default is unit tests only
-- ✅ **Clear strategy**:明確 when to run what
+- ✅ **Clear strategy**: explicit guidance on when to run what
 - ✅ **Industry standard**: Standard test classification approach
 
 This strategy enables both fast development cycles and high-quality releases.
