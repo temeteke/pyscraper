@@ -95,7 +95,7 @@ Remote browsers via a Hub (two-port Hub: `4000` = websocket relay,
 ## Docker
 
 You can use Docker to set up the development environment and run the application.
-The repository includes a `docker-compose.yml` file for easy setup.
+The repository includes a `compose.yaml` file for easy setup.
 
 ### Quick start (pull prebuilt images)
 
@@ -135,14 +135,14 @@ Tag semantics:
 
 Notes:
 
-- `docker-compose.yml` references the Docker Hub images, so no login is
+- `compose.yaml` references the Docker Hub images, so no login is
   needed for public pulls. All services declare `image:`, so
   `docker compose pull` followed by `docker compose up -d` (without
   `--build`) runs the whole stack with no local build. `build:` sections
   are kept alongside for local development; note that
   `docker compose build` rebuilds (and retags) the same names locally.
 - The WebKit image is `linux/amd64` only (Playwright WebKit has no official
-  arm64 Linux support); `docker-compose.yml` pins `platform: linux/amd64`
+  arm64 Linux support); `compose.yaml` pins `platform: linux/amd64`
   for that service.
 
 ```sh
