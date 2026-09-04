@@ -11,20 +11,11 @@ Pyscraper maintains two distinct types of tests: **Unit Tests** and **Integratio
 | **Unit Tests** | None (mocked) | Fast (~1s) | ✅ Yes | Daily development, CI/CD |
 | **Integration Tests** | Yes (real services) | Slow (minutes) | ❌ No | Pre-release verification |
 
-```
-Total Tests: 218
-
-Unit Tests (default): 114 (52%)
-├── WebFile: 47
-├── HLSFile: 27
-├── Utils: 14
-└── WebPage (Requests): 26
-
-Integration Tests (opt-in): 104 (48%)
-├── WebFile (HTTP): 11
-├── WebPageCurl: 16
-├── Selenium Firefox: 39
-└── Selenium Chrome: 38
+```sh
+# Current counts change over time; check with:
+pytest --collect-only -q              # all tests
+pytest --collect-only -q -m "not integration"  # unit only
+pytest --collect-only -q -m integration        # integration only
 ```
 
 ---
@@ -70,37 +61,13 @@ pytest tests/ -v
 pytest tests/ --cov=pyscraper --cov-report=html
 ```
 
-### Test Coverage (114 tests)
+### Test Coverage (unit)
 
-#### WebFile - 47 tests ✅
-- HTTP downloads (mocked)
-- Range requests (mocked)
-- Error handling
-- Progress callbacks
-- File I/O operations
-
-#### HLSFile - 27 tests ✅
-- HLS stream parsing (mocked)
-- Video segment downloads (mocked)
-- FFmpeg integration (mocked)
-- Cache management
-
-#### Utils - 14 tests ✅
-- CachedGenerator
-- LazyList
-
-#### WebPage (Requests) - 26 tests ✅
-- HTML parsing
-- XPath processing
-- Encoding
-- HTTP communication (mocked)
-
-### Results
-
-```
-114/114 passed (100%)
-Execution time: 1.22s
-```
+Covered components (exact counts vary over time; see above):
+- WebFile (HTTP downloads, range, error handling, progress, file I/O)
+- HLSFile (stream parsing, segments, FFmpeg, cache)
+- Utils (CachedGenerator, LazyList)
+- WebPage / WebPageRequests / WebPagePlaywright (HTML, XPath, encoding, proxy)
 
 ---
 
@@ -127,34 +94,12 @@ INTEGRATION_TEST=1 pytest tests/ -v
 pytest tests/ -m "" -v
 ```
 
-### Test Coverage (104 tests)
+### Test Coverage (integration)
 
-#### WebFile HTTP Integration Tests - 11 tests
-- Real HTTP requests (httpbin.org)
-- Range requests
-- Redirect handling
-- Timeout handling
-- Content-Type detection
-
-**Location:** `tests/test_webfile.py::TestWebFileIntegration`
-
-#### WebPageCurl Integration Tests - 16 tests
-- Actual curl command execution
-- HTML download and parsing
-- XPath processing
-
-**Location:** `tests/test_webpage.py::TestWebPageCurl`
-
-**Note:** Real curl commands are executed. Tests may fail in restricted environments due to access limitations.
-
-#### Selenium Integration Tests - 77 tests
-- **Firefox automation tests (39 tests)**
-- **Chrome automation tests (38 tests)**
-- Selenium WebDriver operations
-- JavaScript execution
-- DOM manipulation
-
-**Location:** `tests/test_webpage.py::TestWebPageFirefox`, `TestWebPageChrome`
+- WebFile HTTP (real httpbin.org, range, redirect, timeout, Content-Type) — `tests/test_webfile.py::TestWebFileIntegration`
+- WebPageCurl (real curl execution, HTML/XPath) — `tests/test_webpage.py::TestWebPageCurl` (may fail in restricted networks)
+- Selenium (Firefox/Chrome, WebDriver, JS, DOM) — `tests/test_webpage.py::TestWebPageFirefox`, `TestWebPageChrome`
+- Playwright (Chromium/Firefox/WebKit remote via Hub, CDP) — `tests/test_webpage_playwright.py::TestWebPagePlaywrightIntegration`
 
 ### Requirements
 
@@ -208,7 +153,7 @@ git commit -m "..."
 ```
 
 **Executed tests:**
-- ✅ Unit tests (114 tests)
+- ✅ Unit tests (see counts via `collect-only`)
 - ❌ Integration tests (excluded)
 
 ### After Main Branch Merge
@@ -221,7 +166,7 @@ git commit -m "..."
 ```
 
 **Executed tests:**
-- ✅ Integration tests (104 tests)
+- ✅ Integration tests
 
 ### Before Release
 
@@ -234,8 +179,8 @@ pytest tests/ --override-ini="addopts=" -v
 ```
 
 **Executed tests:**
-- ✅ Unit tests (114 tests)
-- ✅ Integration tests (104 tests)
+- ✅ Unit tests
+- ✅ Integration tests
 
 ---
 

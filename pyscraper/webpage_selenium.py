@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import warnings
 from abc import ABC
 from datetime import datetime
 from http.client import RemoteDisconnected
@@ -70,6 +71,22 @@ def _warn_unsupported_capabilities(capabilities):
                 key,
                 e,
             )
+
+
+def _resolve_profile(profile, user_data_dir):
+    """Resolve the effective browser profile directory.
+
+    ``user_data_dir`` is an alias for ``profile``. When both are given,
+    ``profile`` takes precedence and a warning is emitted (matches the
+    WebPagePlaywright alias resolution for symmetry).
+    """
+    if user_data_dir is not None and profile is not None:
+        warnings.warn(
+            "profile takes precedence over user_data_dir; user_data_dir is ignored",
+            UserWarning,
+            stacklevel=2,
+        )
+    return profile if profile is not None else user_data_dir
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -353,8 +370,10 @@ class WebPageFirefox(WebPageSelenium):
     ``proxy`` cannot be set via ``capabilities``; configure it with the
     ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` environment variables.
     Unsupported capabilities are logged as warnings. The ``profile`` argument
-    takes precedence over the legacy ``SELENIUM_FIREFOX_PROFILE`` environment
-    variable.
+    (or its alias ``user_data_dir``) takes precedence over the legacy
+    ``SELENIUM_FIREFOX_PROFILE`` environment variable. The ``node`` argument
+    is forwarded as the ``pyscraper:node`` capability so a Selenium Grid can
+    route the session to the node that hosts the matching persistent profile.
     """
 
     DEFAULT_URL = "about:home"
@@ -368,8 +387,10 @@ class WebPageFirefox(WebPageSelenium):
         cookies_file=None,
         page_load_strategy=None,
         profile=None,
+        user_data_dir: str | None = None,
         language=None,
         capabilities: dict | None = None,
+        node: str | None = None,
     ):
         super().__init__(
             url,
@@ -379,9 +400,10 @@ class WebPageFirefox(WebPageSelenium):
             cookies_file=cookies_file,
             page_load_strategy=page_load_strategy,
         )
-        self.profile = profile
+        self.profile = _resolve_profile(profile, user_data_dir)
         self.language = language
         self.capabilities = dict(capabilities) if capabilities else None
+        self.node = node
 
     def _apply_dedicated_settings(self, options):
         if self.page_load_strategy:
@@ -397,6 +419,8 @@ class WebPageFirefox(WebPageSelenium):
             _warn_unsupported_capabilities(self.capabilities)
             for key, value in (self.capabilities or {}).items():
                 options.set_capability(key, value)
+            if self.node is not None:
+                options.set_capability("pyscraper:node", self.node)
 
             self._apply_dedicated_settings(options)
 
@@ -427,11 +451,19 @@ class WebPageFirefox(WebPageSelenium):
 
         else:
             self._apply_dedicated_settings(options)
-            options.headless = True
+            # headless property is deprecated since Selenium 4.x
+            options.add_argument("-headless")
             if self.profile:
-                return webdriver.Firefox(
-                    options=options, firefox_profile=webdriver.FirefoxProfile(self.profile)
-                )
+                # FirefoxProfile() constructor is deprecated; Options.profile is the
+                # current API. Fall back to the legacy constructor for older Selenium.
+                try:
+                    options.profile = webdriver.FirefoxProfile(self.profile)
+                except Exception:
+                    return webdriver.Firefox(
+                        options=options,
+                        firefox_profile=webdriver.FirefoxProfile(self.profile),
+                    )
+                return webdriver.Firefox(options=options)
             return webdriver.Firefox(options=options)
 
 
@@ -449,8 +481,9 @@ class WebPageChrome(WebPageSelenium):
     ``proxy`` cannot be set via ``capabilities``; configure it with the
     ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` environment variables.
     Unsupported capabilities are logged as warnings. The ``profile`` argument
-    takes precedence over the legacy ``SELENIUM_CHROME_PROFILE`` environment
-    variable.
+    (or its alias ``user_data_dir``) takes precedence over the legacy
+    ``SELENIUM_CHROME_PROFILE`` environment variable. The ``node`` argument is
+    forwarded as the ``pyscraper:node`` capability for Grid node routing.
     """
 
     DEFAULT_URL = "chrome://new-tab-page"
@@ -464,7 +497,9 @@ class WebPageChrome(WebPageSelenium):
         cookies_file=None,
         page_load_strategy=None,
         profile=None,
+        user_data_dir: str | None = None,
         capabilities: dict | None = None,
+        node: str | None = None,
     ):
         super().__init__(
             url,
@@ -474,8 +509,9 @@ class WebPageChrome(WebPageSelenium):
             cookies_file=cookies_file,
             page_load_strategy=page_load_strategy,
         )
-        self.profile = profile
+        self.profile = _resolve_profile(profile, user_data_dir)
         self.capabilities = dict(capabilities) if capabilities else None
+        self.node = node
 
     def _apply_dedicated_settings(self, options):
         if self.page_load_strategy:
@@ -488,6 +524,8 @@ class WebPageChrome(WebPageSelenium):
             _warn_unsupported_capabilities(self.capabilities)
             for key, value in (self.capabilities or {}).items():
                 options.set_capability(key, value)
+            if self.node is not None:
+                options.set_capability("pyscraper:node", self.node)
 
             self._apply_dedicated_settings(options)
 
@@ -501,7 +539,7 @@ class WebPageChrome(WebPageSelenium):
             return webdriver.Remote(command_executor=url, options=options)
         else:
             self._apply_dedicated_settings(options)
-            options.headless = True
+            options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
             if self.profile:

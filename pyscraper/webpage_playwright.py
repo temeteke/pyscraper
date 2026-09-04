@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import time
+import warnings
 from abc import ABC
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,22 @@ from pyscraper.webpage import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_user_data_dir(profile, user_data_dir):
+    """Resolve the effective browser profile directory.
+
+    ``profile`` is the canonical argument (mirrors WebPageSelenium);
+    ``user_data_dir`` is an alias for it. When both are given, ``profile``
+    takes precedence and a warning is emitted.
+    """
+    if user_data_dir is not None and profile is not None:
+        warnings.warn(
+            "profile takes precedence over user_data_dir; user_data_dir is ignored",
+            UserWarning,
+            stacklevel=2,
+        )
+    return profile if profile is not None else user_data_dir
 
 
 @dataclass
@@ -102,14 +119,41 @@ class PlaywrightWebPageElement(WebPageElement):
 
 
 class WebPagePlaywright(WebPage, ABC):
-    def __init__(self, url, params: dict | None = None, encoding=None):
+    def __init__(
+        self,
+        url,
+        params: dict | None = None,
+        encoding=None,
+        profile: str | None = None,
+        user_data_dir: str | None = None,
+        node: str | None = None,
+    ):
         self._playwright = None
         self._browser = None
         self._context = None
         self._page = None
         self._cookies = {}
         self._cookies_file = None
+        self._user_data_dir = _resolve_user_data_dir(profile, user_data_dir)
+        self.profile = profile
+        self.node = node
+        self._persistent = False
+        self._remote = False
         super().__init__(url, params=params, encoding=encoding)
+
+    def _launch_options_header(self) -> dict:
+        """Build the ``x-playwright-launch-options`` header for a remote Hub.
+
+        Includes ``browser`` so the Hub can prefer a same-browser node when
+        ``node`` is not specified, and ``node`` so the Hub can route to the
+        node that hosts the requested persistent profile (the profile directory
+        is owned by the node, not sent by the client). When no ``node`` is
+        given the Hub falls back to a browser-matching node.
+        """
+        options = {"headless": self._headless, "browser": self._browser_name}
+        if self.node is not None:
+            options["node"] = self.node
+        return options
 
     def _ensure_open(self):
         if self._page is None:
@@ -251,19 +295,22 @@ class WebPagePlaywright(WebPage, ABC):
             else:
                 os.environ[key] = netloc
 
+    def _proxy_settings(self) -> dict:
+        # HTTPS_PROXY takes precedence over HTTP_PROXY, matching the original
+        # (pre-refactor) precedence in _setup_proxy_context.
+        server = _get_env_anycase("HTTPS_PROXY") or _get_env_anycase("HTTP_PROXY")
+        bypass = _get_env_anycase("NO_PROXY")
+        settings: dict = {}
+        if server:
+            settings["server"] = server
+        if bypass:
+            settings["bypass"] = bypass
+        return settings
+
     def _setup_proxy_context(self):
-        proxy_settings = {}
-        http_proxy = _get_env_anycase("HTTP_PROXY")
-        https_proxy = _get_env_anycase("HTTPS_PROXY")
-        no_proxy = _get_env_anycase("NO_PROXY")
-
-        if http_proxy:
-            proxy_settings["server"] = http_proxy
-        if https_proxy:
-            proxy_settings["server"] = https_proxy
-        if no_proxy:
-            proxy_settings["bypass"] = no_proxy
-
+        if self._context is not None:
+            return
+        proxy_settings = self._proxy_settings()
         if proxy_settings:
             self._context = self._browser.new_context(proxy=proxy_settings)
         else:
@@ -293,18 +340,85 @@ class WebPagePlaywright(WebPage, ABC):
             raise
 
     def close(self):
-        if self._context is not None:
-            self._context.close()
+        # Ownership model (two orthogonal flags):
+        # - _remote: browser/context are owned by the Hub node; the client must
+        #   NOT call close() on them. Only detach local refs and stop the
+        #   client-side Playwright driver (which closes the ws to the Hub).
+        # - _persistent: local persistent context (launch_persistent_context)
+        #   owns its browser via context.browser, so browser.close() is redundant
+        #   after context.close(). For non-persistent local, browser must be
+        #   closed explicitly. This flag is irrelevant when _remote is set.
+        if self._remote:
             self._context = None
-        if self._browser is not None:
-            self._browser.close()
             self._browser = None
+            self._page = None
+        else:
+            if self._context is not None:
+                self._context.close()
+                self._context = None
+            if self._browser is not None and not self._persistent:
+                self._browser.close()
+                self._browser = None
+            self._page = None
+        self._persistent = False
+        self._remote = False
         if self._playwright is not None:
             self._playwright.stop()
             self._playwright = None
 
     def _start_browser(self):
-        raise NotImplementedError
+        browser = getattr(self._playwright, self._browser_name)
+        if remote_url := os.environ.get(f"PLAYWRIGHT_{self._browser_name.upper()}_URL"):
+            self._remote = True
+            self._configure_no_proxy_for_remote(remote_url)
+            options = self._launch_options_header()
+            if remote_url.startswith(("http://", "https://")):
+                # Direct CDP connection (no Hub): persistent profiles are not
+                # supported on this path.
+                if self.node is not None or self._user_data_dir is not None:
+                    warnings.warn(
+                        "node and profile are ignored for CDP (http/https) remote "
+                        "connections; use a ws:// Hub URL to enable Hub routing",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                self._browser = browser.connect_over_cdp(remote_url)
+            else:
+                # ws:// Hub: the Hub routes to the selected node.
+                if self.node is not None and self._browser_name == "chromium":
+                    # Chromium persistent node: the Hub relays to the node's CDP
+                    # endpoint; the default (persistent) context is contexts[0].
+                    self._browser = browser.connect_over_cdp(
+                        remote_url,
+                        headers={"x-playwright-launch-options": json.dumps(options)},
+                    )
+                    self._context = self._browser.contexts[0]
+                    self._persistent = True
+                else:
+                    if self.node is not None and self._browser_name != "chromium":
+                        # Firefox/WebKit nodes are non-persistent over the Hub.
+                        pass
+                    elif self._user_data_dir is not None:
+                        warnings.warn(
+                            "user_data_dir is ignored for remote connections",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                    self._browser = browser.connect(
+                        remote_url,
+                        headers={"x-playwright-launch-options": json.dumps(options)},
+                    )
+        elif self._user_data_dir is not None:
+            proxy_settings = self._proxy_settings()
+            self._context = browser.launch_persistent_context(
+                user_data_dir=self._user_data_dir,
+                headless=self._headless,
+                proxy=proxy_settings or None,
+            )
+            self._browser = self._context.browser
+            self._persistent = True
+        else:
+            self._browser = browser.launch(headless=self._headless)
 
     def capture(self, filter_url=None):
         """Start a network request capture session.
@@ -320,6 +434,8 @@ class WebPagePlaywright(WebPage, ABC):
 
 
 class WebPagePlaywrightChromium(WebPagePlaywright):
+    _browser_name = "chromium"
+
     def __init__(
         self,
         url=None,
@@ -327,29 +443,27 @@ class WebPagePlaywrightChromium(WebPagePlaywright):
         cookies: dict | None = None,
         cookies_file=None,
         headless: bool = True,
+        profile: str | None = None,
+        user_data_dir: str | None = None,
+        node: str | None = None,
     ):
         if not url:
             url = "about:blank"
-        super().__init__(url, params=params)
+        super().__init__(
+            url,
+            params=params,
+            profile=profile,
+            user_data_dir=user_data_dir,
+            node=node,
+        )
         self._cookies = cookies or {}
         self._cookies_file = cookies_file
         self._headless = headless
-
-    def _start_browser(self):
-        if remote_url := os.environ.get("PLAYWRIGHT_CHROMIUM_URL"):
-            self._configure_no_proxy_for_remote(remote_url)
-            if remote_url.startswith("http://") or remote_url.startswith("https://"):
-                self._browser = self._playwright.chromium.connect_over_cdp(remote_url)
-            else:
-                self._browser = self._playwright.chromium.connect(
-                    remote_url,
-                    headers={"x-playwright-launch-options": json.dumps({"headless": self._headless})},
-                )
-        else:
-            self._browser = self._playwright.chromium.launch(headless=self._headless)
 
 
 class WebPagePlaywrightFirefox(WebPagePlaywright):
+    _browser_name = "firefox"
+
     def __init__(
         self,
         url=None,
@@ -357,29 +471,27 @@ class WebPagePlaywrightFirefox(WebPagePlaywright):
         cookies: dict | None = None,
         cookies_file=None,
         headless: bool = True,
+        profile: str | None = None,
+        user_data_dir: str | None = None,
+        node: str | None = None,
     ):
         if not url:
             url = "about:blank"
-        super().__init__(url, params=params)
+        super().__init__(
+            url,
+            params=params,
+            profile=profile,
+            user_data_dir=user_data_dir,
+            node=node,
+        )
         self._cookies = cookies or {}
         self._cookies_file = cookies_file
         self._headless = headless
-
-    def _start_browser(self):
-        if remote_url := os.environ.get("PLAYWRIGHT_FIREFOX_URL"):
-            self._configure_no_proxy_for_remote(remote_url)
-            if remote_url.startswith("http://") or remote_url.startswith("https://"):
-                self._browser = self._playwright.firefox.connect_over_cdp(remote_url)
-            else:
-                self._browser = self._playwright.firefox.connect(
-                    remote_url,
-                    headers={"x-playwright-launch-options": json.dumps({"headless": self._headless})},
-                )
-        else:
-            self._browser = self._playwright.firefox.launch(headless=self._headless)
 
 
 class WebPagePlaywrightWebKit(WebPagePlaywright):
+    _browser_name = "webkit"
+
     def __init__(
         self,
         url=None,
@@ -387,26 +499,22 @@ class WebPagePlaywrightWebKit(WebPagePlaywright):
         cookies: dict | None = None,
         cookies_file=None,
         headless: bool = True,
+        profile: str | None = None,
+        user_data_dir: str | None = None,
+        node: str | None = None,
     ):
         if not url:
             url = "about:blank"
-        super().__init__(url, params=params)
+        super().__init__(
+            url,
+            params=params,
+            profile=profile,
+            user_data_dir=user_data_dir,
+            node=node,
+        )
         self._cookies = cookies or {}
         self._cookies_file = cookies_file
         self._headless = headless
-
-    def _start_browser(self):
-        if remote_url := os.environ.get("PLAYWRIGHT_WEBKIT_URL"):
-            self._configure_no_proxy_for_remote(remote_url)
-            if remote_url.startswith("http://") or remote_url.startswith("https://"):
-                self._browser = self._playwright.webkit.connect_over_cdp(remote_url)
-            else:
-                self._browser = self._playwright.webkit.connect(
-                    remote_url,
-                    headers={"x-playwright-launch-options": json.dumps({"headless": self._headless})},
-                )
-        else:
-            self._browser = self._playwright.webkit.launch(headless=self._headless)
 
 
 class CaptureSession:

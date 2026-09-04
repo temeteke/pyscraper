@@ -107,6 +107,17 @@ def mock_pw(page_html=None):
     pw_instance.chromium.launch.return_value = browser
     pw_instance.firefox.launch.return_value = browser
     pw_instance.webkit.launch.return_value = browser
+    pw_instance.chromium.launch_persistent_context.return_value = context
+    pw_instance.firefox.launch_persistent_context.return_value = context
+    pw_instance.webkit.launch_persistent_context.return_value = context
+    pw_instance.chromium.connect.return_value = browser
+    pw_instance.firefox.connect.return_value = browser
+    pw_instance.webkit.connect.return_value = browser
+    pw_instance.chromium.connect_over_cdp.return_value = browser
+    pw_instance.firefox.connect_over_cdp.return_value = browser
+    pw_instance.webkit.connect_over_cdp.return_value = browser
+    context.browser = browser
+    browser.contexts = [context]
 
     with patch("playwright.sync_api.sync_playwright") as mock_sync:
         mock_sync.return_value.start.return_value = pw_instance
@@ -467,6 +478,245 @@ class TestWebPagePlaywrightConcreteClasses:
 
 
 # ---------------------------------------------------------------------------
+# Persistent context (user_data_dir) tests
+# ---------------------------------------------------------------------------
+
+class TestWebPagePlaywrightPersistent:
+    BROWSERS = [
+        (WebPagePlaywrightChromium, "chromium"),
+        (WebPagePlaywrightFirefox, "firefox"),
+        (WebPagePlaywrightWebKit, "webkit"),
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_proxy_env(self):
+        saved = {k: os.environ.get(k) for k in ("no_proxy", "NO_PROXY")}
+        yield
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_persistent_context_launched(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        with page_class("https://example.com", user_data_dir="/tmp/profile"):
+            getattr(pw_instance, browser_attr).launch_persistent_context.assert_called_once()
+        kwargs = getattr(pw_instance, browser_attr).launch_persistent_context.call_args[1]
+        assert kwargs["user_data_dir"] == "/tmp/profile"
+        assert kwargs["headless"] is True
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_persistent_context_headless_false(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        with page_class("https://example.com", headless=False, user_data_dir="/tmp/profile"):
+            pass
+        kwargs = getattr(pw_instance, browser_attr).launch_persistent_context.call_args[1]
+        assert kwargs["headless"] is False
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_no_persistent_without_user_data_dir(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        with page_class("https://example.com"):
+            pass
+        getattr(pw_instance, browser_attr).launch_persistent_context.assert_not_called()
+        getattr(pw_instance, browser_attr).launch.assert_called_once()
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_persistent_browser_bound_from_context(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        wp = page_class("https://example.com", user_data_dir="/tmp/profile")
+        with wp:
+            assert wp._browser is context.browser
+            assert wp._persistent is True
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_profile_alias_launches_persistent(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        with page_class("https://example.com", profile="/tmp/profile"):
+            getattr(pw_instance, browser_attr).launch_persistent_context.assert_called_once()
+        kwargs = getattr(pw_instance, browser_attr).launch_persistent_context.call_args[1]
+        assert kwargs["user_data_dir"] == "/tmp/profile"
+        assert kwargs["headless"] is True
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_profile_preferred_over_user_data_dir(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        with pytest.warns(UserWarning, match="profile takes precedence"):
+            with page_class(
+                "https://example.com", profile="/tmp/profile", user_data_dir="/tmp/udd"
+            ):
+                pass
+        kwargs = getattr(pw_instance, browser_attr).launch_persistent_context.call_args[1]
+        assert kwargs["user_data_dir"] == "/tmp/profile"
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_remote_with_node_header_and_context_reuse(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        env_var = f"PLAYWRIGHT_{browser_attr.upper()}_URL"
+        saved = os.environ.get(env_var)
+        os.environ[env_var] = "ws://playwright:4444/ws"
+        try:
+            wp = page_class("https://example.com", node="cf")
+            with wp:
+                bt = getattr(pw_instance, browser_attr)
+                if browser_attr == "chromium":
+                    # Chromium persistent node: CDP relay, reuse default context.
+                    kwargs = bt.connect_over_cdp.call_args[1]
+                    options = json.loads(kwargs["headers"]["x-playwright-launch-options"])
+                    assert options["node"] == "cf"
+                    assert wp._context is browser.contexts[0]
+                    assert wp._persistent is True
+                else:
+                    # Firefox/WebKit nodes are non-persistent over the Hub.
+                    kwargs = bt.connect.call_args[1]
+                    options = json.loads(kwargs["headers"]["x-playwright-launch-options"])
+                    assert options["node"] == "cf"
+                    assert wp._context is bt.connect.return_value.new_context.return_value
+                    assert wp._persistent is False
+        finally:
+            if saved is None:
+                del os.environ[env_var]
+            else:
+                os.environ[env_var] = saved
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_remote_without_node_header_minimal(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        env_var = f"PLAYWRIGHT_{browser_attr.upper()}_URL"
+        saved = os.environ.get(env_var)
+        os.environ[env_var] = "ws://playwright:4444/ws"
+        try:
+            wp = page_class("https://example.com")
+            with wp:
+                connect = getattr(pw_instance, browser_attr).connect
+                kwargs = connect.call_args[1]
+                options = json.loads(kwargs["headers"]["x-playwright-launch-options"])
+                assert "node" not in options
+                # No persistent context was pre-bound; open() builds a fresh one.
+                assert wp._context is connect.return_value.new_context.return_value
+        finally:
+            if saved is None:
+                del os.environ[env_var]
+            else:
+                os.environ[env_var] = saved
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_remote_node_with_cdp_warns(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        env_var = f"PLAYWRIGHT_{browser_attr.upper()}_URL"
+        saved = os.environ.get(env_var)
+        os.environ[env_var] = "http://playwright:9222"
+        try:
+            with pytest.warns(UserWarning, match="node and profile are ignored for CDP"):
+                with page_class("https://example.com", node="cf", profile="/tmp/p"):
+                    pass
+        finally:
+            if saved is None:
+                del os.environ[env_var]
+            else:
+                os.environ[env_var] = saved
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_remote_close_does_not_tear_down_node(self, mock_pw, page_class, browser_attr):
+        # The node owns the browser/context; the client must not close them.
+        page_mock, browser, context, pw_instance = mock_pw
+        env_var = f"PLAYWRIGHT_{browser_attr.upper()}_URL"
+        saved = os.environ.get(env_var)
+        os.environ[env_var] = "ws://playwright:4444/ws"
+        try:
+            wp = page_class("https://example.com", node="cf")
+            with wp:
+                pass
+            context.close.assert_not_called()
+            browser.close.assert_not_called()
+        finally:
+            if saved is None:
+                del os.environ[env_var]
+            else:
+                os.environ[env_var] = saved
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_proxy_reflected_in_persistent(self, mock_pw, page_class, browser_attr):
+        saved = {}
+        for k, v in {"HTTP_PROXY": "http://proxy:8080", "NO_PROXY": "localhost"}.items():
+            saved[k] = os.environ.get(k)
+            os.environ[k] = v
+        try:
+            page_mock, browser, context, pw_instance = mock_pw
+            with page_class("https://example.com", user_data_dir="/tmp/profile"):
+                pass
+            kwargs = getattr(pw_instance, browser_attr).launch_persistent_context.call_args[1]
+            assert kwargs["proxy"]["server"] == "http://proxy:8080"
+            assert kwargs["proxy"]["bypass"] == "localhost"
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_proxy_https_preferred_in_persistent(self, mock_pw, page_class, browser_attr):
+        saved = {}
+        for k, v in {
+            "HTTP_PROXY": "http://http-proxy:8080",
+            "HTTPS_PROXY": "http://https-proxy:8080",
+        }.items():
+            saved[k] = os.environ.get(k)
+            os.environ[k] = v
+        try:
+            page_mock, browser, context, pw_instance = mock_pw
+            with page_class("https://example.com", user_data_dir="/tmp/profile"):
+                pass
+            kwargs = getattr(pw_instance, browser_attr).launch_persistent_context.call_args[1]
+            assert kwargs["proxy"]["server"] == "http://https-proxy:8080"
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_no_proxy_env_means_proxy_none_in_persistent(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        with page_class("https://example.com", user_data_dir="/tmp/profile"):
+            pass
+        kwargs = getattr(pw_instance, browser_attr).launch_persistent_context.call_args[1]
+        assert kwargs["proxy"] is None
+
+    @pytest.mark.parametrize("page_class,env_var,browser_attr", [
+        (WebPagePlaywrightChromium, "PLAYWRIGHT_CHROMIUM_URL", "chromium"),
+        (WebPagePlaywrightFirefox, "PLAYWRIGHT_FIREFOX_URL", "firefox"),
+        (WebPagePlaywrightWebKit, "PLAYWRIGHT_WEBKIT_URL", "webkit"),
+    ])
+    def test_remote_ignores_user_data_dir(self, mock_pw, page_class, env_var, browser_attr):
+        saved = os.environ.get(env_var)
+        os.environ[env_var] = "ws://playwright:4444/ws"
+        try:
+            page_mock, browser, context, pw_instance = mock_pw
+            with pytest.warns(UserWarning, match="user_data_dir is ignored"):
+                with page_class("https://example.com", user_data_dir="/tmp/profile"):
+                    pass
+            getattr(pw_instance, browser_attr).launch_persistent_context.assert_not_called()
+        finally:
+            if saved is None:
+                del os.environ[env_var]
+            else:
+                os.environ[env_var] = saved
+
+    @pytest.mark.parametrize("page_class,browser_attr", BROWSERS)
+    def test_close_does_not_double_close_browser(self, mock_pw, page_class, browser_attr):
+        page_mock, browser, context, pw_instance = mock_pw
+        with page_class("https://example.com", user_data_dir="/tmp/profile"):
+            pass
+        context.close.assert_called_once()
+        browser.close.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Remote browser URL tests
 # ---------------------------------------------------------------------------
 
@@ -491,7 +741,7 @@ class TestWebPagePlaywrightRemote:
             with WebPagePlaywrightChromium("https://example.com"):
                 pw_instance.chromium.connect.assert_called_once_with(
                     self.REMOTE_URL,
-                    headers={"x-playwright-launch-options": json.dumps({"headless": True})},
+                    headers={"x-playwright-launch-options": json.dumps({"headless": True, "browser": "chromium"})},
                 )
         finally:
             if saved is None:
@@ -507,7 +757,7 @@ class TestWebPagePlaywrightRemote:
             with WebPagePlaywrightFirefox("https://example.com"):
                 pw_instance.firefox.connect.assert_called_once_with(
                     self.REMOTE_URL,
-                    headers={"x-playwright-launch-options": json.dumps({"headless": True})},
+                    headers={"x-playwright-launch-options": json.dumps({"headless": True, "browser": "firefox"})},
                 )
         finally:
             if saved is None:
@@ -523,7 +773,7 @@ class TestWebPagePlaywrightRemote:
             with WebPagePlaywrightWebKit("https://example.com"):
                 pw_instance.webkit.connect.assert_called_once_with(
                     self.REMOTE_URL,
-                    headers={"x-playwright-launch-options": json.dumps({"headless": True})},
+                    headers={"x-playwright-launch-options": json.dumps({"headless": True, "browser": "webkit"})},
                 )
         finally:
             if saved is None:
@@ -548,7 +798,7 @@ class TestWebPagePlaywrightRemote:
             with WebPagePlaywrightChromium("https://example.com", headless=False):
                 pw_instance.chromium.connect.assert_called_once_with(
                     self.REMOTE_URL,
-                    headers={"x-playwright-launch-options": json.dumps({"headless": False})},
+                    headers={"x-playwright-launch-options": json.dumps({"headless": False, "browser": "chromium"})},
                 )
         finally:
             if saved is None:
@@ -606,6 +856,14 @@ class TestWebPagePlaywrightProxy:
         call_args = self._run_with_proxy_env({"HTTPS_PROXY": "http://proxy:8080"})
         kwargs = call_args[1] if call_args else {}
         assert kwargs.get("proxy", {}).get("server") == "http://proxy:8080"
+
+    def test_https_proxy_preferred_over_http(self):
+        call_args = self._run_with_proxy_env({
+            "HTTP_PROXY": "http://http-proxy:8080",
+            "HTTPS_PROXY": "http://https-proxy:8080",
+        })
+        kwargs = call_args[1] if call_args else {}
+        assert kwargs.get("proxy", {}).get("server") == "http://https-proxy:8080"
 
     def test_no_proxy(self):
         call_args = self._run_with_proxy_env({
@@ -670,7 +928,7 @@ class TestConfigureNoProxyForRemote:
     )
 
     @pytest.fixture(autouse=True)
-    def _cleanup_env(self):
+    def _cleanup_proxy_env(self):
         saved = {k: os.environ.get(k) for k in self.ENV_KEYS}
         yield
         for k, v in saved.items():
@@ -875,10 +1133,14 @@ class TestWebPagePlaywrightIntegration:
 
     CONTAINER_NAMES = {
         "chromium": "pyscraper-playwright-chromium-1",
+        "chromium-profile": "pyscraper-playwright-chromium-profile-1",
         "firefox": "pyscraper-playwright-firefox-1",
         "webkit": "pyscraper-playwright-webkit-1",
     }
-    PORTS = {"chromium": 3000, "firefox": 3002, "webkit": 3003}
+    # Chromium nodes serve CDP over http (not ws) via Hub; PORTS maps to CDP/launch-server ports
+    PORTS = {"chromium": 3001, "chromium-profile": 3001, "firefox": 3002, "webkit": 3003}
+    HUB_WS = "ws://playwright-hub:4000/ws"
+    HUB_HTTP = "http://playwright-hub:4001"
 
     @staticmethod
     def _get_ip(container_name):
@@ -898,9 +1160,23 @@ class TestWebPagePlaywrightIntegration:
         ip = self._get_ip(container_name)
         return f"http://{ip}:{port}"
 
+    @staticmethod
+    def _get_hub_ws():
+        import subprocess
+        result = subprocess.run(
+            ["docker", "inspect", "pyscraper-playwright-hub-1",
+             "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        ip = result.stdout.strip()
+        if not ip:
+            raise RuntimeError("Playwright Hub container not found. Start with: docker compose up -d playwright-hub")
+        return f"ws://{ip}:4000/ws"
+
     @pytest.mark.integration
     def test_remote_chromium_open(self):
-        url = self._connect("chromium", "pyscraper-playwright-chromium-1", 3000)
+        # Direct CDP to chromium node (legacy path, no Hub)
+        url = self._connect("chromium", "pyscraper-playwright-chromium-1", 3001)
         target = "https://temeteke.github.io/pyscraper/tests/testdata/test.html"
         os.environ["PLAYWRIGHT_CHROMIUM_URL"] = url
         try:
@@ -913,8 +1189,21 @@ class TestWebPagePlaywrightIntegration:
             os.environ.pop("PLAYWRIGHT_CHROMIUM_URL", None)
 
     @pytest.mark.integration
+    def test_remote_chromium_via_hub(self):
+        # Hub relay to chromium-profile persistent node
+        hub_ws = self._get_hub_ws()
+        target = "https://temeteke.github.io/pyscraper/tests/testdata/test.html"
+        os.environ["PLAYWRIGHT_CHROMIUM_URL"] = hub_ws
+        try:
+            with WebPagePlaywrightChromium(target, node="chromium-profile") as wp:
+                html = wp.html
+                assert "<h1>Header</h1>" in html or "<h1>Test</h1>" in html
+        finally:
+            os.environ.pop("PLAYWRIGHT_CHROMIUM_URL", None)
+
+    @pytest.mark.integration
     def test_remote_chromium_click(self):
-        url = self._connect("chromium", "pyscraper-playwright-chromium-1", 3000)
+        url = self._connect("chromium", "pyscraper-playwright-chromium-1", 3001)
         target = "https://temeteke.github.io/pyscraper/tests/testdata/test.html"
         os.environ["PLAYWRIGHT_CHROMIUM_URL"] = url
         try:

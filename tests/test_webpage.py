@@ -717,6 +717,20 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         assert "--user-data-dir=/tmp/arg-profile" in options.arguments
         assert "--user-data-dir=/tmp/env-profile" not in options.arguments
 
+    def test_firefox_grid_node_capability(self):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, node="cf")
+        options = self._remote_options(mock_remote)
+        assert options.capabilities["pyscraper:node"] == "cf"
+
+    def test_chrome_grid_node_capability(self):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageChrome, env, node="cf")
+        options = self._remote_options(mock_remote)
+        assert options.capabilities["pyscraper:node"] == "cf"
+
     def test_chrome_local_profile(self):
         with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
             self._run(WebPageChrome, profile="/tmp/local-profile")
@@ -744,7 +758,59 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
             shutil.rmtree(profile_dir, ignore_errors=True)
         mock_firefox.assert_called_once()
         _, kwargs = mock_firefox.call_args
-        assert kwargs["firefox_profile"] is not None
+        # FirefoxProfile via options.profile is preferred (deprecated firefox_profile kwarg fallback)
+        opts = kwargs["options"]
+        profile = kwargs.get("firefox_profile") or getattr(opts, "profile", None)
+        assert profile is not None
+
+    def test_firefox_local_user_data_dir(self):
+        import tempfile
+        profile_dir = tempfile.mkdtemp()
+        try:
+            with patch("pyscraper.webpage_selenium.webdriver.Firefox") as mock_firefox:
+                self._run(WebPageFirefox, user_data_dir=profile_dir)
+        finally:
+            import shutil
+            shutil.rmtree(profile_dir, ignore_errors=True)
+        mock_firefox.assert_called_once()
+        _, kwargs = mock_firefox.call_args
+        opts = kwargs["options"]
+        profile = kwargs.get("firefox_profile") or getattr(opts, "profile", None)
+        assert profile is not None
+
+    def test_chrome_local_user_data_dir(self):
+        with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
+            self._run(WebPageChrome, user_data_dir="/tmp/local-udd")
+        mock_chrome.assert_called_once()
+        _, kwargs = mock_chrome.call_args
+        assert "--user-data-dir=/tmp/local-udd" in kwargs["options"].arguments
+
+    def test_firefox_grid_user_data_dir(self):
+        env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageFirefox, env, user_data_dir="/tmp/grid-udd")
+        options = self._remote_options(mock_remote)
+        assert "-profile" in options.arguments
+        assert "/tmp/grid-udd" in options.arguments
+
+    def test_chrome_grid_user_data_dir(self):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            self._run(WebPageChrome, env, user_data_dir="/tmp/grid-udd")
+        options = self._remote_options(mock_remote)
+        assert "--user-data-dir=/tmp/grid-udd" in options.arguments
+
+    def test_profile_overrides_user_data_dir(self):
+        with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
+            with pytest.warns(UserWarning, match="profile takes precedence"):
+                self._run(
+                    WebPageChrome,
+                    profile="/tmp/profile",
+                    user_data_dir="/tmp/udd",
+                )
+        _, kwargs = mock_chrome.call_args
+        assert "--user-data-dir=/tmp/profile" in kwargs["options"].arguments
+        assert "--user-data-dir=/tmp/udd" not in kwargs["options"].arguments
 
     def test_firefox_grid_page_load_strategy_argument_wins(self):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}

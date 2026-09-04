@@ -1,81 +1,165 @@
-version: '3'
 services:
   python:
+    image: temeteke/pyscraper:latest
     build:
       context: .
       dockerfile: Dockerfile
     environment:
-      - SELENIUM_FIREFOX_URL=http://selenium-firefox:4444/wd/hub
+      - SELENIUM_FIREFOX_URL=http://selenium-hub:4444/wd/hub
       - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
-      - SELENIUM_CHROME_URL=http://selenium-chrome:4444/wd/hub
+      - SELENIUM_CHROME_URL=http://selenium-hub:4444/wd/hub
       - SELENIUM_CHROME_PROFILE=/tmp/chrome-profile
-
-  selenium-firefox:
-    image: selenium/standalone-firefox
-    ports:
-      - 7900:7900
-    volumes:
-      - firefox-profile:/tmp/firefox-profile
+      - PLAYWRIGHT_CHROMIUM_URL=ws://playwright-hub:4000/ws
+      - PLAYWRIGHT_FIREFOX_URL=ws://playwright-hub:4000/ws
+      - PLAYWRIGHT_WEBKIT_URL=ws://playwright-hub:4000/ws
     depends_on:
-      - init-selenium-firefox
+      selenium-hub:
+        condition: service_healthy
+      playwright-hub:
+        condition: service_healthy
 
-  init-selenium-firefox:
-    image: busybox
-    command:
-      - sh
-      - -c
-      - chown -R 1200:1201 /tmp/firefox-profile
-    volumes:
-      - firefox-profile:/tmp/firefox-profile
-
-  selenium-chrome:
-    image: selenium/standalone-chrome
+  selenium-hub:
+    image: selenium/hub:4.27.0
     ports:
-      - 7901:7900
+      - "4444:4444"
+    expose:
+      - "4442"
+      - "4443"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4444/status | grep -q '\"ready\" *: *true'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  selenium-chrome-node:
+    image: selenium/node-chrome:4.27.0
+    shm_size: 2gb
+    # Chrome requires additional syscalls for sandbox IPC. shm_size:2gb alone
+    # is not sufficient -- without seccomp:unconfined the session fails with
+    # "DevToolsActivePort file doesn't exist" (verified 2026-08-30). Keep
+    # relaxation dev-only; production should use a scoped seccomp profile.
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_GRID_URL=http://selenium-hub:4444
+      - 'SE_NODE_STEREOTYPE={"browserName": "chrome", "platformName": "Linux", "pyscraper:node": "chromium-profile"}'
     volumes:
       - chrome-profile:/tmp/chrome-profile
     depends_on:
-      - init-selenium-chrome
+      selenium-hub:
+        condition: service_healthy
 
-  init-selenium-chrome:
-    image: busybox
-    command:
-      - sh
-      - -c
-      - chown -R 1200:1201 /tmp/chrome-profile
+  selenium-firefox-node:
+    image: selenium/node-firefox:4.27.0
+    shm_size: 2gb
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_GRID_URL=http://selenium-hub:4444
+      - 'SE_NODE_STEREOTYPE={"browserName": "firefox", "platformName": "Linux", "pyscraper:node": "firefox-profile"}'
     volumes:
-      - chrome-profile:/tmp/chrome-profile
+      - firefox-profile:/tmp/firefox-profile
+    depends_on:
+      selenium-hub:
+        condition: service_healthy
+
+  playwright-hub:
+    image: temeteke/pyscraper-playwright-hub:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright-hub
+    ports:
+      - "4000:4000"
+      - "4001:4001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4001/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   playwright-chromium:
+    image: temeteke/pyscraper-playwright-chromium:latest
     build:
       context: .
       dockerfile: Dockerfile.playwright-chromium
     environment:
       - PLAYWRIGHT_BROWSER=chromium
-      - PLAYWRIGHT_PORT=3000
-    ports:
-      - "3000:3000"
+      - PLAYWRIGHT_CDP_PORT=3001
+      - PLAYWRIGHT_NODE_NAME=chromium
+      - PLAYWRIGHT_ADVERTISE_HOST=playwright-chromium
+      - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+    depends_on:
+      playwright-hub:
+        condition: service_healthy
 
   playwright-firefox:
+    image: temeteke/pyscraper-playwright-firefox:latest
     build:
       context: .
       dockerfile: Dockerfile.playwright-firefox
     environment:
       - PLAYWRIGHT_BROWSER=firefox
       - PLAYWRIGHT_PORT=3002
+      - PLAYWRIGHT_NODE_NAME=firefox
+      - PLAYWRIGHT_ADVERTISE_HOST=playwright-firefox
+      - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
     ports:
       - "3002:3002"
+    depends_on:
+      playwright-hub:
+        condition: service_healthy
 
   playwright-webkit:
+    # WebKit has no official arm64 Linux support; the published image is
+    # amd64-only. Pin the platform so Apple Silicon gets an explicit error
+    # instead of a silent QEMU fallback.
+    platform: linux/amd64
+    image: temeteke/pyscraper-playwright-webkit:latest
     build:
       context: .
       dockerfile: Dockerfile.playwright-webkit
     environment:
       - PLAYWRIGHT_BROWSER=webkit
       - PLAYWRIGHT_PORT=3003
+      - PLAYWRIGHT_NODE_NAME=webkit
+      - PLAYWRIGHT_ADVERTISE_HOST=playwright-webkit
+      - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
     ports:
       - "3003:3003"
+    depends_on:
+      playwright-hub:
+        condition: service_healthy
+
+  playwright-chromium-profile:
+    # Shares the playwright-chromium image (same Dockerfile). No build:
+    # section here -- build playwright-chromium once and reuse it.
+    image: temeteke/pyscraper-playwright-chromium:latest
+    environment:
+      - PLAYWRIGHT_BROWSER=chromium
+      - PLAYWRIGHT_CDP_PORT=3001
+      - PLAYWRIGHT_NODE_NAME=chromium-profile
+      - PLAYWRIGHT_ADVERTISE_HOST=playwright-chromium-profile
+      - PLAYWRIGHT_PROFILE=/data/profile
+      - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+    volumes:
+      - chromium-profile:/data/profile
+    depends_on:
+      playwright-hub:
+        condition: service_healthy
 
 volumes:
-  firefox-profile:
+  # Persistent profile volumes: Selenium images run as user 1200 (selenium)
+  # and Playwright chromium-profile as root; named volumes are initialized
+  # empty and owned correctly on first mount, so the legacy busybox
+  # init containers (chown -R 1200:1201) are no longer needed. If a host
+  # bind-mount is used instead, ensure the directory is writable by the
+  # container user (e.g. chown 1200:1201 or chmod 777).
   chrome-profile:
+  firefox-profile:
+  chromium-profile:

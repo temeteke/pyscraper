@@ -2,13 +2,21 @@ name: Publish Docker image
 
 on:
   push:
-    branches:
-      - master
+    # Tag convention is vX.Y.Z (e.g. v1.2.1); narrower than 'v*' so that
+    # accidental tags like `vfoo` do not trigger a failing workflow run.
+    # NOTE: GitHub glob cannot express full semver, so short forms like
+    # `v1.2` still trigger and then fail the X.Y.Z check below. Always cut
+    # tags as `vX.Y.Z`.
     tags:
-      - 'v*'
+      - 'v[0-9]*'
   schedule:
     - cron: '55 13 * * tue'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build and publish (e.g. 1.2.1). Empty = pushed tag, or latest release tag otherwise.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -20,24 +28,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -45,18 +53,39 @@ jobs:
 
       - name: Compute version
         id: version
+        # NOTE: inputs.version must NOT be interpolated inside the run script
+        # (command injection risk via quotes); pass it via env instead.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          TAG="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo '0.0')"
-          MAJOR_MINOR="$(echo "$TAG" | grep -oE '^[0-9]+\.[0-9]+' || true)"
+          if [ -n "$INPUT_VERSION" ]; then
+            TAG="$(printf '%s' "$INPUT_VERSION" | sed 's/^v//')"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            # Prefer the pushed tag itself over the latest tag, so that
+            # back-pushing an old tag does not build a newer version.
+            TAG="${GITHUB_REF_NAME#v}"
+          else
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0')"
+            TAG="${TAG#v}"
+          fi
+          # bash regex validates the whole value (unlike grep, which matches
+          # per line and lets embedded newlines through to GITHUB_OUTPUT).
+          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version. Expected X.Y.Z (e.g. 1.2.1)."
+            exit 1
+          fi
+          MAJOR_MINOR="$(echo "$TAG" | grep -oE '^[0-9]+\.[0-9]+')"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
 
       - name: Compute date
         id: date
-        run: echo "date=$(date +%Y%m%d)" >> $GITHUB_OUTPUT
+        run: |
+          echo "date=$(date -u +%Y%m%d)" >> $GITHUB_OUTPUT
+          echo "rfc3339=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc # v2.5.0
         with:
           context: .
           file: ./Dockerfile
@@ -73,12 +102,12 @@ jobs:
             ghcr.io/${{ github.repository }}:${{ steps.version.outputs.major_minor }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.tag }}
-            org.opencontainers.image.created=${{ steps.date.outputs.date }}
+            org.opencontainers.image.created=${{ steps.date.outputs.rfc3339 }}
           build-args: |
             VERSION=${{ steps.version.outputs.tag }}
 
       - name: Build and push Docker image standalone
-        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc # v2.5.0
         with:
           context: .
           file: ./Dockerfile.standalone
@@ -95,6 +124,118 @@ jobs:
             ghcr.io/${{ github.repository }}-standalone:${{ steps.version.outputs.major_minor }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.tag }}
-            org.opencontainers.image.created=${{ steps.date.outputs.date }}
+            org.opencontainers.image.created=${{ steps.date.outputs.rfc3339 }}
           build-args: |
             VERSION=${{ steps.version.outputs.tag }}
+
+  push_playwright_images:
+    name: Push Playwright images to Docker Hub and GHCR
+    runs-on: ubuntu-latest
+    # actions/cache (type=gha) needs write for cache save; scoped to this
+    # job so the top-level permissions stay minimal.
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./Dockerfile.playwright-chromium
+            image: temeteke/pyscraper-playwright-chromium
+            suffix: playwright-chromium
+            platforms: linux/amd64,linux/arm64
+          - dockerfile: ./Dockerfile.playwright-firefox
+            image: temeteke/pyscraper-playwright-firefox
+            suffix: playwright-firefox
+            platforms: linux/amd64,linux/arm64
+          # WebKit has no official arm64 Linux support; amd64-only to avoid
+          # QEMU build failures and long emulation builds.
+          - dockerfile: ./Dockerfile.playwright-webkit
+            image: temeteke/pyscraper-playwright-webkit
+            suffix: playwright-webkit
+            platforms: linux/amd64
+          - dockerfile: ./Dockerfile.playwright-hub
+            image: temeteke/pyscraper-playwright-hub
+            suffix: playwright-hub
+            platforms: linux/amd64,linux/arm64
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        if: matrix.platforms != 'linux/amd64'
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute version
+        id: version
+        # NOTE: inputs.version must NOT be interpolated inside the run script
+        # (command injection risk via quotes); pass it via env instead.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            TAG="$(printf '%s' "$INPUT_VERSION" | sed 's/^v//')"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            # Prefer the pushed tag itself over the latest tag, so that
+            # back-pushing an old tag does not build a newer version.
+            TAG="${GITHUB_REF_NAME#v}"
+          else
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0')"
+            TAG="${TAG#v}"
+          fi
+          # bash regex validates the whole value (unlike grep, which matches
+          # per line and lets embedded newlines through to GITHUB_OUTPUT).
+          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version. Expected X.Y.Z (e.g. 1.2.1)."
+            exit 1
+          fi
+          MAJOR_MINOR="$(echo "$TAG" | grep -oE '^[0-9]+\.[0-9]+')"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
+
+      - name: Compute date
+        id: date
+        run: |
+          echo "date=$(date -u +%Y%m%d)" >> $GITHUB_OUTPUT
+          echo "rfc3339=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Build and push Playwright image
+        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc # v2.5.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          tags: |
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:${{ steps.version.outputs.tag }}
+            ${{ matrix.image }}:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
+            ${{ matrix.image }}:${{ steps.version.outputs.major_minor }}
+            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:latest
+            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
+            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:${{ steps.version.outputs.major_minor }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+            org.opencontainers.image.created=${{ steps.date.outputs.rfc3339 }}
