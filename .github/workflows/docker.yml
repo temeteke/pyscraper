@@ -141,20 +141,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - dockerfile: ./Dockerfile.playwright-chromium
+          - dockerfile: ./Dockerfile.playwright-node
             image: temeteke/pyscraper-playwright-chromium
             suffix: playwright-chromium
             platforms: linux/amd64,linux/arm64
-          - dockerfile: ./Dockerfile.playwright-firefox
+            build_args: PLAYWRIGHT_BROWSER=chromium
+          - dockerfile: ./Dockerfile.playwright-node
             image: temeteke/pyscraper-playwright-firefox
             suffix: playwright-firefox
             platforms: linux/amd64,linux/arm64
+            build_args: PLAYWRIGHT_BROWSER=firefox
           # WebKit has no official arm64 Linux support; amd64-only to avoid
           # QEMU build failures and long emulation builds.
-          - dockerfile: ./Dockerfile.playwright-webkit
+          - dockerfile: ./Dockerfile.playwright-node
             image: temeteke/pyscraper-playwright-webkit
             suffix: playwright-webkit
             platforms: linux/amd64
+            build_args: PLAYWRIGHT_BROWSER=webkit
           - dockerfile: ./Dockerfile.playwright-hub
             image: temeteke/pyscraper-playwright-hub
             suffix: playwright-hub
@@ -227,6 +230,7 @@ jobs:
           push: true
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          build-args: ${{ matrix.build_args }}
           tags: |
             ${{ matrix.image }}:latest
             ${{ matrix.image }}:${{ steps.version.outputs.tag }}

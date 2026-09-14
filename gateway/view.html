@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PyScraper Gateway - Browser View</title>
+<style>
+body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+header { display: flex; gap: 0.5em; padding: 0.5em 1em; align-items: center; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
+header h1 { font-size: 1em; margin: 0 1em 0 0; }
+header input[type=text] { flex: 1 1 16em; min-width: 8em; }
+iframe { flex: 1; border: 0; background: #000; }
+.badge { font-size: 0.8em; padding: 0.1em 0.5em; border-radius: 1em; background: #eee; display: inline-block; min-width: 20ch; text-align: center; }
+#badge { order: 99; margin-left: auto; }
+.badge.open { background: #cfc; }
+#toast { position: fixed; right: 1em; bottom: 1em; max-width: 28em;
+  background: #fee; border: 1px solid #c66; border-radius: 4px;
+  padding: 0.5em 0.75em; font-size: 0.85em; display: none; }
+a { font-size: 0.85em; }
+</style>
+</head>
+<body>
+<header>
+<h1 id="title">Browser</h1>
+<span class="badge" id="badge">?</span>
+<input type="text" id="url" placeholder="https://example.com">
+<button id="open">Open</button>
+<button id="close">Close</button>
+</header>
+<iframe id="frame" src="about:blank" title="browser"></iframe>
+<div id="toast" role="alert"></div>
+<script>
+const TARGETS = {
+  "selenium-chrome": {family: "selenium", label: "Chrome (Selenium)", sub: "selenium-chrome"},
+  "selenium-firefox": {family: "selenium", label: "Firefox (Selenium)", sub: "selenium-firefox"},
+  "playwright-chromium": {family: "playwright", label: "Chromium (Playwright)", sub: "playwright-chromium"},
+  "playwright-firefox": {family: "playwright", label: "Firefox (Playwright)", sub: "playwright-firefox"},
+  "playwright-webkit": {family: "playwright", label: "WebKit (Playwright)", sub: "playwright-webkit"},
+};
+const params = new URLSearchParams(location.search);
+const target = params.get("browser");
+const t = TARGETS[target];
+const $ = id => document.getElementById(id);
+if (!t) {
+  document.body.innerHTML = "<p>Unknown browser. <a href='/'>Back to tiles</a></p>";
+} else {
+  document.title = `PyScraper Gateway - ${t.label}`;
+  $("title").textContent = t.label;
+  const apiBase = `/api/${t.family}/sessions`;
+  let sessionId = null;
+  const vncUrl = `/${t.sub}/vnc.html?path=/${t.sub}/websockify&autoconnect=true`;
+  $("frame").src = vncUrl;
+  function showToast(msg) {
+    // Failure-only notification: auto-dismisses, never shifts layout.
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.style.display = 'block';
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => { el.style.display = 'none'; }, 8000);
+  }
+  async function refreshSession() {
+    try {
+      const res = await fetch(apiBase);
+      const data = await res.json();
+      const mine = (data.sessions || []).filter(s => s.target === target);
+      sessionId = mine.length ? mine[mine.length - 1].id : null;
+    } catch (e) { sessionId = null; }
+    $("badge").textContent = sessionId ? `open (${sessionId})` : "closed";
+    $("badge").classList.toggle("open", !!sessionId);
+    $("open").disabled = !!sessionId;
+    $("close").disabled = !sessionId;
+  }
+  $("open").onclick = async () => {
+    const payload = {target};
+    const url = $("url").value.trim();
+    if (url) payload.url = url;
+    try {
+      const res = await fetch(apiBase, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.status);
+      await refreshSession();
+    } catch (e) { showToast(`Open failed: ${e.message}`); }
+  };
+  $("close").onclick = async () => {
+    if (!sessionId) return;
+    try {
+      const res = await fetch(`${apiBase}/${sessionId}`, {method: "DELETE"});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.status);
+      await refreshSession();
+    } catch (e) { showToast(`Close failed: ${e.message}`); }
+  };
+  refreshSession();
+  setInterval(refreshSession, 10000);
+}
+</script>
+</body>
+</html>

@@ -12,11 +12,8 @@ services:
       - PLAYWRIGHT_CHROMIUM_URL=ws://playwright-hub:4000/ws
       - PLAYWRIGHT_FIREFOX_URL=ws://playwright-hub:4000/ws
       - PLAYWRIGHT_WEBKIT_URL=ws://playwright-hub:4000/ws
-    depends_on:
-      selenium-hub:
-        condition: service_healthy
-      playwright-hub:
-        condition: service_healthy
+    # No depends_on: the client resolves Hub URLs at session time, so a
+    # startup gate adds no value (and couples startup to Hub health).
 
   selenium-hub:
     image: selenium/hub:4.27.0
@@ -25,8 +22,11 @@ services:
     expose:
       - "4442"
       - "4443"
+    # Liveness only: the Grid reports ready:false until nodes register, so
+    # requiring ready:true here would deadlock node startup (nodes wait for
+    # a healthy hub, hub waits for nodes). Nodes self-register with retries.
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:4444/status | grep -q '\"ready\" *: *true'"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:4444/status >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -47,11 +47,19 @@ services:
       - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
       - SE_NODE_GRID_URL=http://selenium-hub:4444
       - 'SE_NODE_STEREOTYPE={"browserName": "chrome", "platformName": "Linux", "pyscraper:node": "chromium-profile"}'
+      - SE_VNC_NO_PASSWORD=true
     volumes:
       - chrome-profile:/tmp/chrome-profile
-    depends_on:
-      selenium-hub:
-        condition: service_healthy
+    expose:
+      - "7900"
+    # No depends_on: nodes retry event-bus registration, so they can start
+    # in any order (and must not wait for a hub that waits for them).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
 
   selenium-firefox-node:
     image: selenium/node-firefox:4.27.0
@@ -62,11 +70,18 @@ services:
       - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
       - SE_NODE_GRID_URL=http://selenium-hub:4444
       - 'SE_NODE_STEREOTYPE={"browserName": "firefox", "platformName": "Linux", "pyscraper:node": "firefox-profile"}'
+      - SE_VNC_NO_PASSWORD=true
     volumes:
       - firefox-profile:/tmp/firefox-profile
-    depends_on:
-      selenium-hub:
-        condition: service_healthy
+    expose:
+      - "7900"
+    # No depends_on: same as selenium-chrome-node above.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
 
   playwright-hub:
     image: temeteke/pyscraper-playwright-hub:latest
@@ -87,33 +102,51 @@ services:
     image: temeteke/pyscraper-playwright-chromium:latest
     build:
       context: .
-      dockerfile: Dockerfile.playwright-chromium
+      dockerfile: Dockerfile.playwright-node
+      args:
+        PLAYWRIGHT_BROWSER: chromium
     environment:
       - PLAYWRIGHT_BROWSER=chromium
-      - PLAYWRIGHT_CDP_PORT=3001
+      - PLAYWRIGHT_PORT=3000
       - PLAYWRIGHT_NODE_NAME=chromium
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-chromium
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
-    depends_on:
-      playwright-hub:
-        condition: service_healthy
+    expose:
+      - "3000"
+      - "7900"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+    # No depends_on: nodes retry Hub registration, so they can start
+    # in any order; launch-server stays usable even if the Hub is down.
 
   playwright-firefox:
     image: temeteke/pyscraper-playwright-firefox:latest
     build:
       context: .
-      dockerfile: Dockerfile.playwright-firefox
+      dockerfile: Dockerfile.playwright-node
+      args:
+        PLAYWRIGHT_BROWSER: firefox
     environment:
       - PLAYWRIGHT_BROWSER=firefox
-      - PLAYWRIGHT_PORT=3002
+      - PLAYWRIGHT_PORT=3000
       - PLAYWRIGHT_NODE_NAME=firefox
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-firefox
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
-    ports:
-      - "3002:3002"
-    depends_on:
-      playwright-hub:
-        condition: service_healthy
+    expose:
+      - "3000"
+      - "7900"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 90s
+    # No depends_on: nodes retry Hub registration, so they can start
+    # in any order; launch-server stays usable even if the Hub is down.
 
   playwright-webkit:
     # WebKit has no official arm64 Linux support; the published image is
@@ -123,43 +156,111 @@ services:
     image: temeteke/pyscraper-playwright-webkit:latest
     build:
       context: .
-      dockerfile: Dockerfile.playwright-webkit
+      dockerfile: Dockerfile.playwright-node
+      args:
+        PLAYWRIGHT_BROWSER: webkit
     environment:
       - PLAYWRIGHT_BROWSER=webkit
-      - PLAYWRIGHT_PORT=3003
+      - PLAYWRIGHT_PORT=3000
       - PLAYWRIGHT_NODE_NAME=webkit
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-webkit
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
-    ports:
-      - "3003:3003"
-    depends_on:
-      playwright-hub:
-        condition: service_healthy
+    expose:
+      - "3000"
+      - "7900"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 120s
+    # No depends_on: nodes retry Hub registration, so they can start
+    # in any order; launch-server stays usable even if the Hub is down.
 
-  playwright-chromium-profile:
-    # Shares the playwright-chromium image (same Dockerfile). No build:
-    # section here -- build playwright-chromium once and reuse it.
-    image: temeteke/pyscraper-playwright-chromium:latest
-    environment:
-      - PLAYWRIGHT_BROWSER=chromium
-      - PLAYWRIGHT_CDP_PORT=3001
-      - PLAYWRIGHT_NODE_NAME=chromium-profile
-      - PLAYWRIGHT_ADVERTISE_HOST=playwright-chromium-profile
-      - PLAYWRIGHT_PROFILE=/data/profile
-      - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+  gateway:
+    # Single entry point: noVNC reverse proxy + UI + session-manager relay
+    # (/api/playwright/* and /api/state-files to playwright-session-manager,
+    # /api/selenium/* to selenium-session-manager).
+    # No build section (plain nginx:alpine + mounted config).
+    image: nginx:alpine
+    ports:
+      - "8080:80"
     volumes:
-      - chromium-profile:/data/profile
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gateway/index.html:/usr/share/nginx/html/index.html:ro
+      - ./gateway/view.html:/usr/share/nginx/html/view.html:ro
+    restart: unless-stopped
+    # Startup order only (no health gate): the gateway resolves backends
+    # via variable + resolver at request time and retries, so strict
+    # health coupling would only delay startup without adding safety.
     depends_on:
-      playwright-hub:
-        condition: service_healthy
+      - playwright-chromium
+      - playwright-firefox
+      - playwright-webkit
+      - selenium-chrome-node
+      - selenium-firefox-node
+      - playwright-session-manager
+      - selenium-session-manager
+
+  playwright-session-manager:
+    # Playwright session open/close/save API for the gateway UI (local
+    # build only, never published to registries -- see
+    # Dockerfile.playwright-session-manager).
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright-session-manager
+    environment:
+      - PLAYWRIGHT_SESSION_MANAGER_PORT=8081
+      - PLAYWRIGHT_HUB_WS=ws://playwright-hub:4000/ws
+      - SESSION_STATE_DIR=/data/sessions
+      # Browser startup can exceed the 60s open default on slow hosts
+      # (webkit); raise if open timeouts appear in the manager logs.
+      # When raising timeouts, keep gateway/nginx.conf in sync:
+      # proxy_read_timeout > 2 * OPEN_TIMEOUT + 10 and > WORKER_TIMEOUT
+      # (OPEN 90 / WORKER 150 -> nginx 220s).
+      # - PLAYWRIGHT_OPEN_TIMEOUT=90
+      # - PLAYWRIGHT_WORKER_TIMEOUT=150
+    volumes:
+      - session-states:/data/sessions
+    expose:
+      - "8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8081/api/state-files', timeout=2))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  selenium-session-manager:
+    # Selenium session open/close API for the gateway UI (local build
+    # only, never published to registries -- see
+    # Dockerfile.selenium-session-manager). Stdlib only.
+    build:
+      context: .
+      dockerfile: Dockerfile.selenium-session-manager
+    environment:
+      - SELENIUM_SESSION_MANAGER_PORT=8082
+      - SELENIUM_HUB_URL=http://selenium-hub:4444/wd/hub
+    expose:
+      - "8082"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8082/api/selenium/sessions', timeout=2))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
 
 volumes:
-  # Persistent profile volumes: Selenium images run as user 1200 (selenium)
-  # and Playwright chromium-profile as root; named volumes are initialized
-  # empty and owned correctly on first mount, so the legacy busybox
-  # init containers (chown -R 1200:1201) are no longer needed. If a host
-  # bind-mount is used instead, ensure the directory is writable by the
-  # container user (e.g. chown 1200:1201 or chmod 777).
+  # Persistent profile volumes: Selenium images run as user 1200 (selenium);
+  # named volumes are initialized empty and owned correctly on first mount,
+  # so the legacy busybox init containers (chown -R 1200:1201) are no
+  # longer needed. If a host bind-mount is used instead, ensure the
+  # directory is writable by the container user (e.g. chown 1200:1201 or
+  # chmod 777).
   chrome-profile:
   firefox-profile:
-  chromium-profile:
+  # Gateway UI state files (storage_state JSON only), shared with
+  # the host for inspection and reuse from pyscraper client code.
+  session-states:

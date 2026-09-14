@@ -1,8 +1,11 @@
 FROM python:3.12-slim
 
+# Pinned below v14: the Hub relay reads client_ws.request_headers, which
+# only exists on the legacy websockets API (v14+ ServerConnection drops
+# it). Re-pin deliberately when upgrading.
 RUN pip install --no-cache-dir "websockets>=12.0,<14.0"
 
-COPY scripts/playwright_hub.py /app/playwright_hub.py
+COPY servers/playwright_hub.py /app/playwright_hub.py
 
 EXPOSE 4000 4001
 

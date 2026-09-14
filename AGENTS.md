@@ -44,6 +44,26 @@ docker compose config --quiet    # validate compose files
 - `SELENIUM_FIREFOX_PROFILE`, `SELENIUM_CHROME_PROFILE` - Legacy profile dirs (prefer `profile=`)
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` - Proxy configuration
 
+## Playwright v2 model (breaking since v2.0.0)
+
+- Nodes are stateless `launch-server` workers (single `Dockerfile.playwright-node`
+  + `PLAYWRIGHT_BROWSER` build-arg); no CDP, no node-owned profiles.
+- Persistence is client-owned: `storage_state=` / `save_storage_state()`
+  (all browsers). Selenium keeps node-owned profiles (`node=` routes to the
+  profile host); never mix the two ownership models.
+- Hub is fail-closed: missing/invalid/unknown launch headers are rejected
+  (`1011 "no node available"`), never routed to another browser.
+- Gateway at `http://localhost:8080/` (plain `nginx:alpine` +
+  `gateway/` mounts, no dedicated image): `/` tile overview plus
+  `/view.html?browser=<target>` single views, raw noVNC at `/playwright-chromium/`,
+  `/playwright-firefox/`, `/playwright-webkit/` (Playwright) plus
+  `/selenium-chrome/`, `/selenium-firefox/` (Selenium nodes), and `/api/`
+  proxied to the session managers (`playwright-session-manager` on :8081
+  for sessions/save/state-files, `selenium-session-manager` on :8082 for
+  sessions; both local build only).
+- `playwright==1.62.0` pinned in `setup.cfg`, `Dockerfile.playwright-node`,
+  and `Dockerfile.playwright-session-manager` (`ARG PLAYWRIGHT_VERSION`); keep in sync.
+
 ## Before committing
 
 ```sh

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PyScraper Gateway</title>
+<style>
+body { font-family: sans-serif; margin: 0; padding: 0.5em 0.75em; }
+h1 { font-size: 1.5em; margin: 0 0 0.5em; }
+h2 { margin: 0.75em 0 0.25em; font-size: 1em; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5em; }
+.tile { border: 1px solid #ccc; border-radius: 4px; padding: 0.4em; }
+.tile h3 { margin: 0 0 0.25em; font-size: 0.9em; display: flex; justify-content: space-between; align-items: center; gap: 0.5em; }
+.tile iframe { width: 100%; aspect-ratio: 4 / 3; border: 1px solid #999; background: #000; display: block; }
+.badge { font-size: 0.8em; padding: 0.1em 0.5em; border-radius: 1em; background: #eee; display: inline-block; min-width: 20ch; text-align: center; }
+.badge.open { background: #cfc; }
+</style>
+</head>
+<body>
+<h1>PyScraper Gateway</h1>
+<h2>Selenium</h2>
+<div class="grid" id="selenium-tiles"></div>
+<h2>Playwright</h2>
+<div class="grid" id="playwright-tiles"></div>
+<script>
+const TARGETS = [
+  {target: "selenium-chrome", family: "selenium", label: "Chrome (Selenium)", sub: "selenium-chrome"},
+  {target: "selenium-firefox", family: "selenium", label: "Firefox (Selenium)", sub: "selenium-firefox"},
+  {target: "playwright-chromium", family: "playwright", label: "Chromium (Playwright)", sub: "playwright-chromium"},
+  {target: "playwright-firefox", family: "playwright", label: "Firefox (Playwright)", sub: "playwright-firefox"},
+  {target: "playwright-webkit", family: "playwright", label: "WebKit (Playwright)", sub: "playwright-webkit"},
+];
+const state = {}; // target -> {id}
+
+function vncUrl(t) {
+  return `/${t.sub}/vnc.html?path=/${t.sub}/websockify&autoconnect=true&resize=scale`;
+}
+function apiBase(t) {
+  return `/api/${t.family}/sessions`;
+}
+async function refreshSessions() {
+  for (const t of TARGETS) {
+    try {
+      const res = await fetch(apiBase(t));
+      const data = await res.json();
+      const mine = (data.sessions || []).filter(s => s.target === t.target);
+      state[t.target] = mine.length ? mine[mine.length - 1] : null;
+    } catch (e) { state[t.target] = null; }
+  }
+  renderBadges();
+}
+function renderBadges() {
+  for (const t of TARGETS) {
+    const badge = document.getElementById(`badge-${t.target}`);
+    const s = state[t.target];
+    badge.textContent = s ? `open (${s.id})` : "closed";
+    badge.classList.toggle("open", !!s);
+  }
+}
+function buildTiles() {
+  const groups = {
+    selenium: document.getElementById("selenium-tiles"),
+    playwright: document.getElementById("playwright-tiles"),
+  };
+  for (const t of TARGETS) {
+    const div = document.createElement("div");
+    div.className = "tile";
+    div.innerHTML = `
+      <h3><a href="/view.html?browser=${t.target}" target="_blank" title="Open full-size view">${t.label}</a>
+        <span class="badge" id="badge-${t.target}">?</span></h3>
+      <iframe id="frame-${t.target}" src="${vncUrl(t)}" title="${t.label}"></iframe>`;
+    groups[t.family].appendChild(div);
+  }
+}
+buildTiles();
+refreshSessions();
+setInterval(refreshSessions, 10000);
+</script>
+</body>
+</html>

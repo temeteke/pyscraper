@@ -99,7 +99,7 @@ pytest tests/ -m "" -v
 - WebFile HTTP (real httpbin.org, range, redirect, timeout, Content-Type) — `tests/test_webfile.py::TestWebFileIntegration`
 - WebPageCurl (real curl execution, HTML/XPath) — `tests/test_webpage.py::TestWebPageCurl` (may fail in restricted networks)
 - Selenium (Firefox/Chrome, WebDriver, JS, DOM) — `tests/test_webpage.py::TestWebPageFirefox`, `TestWebPageChrome`
-- Playwright (Chromium/Firefox/WebKit remote via Hub, CDP) — `tests/test_webpage_playwright.py::TestWebPagePlaywrightIntegration`
+- Playwright (Chromium/Firefox/WebKit remote via Hub, storage_state round-trip) — `tests/test_webpage_playwright.py::TestWebPagePlaywrightIntegration`
 
 ### Requirements
 

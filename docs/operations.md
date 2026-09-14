@@ -56,10 +56,48 @@ Notes:
 ## Playwright Hub
 
 `WebPagePlaywrightChromium`, `WebPagePlaywrightFirefox`, and
-`WebPagePlaywrightWebKit` wrap Playwright. A persistent browser profile is
-selected with `profile=` (or its alias `user_data_dir=`); `profile` takes
-precedence when both are given. Cookies and storage survive across sessions
-because the browser is launched with `launch_persistent_context`.
+`WebPagePlaywrightWebKit` wrap Playwright. All three browsers share the
+same stateless remote model; persistence is client-owned via
+`storage_state`.
+
+### Background: why storage_state (and not node-owned profiles)
+
+Selenium and Playwright persist sessions differently, so pyscraper treats
+them differently on purpose:
+
+- Selenium: the node (browser side) owns a persistent profile
+  (`profile` / `user_data_dir`). A fixed Grid node keeps the profile
+  volume and the client routes to it with `node=`. Persistence is closed
+  on the node side.
+- Playwright: `storage_state` (a JSON of cookies + localStorage) is read
+  with `new_context(storage_state=...)` and written with
+  `context.storage_state(path=...)`. It works for every browser and can
+  be held client-side. So Playwright persistence is client-owned:
+  Selenium = node-owned fixed profiles, Playwright = client-owned
+  `storage_state`. The ownership is deliberately separated, never mixed.
+
+CDP cannot provide the same for all browsers:
+
+- `connect_over_cdp` is Chromium-only. Firefox/WebKit have no CDP, so a
+  remote persistent profile cannot be built for them.
+- Reusing a persistent context over CDP requires the node to expose CDP
+  and the Hub to resolve `/json/version` into a websocket -- a
+  Chromium-only special case inside the Hub.
+- A shared default context (`contexts[0]`) cannot be owned by the
+  client, complicates lifecycle flags, and cannot be shared by parallel
+  sessions.
+
+Therefore the Hub relays Playwright's standard `launch-server` (`ws://`)
+for all browsers, nodes are stateless and interchangeable, persistence is
+unified on `storage_state`, and the Hub stays a simple relay. This is why
+remote persistence works the same way for Chromium, Firefox, and WebKit.
+
+### Local persistence and storage_state
+
+Local `profile=` (or its alias `user_data_dir=`; `profile` takes
+precedence when both are given) launches with
+`launch_persistent_context`, as before. Cookies and storage survive
+across sessions:
 
 ```python
 from pyscraper import WebPagePlaywrightChromium
@@ -71,26 +109,168 @@ with WebPagePlaywrightChromium(
         print(element.text)
 ```
 
-Remote browsers via a Hub (two-port Hub: `4000` = websocket relay,
-`4001` = HTTP node registry at `/register`/`/nodes`):
+Client-owned `storage_state` works locally and remotely, for all three
+browsers. Pass it to load, call `save_storage_state()` to persist --
+the internal Playwright context is never exposed:
+
+```python
+with WebPagePlaywrightChromium(
+    "https://example.com", storage_state="state.json"
+) as web_page:
+    ...
+    web_page.save_storage_state("state.json")  # save to file
+    state = web_page.save_storage_state()  # or get the dict back
+```
+
+`context_options` passes generic options (locale, timezone, viewport,
+etc.) through to context creation. If both `context_options["proxy"]`
+and proxy env (`HTTPS_PROXY`/`HTTP_PROXY`) are set, the env wins.
+`storage_state` is ignored with a warning for local persistent contexts
+(`profile=`/`user_data_dir=`).
+
+### Remote browsers via the Hub
+
+Two-port Hub: `4000` = websocket relay, `4001` = HTTP node registry at
+`/register`/`/nodes` (health at `/health`). `/nodes` returns
+`[{"name", "browser", "ws_endpoint"}]`. The Hub does not inspect the
+websocket path -- any path works:
 
 - Set `PLAYWRIGHT_CHROMIUM_URL=ws://playwright-hub:4000/ws` (and the
-  `PLAYWRIGHT_FIREFOX_URL` / `PLAYWRIGHT_WEBKIT_URL` equivalents) to connect
-  to the Playwright Hub (`scripts/playwright_hub.py`). The `ws` path suffix
-  is required; the HTTP registry is on `:4001`. When `PLAYWRIGHT_*_URL` is
-  not set the browser is launched locally (no Hub).
-- The `node=` argument selects the node that hosts the requested persistent
-  profile; the Hub relays the connection to that node. When `node` is not
-  given the Hub prefers a node whose `browser` matches the client (so a
-  Firefox client is not silently routed to a Chromium node).
-- Chromium offers two nodes: `node="chromium"` (ephemeral, non-persistent) and
-  `node="chromium-profile"` (persistent, backed by a mounted volume). Both are
-  reachable over the Hub.
-- **Remote persistent profiles are supported for Chromium only.** Firefox and
-  WebKit remote nodes serve a non-persistent browser, so their profiles do not
-  survive across sessions. This is a Playwright limitation: reusing a remote
-  persistent context relies on `connect_over_cdp`, which is Chromium-only.
-  Local `profile=`/`user_data_dir=` persistence works for all three browsers.
+  `PLAYWRIGHT_FIREFOX_URL` / `PLAYWRIGHT_WEBKIT_URL` equivalents) to
+  connect to the Playwright Hub (`servers/playwright_hub.py`). Only
+  `ws://` (or `wss://`) URLs are accepted; `http(s)://` URLs (legacy CDP)
+  are rejected with an error. When `PLAYWRIGHT_*_URL` is not set the
+  browser is launched locally (no Hub).
+- The `node=` argument selects a node by name (taken as-is, even if its
+  browser differs -- the name is the explicit routing request, e.g. the
+  Selenium `chromium-profile` stereotype is unrelated to the removed
+  Playwright `chromium-profile` service); when omitted the Hub selects a
+  node whose `browser` matches the client.
+- Fail-closed routing: a missing header, invalid JSON, an unknown
+  `node`, or no node matching the requested `browser` is rejected with
+  `1011 "no node available"` instead of silently falling back to another
+  browser.
+- Nodes are stateless (`servers/playwright_node.py` runs
+  `launch-server` headed under Xvfb for every browser with
+  `PLAYWRIGHT_BROWSER` / `PLAYWRIGHT_PORT` / `PLAYWRIGHT_NODE_NAME` /
+  `PLAYWRIGHT_ADVERTISE_HOST` / `PLAYWRIGHT_HUB_URL`). The node waits up
+  to `60`s (`LAUNCH_WAIT_TIMEOUT`, fixed) for `launch-server` to print
+  its WS endpoint, then fails fast. Proxy env
+  (`HTTPS_PROXY` preferred, `NO_PROXY` as bypass) is applied both when
+  the node starts and when the client creates its context.
+- Remote browsers are always headed (the client's `headless` flag only
+  reaches the Hub as routing metadata; nodes run headed under Xvfb for
+  noVNC observability). Expect higher CPU/memory than headless operation.
+- `user_data_dir`/`profile` is ignored with a warning for remote
+  connections; use `storage_state=` for remote persistence.
+- Remote sessions are disposable: closing the client closes the
+  node-side browser. Persist with `save_storage_state()` before closing.
+
+### Gateway
+
+Headed Playwright browsers run under Xvfb with x11vnc + noVNC bundled in
+every node image; the Selenium nodes ship their own noVNC on the same
+port. A single `gateway` service (plain `nginx:alpine` with mounted
+`gateway/` config, no dedicated image) is the unified entry point
+at `http://localhost:8080/`:
+
+- `/` -- tile overview: all five browsers at once (Selenium first),
+  each tile a live noVNC preview plus an open/closed status badge; click
+  the browser name to open its full-size view where sessions are
+  opened/closed/saved.
+- `/view.html?browser=<target>` -- single-browser view (`<target>` is one of
+  `selenium-chrome`, `selenium-firefox`, `playwright-chromium`,
+  `playwright-firefox`, `playwright-webkit`).
+- `/playwright-chromium/`, `/playwright-firefox/`, `/playwright-webkit/`
+  -- Playwright headed browsers (raw noVNC pages).
+- `/selenium-chrome/`, `/selenium-firefox/` -- Selenium Grid nodes (raw
+  noVNC pages). The desktop is always visible; the browser appears once a
+  Grid session starts. Password authentication is disabled on the nodes
+  (`SE_VNC_NO_PASSWORD=true`).
+- `/api/playwright/*` -- proxied to the `playwright-session-manager`
+  service; `/api/selenium/*` -- to the `selenium-session-manager`
+  service; `/api/state-files` -- to the Playwright one (see below).
+
+Open a session from its full-size view (optional URL), resolve
+challenges manually in the tile or full-size view, then persist:
+
+If no URL is given, the session opens on a blank page (Chrome shows
+`data:,`): navigate manually inside noVNC afterwards.
+
+- Playwright: save `storage_state` JSON into the shared state dir via
+  the API (`POST /api/playwright/sessions/{id}/save`); reload it via
+  `storage_state=` in client code or a later session. Client-side
+  equivalent:
+
+  ```python
+  with WebPagePlaywrightChromium("https://example.com", node="chromium") as wp:
+      ...  # resolve the challenge in the gateway meanwhile
+      wp.save_storage_state("state.json")
+  ```
+
+  Next time, load `storage_state="state.json"` to reuse the session.
+- Selenium: sessions always open on a blank page or the given URL (no
+  state restore; cookie persistence is a client-code concern).
+
+### Session managers
+
+Two services (both local build only, never published) open/close browser
+sessions for the gateway UI without running pyscraper client code:
+
+- `servers/playwright_session_manager.py` (service
+  `playwright-session-manager`, via
+  `Dockerfile.playwright-session-manager`): sessions open via the Hub
+  relay on a dedicated owner thread per session (Playwright's sync API
+  is bound to its creating thread; close/save are dispatched to that
+  thread), and are kept server-side with `{target, worker}` (the worker
+  owns `{target, browser, context, page, pw}`);
+  close releases the node-side browser. Also serves `GET
+  /api/state-files` and `POST .../save`.
+- `servers/selenium_session_manager.py` (service
+  `selenium-session-manager`, via
+  `Dockerfile.selenium-session-manager`, stdlib only): sessions open via
+  the Grid REST API (`/wd/hub/session`) with an optional
+  `pyscraper:node` stereotype; close deletes the Grid session. Grid
+  response session ids are validated (alphanumeric plus hyphens,
+  Selenium Grid 4 UUID shape); anything else is rejected.
+- Close is retryable: the entry is kept server-side until close
+  succeeds, and a failed close returns `{"error", "retryable": true}`
+  (HTTP 502) so the UI can retry without losing the handle.
+- Request bodies are capped at 1 MiB (`413` when exceeded); invalid
+  `Content-Length` is rejected with `400`.
+- State files live in `SESSION_STATE_DIR` (`/data/sessions`, backed by
+  the `session-states` compose volume shared with the host), listed via
+  `GET /api/state-files`. Paths are confined to the state dir (absolute
+  paths escaping it are rejected with `400`). Playwright accepts either
+  a bare file   name (resolved under the state dir, subdirectories
+  allowed but only top-level files are listed), a confined absolute server-side path, or an inline dict for
+  `storage_state` open; `save` accepts paths only (a dict path is `400`).
+- The gateway UI exposes Open/Close + URL only; `storage_state`
+  save/load is API-only (`curl` against `/api/...` above).
+- Timeouts: `PLAYWRIGHT_OPEN_TIMEOUT` (default `60`s, bounds each open
+  phase -- Hub `connect` and `page.goto` separately; the opener waits up
+  to `2 * OPEN_TIMEOUT + 10`s) / `PLAYWRIGHT_WORKER_TIMEOUT` (default
+  `120`s for close/save replies). nginx `/api/` locations use `150`s
+  (`proxy_read_timeout`); keep `proxy_read_timeout >
+  2 * PLAYWRIGHT_OPEN_TIMEOUT + 10` and `> PLAYWRIGHT_WORKER_TIMEOUT`.
+  On slow hosts (webkit startup), raise together, e.g. in `compose.yaml`:
+  `PLAYWRIGHT_OPEN_TIMEOUT=90` / `PLAYWRIGHT_WORKER_TIMEOUT=150` with
+  nginx `proxy_read_timeout 220s` (open wait `2*90+10=190`s + 30s headroom).
+- Hub: `PLAYWRIGHT_NODE_CONNECT_TIMEOUT` (default `10`s for the outbound
+  node websocket dial); Selenium manager: `SELENIUM_REQUEST_TIMEOUT`
+  (default `30`s per Grid REST call; open issues up to 3 calls --
+  create, navigate, compensating close -- so ~`90`s worst case, still
+  well under the nginx `150`s above).
+- Invalid numeric env values (including non-positive timeouts/ports)
+  fall back to defaults with a warning on
+  stderr (managers, Hub); the node fails fast with an explicit error.
+- Restart policies: `gateway` and both session managers use
+  `restart: unless-stopped`. The Hub and nodes have none by design --
+  nodes self-register with retries and the Hub is stateless, so all
+  recover without restarts.
+- No authentication (closed compose network, local dev use only). The
+  gateway binds `8080` on all interfaces; on shared hosts bind it to
+  localhost or keep it behind a firewall.
 
 ## Docker
 

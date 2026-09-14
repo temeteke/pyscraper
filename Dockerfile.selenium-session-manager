@@ -1,0 +1,13 @@
+# Selenium session manager for the gateway UI (local build only, not published).
+# Stdlib only (plain urllib to the Grid REST API); no pip packages needed.
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY servers/selenium_session_manager.py /app/session_manager.py
+
+EXPOSE 8082
+
+CMD ["python", "/app/session_manager.py"]

@@ -32,10 +32,12 @@ XPath/CSS selectors). Each backend subclasses it:
   `profile=` / `node=` / `capabilities=` support; `WebPageFirefox` and
   `WebPageChrome` are thin browser-specific subclasses
 - `WebPagePlaywright` (`WebPage`, abstract) - Playwright base with
-  `profile=` / `user_data_dir=` / `node=` support;
+  `profile=` / `user_data_dir=` (local persistent contexts) / `node=`
+  (Hub routing) / `storage_state=` / `context_options=` support;
   `WebPagePlaywrightChromium` / `WebPagePlaywrightFirefox` /
   `WebPagePlaywrightWebKit` are thin browser-specific subclasses.
-  Also provides `RequestEntry` / `CaptureSession` for network capture.
+  Also provides `RequestEntry` / `CaptureSession` for network capture,
+  and `save_storage_state()` for client-owned persistence.
 
 All Selenium/Playwright browser classes are context managers; state
 validation goes through `_ensure_open()`.
@@ -71,12 +73,28 @@ offline capability, and reproducibility.
 - Selenium: the client forwards `node=` as the `pyscraper:node` Grid
   capability; nodes declare matching stereotypes so the distributor
   routes sessions to the node hosting the requested persistent profile.
-- Playwright: `scripts/playwright_hub.py` keeps a node registry and
-  relays websocket connections; Chromium nodes use CDP for persistent
-  contexts (Chromium-only Playwright limitation), other browsers use
-  ephemeral `launch-server` sessions.
-- Rationale: fixed profiles live on specific nodes, so routing must be
-  explicit rather than load-balanced. See [operations.md](operations.md).
+- Playwright: `servers/playwright_hub.py` keeps a node registry and
+  relays `launch-server` websocket connections; nodes are stateless and
+  interchangeable, persistence is client-owned via `storage_state`, and
+  the Hub is fail-closed (unknown requests are rejected, never
+  misrouted). Selenium keeps node-owned profiles; the ownership models
+  are deliberately separated.
+- Rationale: fixed profiles live on specific nodes, so Selenium routing
+  must be explicit rather than load-balanced; Playwright sessions are
+  disposable, so the Hub stays a simple relay. See [operations.md](operations.md).
+
+### Gateway and session managers
+
+`gateway` (plain `nginx:alpine` + `gateway/` mounts) is the single
+browser entry point: tile overview, single-browser views, raw noVNC
+subpaths, and `/api/` proxies to the session managers.
+`servers/playwright_session_manager.py` (open/close/save via the Hub
+relay, one owner thread per session, `storage_state` load/save, plus the
+`state-files` listing) and `servers/selenium_session_manager.py`
+(open/close via the Grid REST API, no state restore) are
+both stdlib HTTP, local build only. State files live in the
+`session-states` compose volume shared with the host. No auth (closed
+compose network, local dev use).
 
 ### Version from Git tags
 

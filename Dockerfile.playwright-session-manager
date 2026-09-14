@@ -1,0 +1,21 @@
+# Playwright session manager for the gateway UI (local build only, not published).
+# Only the playwright *client* package is needed (remote connect to the
+# nodes); no browser binaries are installed in this image.
+# Keep PLAYWRIGHT_VERSION in sync with setup.cfg and
+# Dockerfile.playwright-node.
+ARG PLAYWRIGHT_VERSION=1.62.0
+FROM python:3.12-slim
+
+ARG PLAYWRIGHT_VERSION
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}"
+
+COPY servers/playwright_session_manager.py /app/session_manager.py
+
+EXPOSE 8081
+
+CMD ["python", "/app/session_manager.py"]

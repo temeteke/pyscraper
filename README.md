@@ -45,8 +45,17 @@ with WebPagePlaywrightChromium("https://example.com") as web_page:
         print(element.text)
 ```
 
-For Grid/Hub routing (`node=`), persistent profiles, and extension
-capabilities, see [Operations Guide](docs/operations.md).
+For Grid/Hub routing (`node=`), profiles vs `storage_state`, and the browser
+gateway, see [Operations Guide](docs/operations.md).
+
+> **Migrating to v2:** Playwright remote persistence moved from node-owned
+> profiles (Chromium-only CDP) to client-owned `storage_state`
+> (`storage_state=` / `save_storage_state()`, all browsers). The unimplemented
+> `cookies_file` argument and the `node="chromium-profile"` Playwright service
+> were removed (unrelated to the Selenium `chromium-profile` stereotype, which
+> stays); use `node="chromium"` plus `storage_state` instead. `context_options`
+> passes locale/timezone/viewport etc. through to context creation.
+> `PLAYWRIGHT_*_URL` must be `ws://` (legacy CDP `http(s)://` is rejected).
 
 ## Testing
 

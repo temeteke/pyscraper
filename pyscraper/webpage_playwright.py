@@ -54,6 +54,7 @@ class RequestEntry:
         resource_type: Resource type (document, xhr, media, fetch, etc.)
         timestamp: Time the request was captured (epoch seconds)
     """
+
     url: str
     method: str
     status: int | None
@@ -127,28 +128,29 @@ class WebPagePlaywright(WebPage, ABC):
         profile: str | None = None,
         user_data_dir: str | None = None,
         node: str | None = None,
+        storage_state: str | os.PathLike | dict | None = None,
+        context_options: dict | None = None,
     ):
         self._playwright = None
         self._browser = None
         self._context = None
         self._page = None
         self._cookies = {}
-        self._cookies_file = None
         self._user_data_dir = _resolve_user_data_dir(profile, user_data_dir)
         self.profile = profile
         self.node = node
+        self._storage_state = storage_state
+        self._context_options = dict(context_options or {})
         self._persistent = False
-        self._remote = False
         super().__init__(url, params=params, encoding=encoding)
 
     def _launch_options_header(self) -> dict:
-        """Build the ``x-playwright-launch-options`` header for a remote Hub.
+        """Build the ``x-playwright-launch-options`` header for the Hub.
 
-        Includes ``browser`` so the Hub can prefer a same-browser node when
-        ``node`` is not specified, and ``node`` so the Hub can route to the
-        node that hosts the requested persistent profile (the profile directory
-        is owned by the node, not sent by the client). When no ``node`` is
-        given the Hub falls back to a browser-matching node.
+        Includes ``browser`` so the Hub can select a same-browser node when
+        ``node`` is not specified, and ``node`` for explicit routing to a
+        named node. The Hub is fail-closed: missing or unknown values are
+        rejected instead of falling back to another browser.
         """
         options = {"headless": self._headless, "browser": self._browser_name}
         if self.node is not None:
@@ -310,11 +312,23 @@ class WebPagePlaywright(WebPage, ABC):
     def _setup_proxy_context(self):
         if self._context is not None:
             return
-        proxy_settings = self._proxy_settings()
-        if proxy_settings:
-            self._context = self._browser.new_context(proxy=proxy_settings)
-        else:
-            self._context = self._browser.new_context()
+        kwargs = dict(self._context_options)
+        if proxy := self._proxy_settings():
+            kwargs["proxy"] = proxy
+        if self._storage_state is not None:
+            kwargs["storage_state"] = self._storage_state
+        self._context = self._browser.new_context(**kwargs)
+
+    def save_storage_state(self, path: str | os.PathLike | None = None) -> dict | None:
+        """Save the current browser context's storage state.
+
+        Follows the Playwright convention: when ``path`` is omitted the
+        storage state dict is returned; when given, Playwright writes its
+        JSON to the path and the dict is still returned. The internal
+        context itself is never exposed.
+        """
+        self._ensure_open()
+        return self._context.storage_state(path=path)
 
     def open(self):
         from playwright.sync_api import sync_playwright
@@ -329,7 +343,10 @@ class WebPagePlaywright(WebPage, ABC):
             self._page.goto(self.request_url)
 
             if self._cookies:
-                cookie_list = [{"name": k, "value": v, "url": self.request_url} for k, v in self._cookies.items()]
+                cookie_list = [
+                    {"name": k, "value": v, "url": self.request_url}
+                    for k, v in self._cookies.items()
+                ]
                 self._context.add_cookies(cookie_list)
                 self._page.goto(self.request_url)
 
@@ -340,28 +357,20 @@ class WebPagePlaywright(WebPage, ABC):
             raise
 
     def close(self):
-        # Ownership model (two orthogonal flags):
-        # - _remote: browser/context are owned by the Hub node; the client must
-        #   NOT call close() on them. Only detach local refs and stop the
-        #   client-side Playwright driver (which closes the ws to the Hub).
-        # - _persistent: local persistent context (launch_persistent_context)
-        #   owns its browser via context.browser, so browser.close() is redundant
-        #   after context.close(). For non-persistent local, browser must be
-        #   closed explicitly. This flag is irrelevant when _remote is set.
-        if self._remote:
+        # Ownership model: a local persistent context
+        # (launch_persistent_context) owns its browser via context.browser,
+        # so browser.close() is redundant after context.close(). For
+        # non-persistent local and remote (stateless launch-server) sessions
+        # the browser must be closed explicitly to release the node-side
+        # browser process.
+        if self._context is not None:
+            self._context.close()
             self._context = None
+        if self._browser is not None and not self._persistent:
+            self._browser.close()
             self._browser = None
-            self._page = None
-        else:
-            if self._context is not None:
-                self._context.close()
-                self._context = None
-            if self._browser is not None and not self._persistent:
-                self._browser.close()
-                self._browser = None
-            self._page = None
+        self._page = None
         self._persistent = False
-        self._remote = False
         if self._playwright is not None:
             self._playwright.stop()
             self._playwright = None
@@ -369,46 +378,32 @@ class WebPagePlaywright(WebPage, ABC):
     def _start_browser(self):
         browser = getattr(self._playwright, self._browser_name)
         if remote_url := os.environ.get(f"PLAYWRIGHT_{self._browser_name.upper()}_URL"):
-            self._remote = True
+            if remote_url.startswith(("http://", "https://")):
+                raise WebPageError(
+                    f"PLAYWRIGHT_{self._browser_name.upper()}_URL must be a ws:// "
+                    "launch-server URL (CDP over http/https was removed in v2.0.0)"
+                )
+            if self._user_data_dir is not None:
+                warnings.warn(
+                    "user_data_dir is ignored for remote connections; "
+                    "use storage_state= for remote persistence",
+                    UserWarning,
+                    stacklevel=2,
+                )
             self._configure_no_proxy_for_remote(remote_url)
             options = self._launch_options_header()
-            if remote_url.startswith(("http://", "https://")):
-                # Direct CDP connection (no Hub): persistent profiles are not
-                # supported on this path.
-                if self.node is not None or self._user_data_dir is not None:
-                    warnings.warn(
-                        "node and profile are ignored for CDP (http/https) remote "
-                        "connections; use a ws:// Hub URL to enable Hub routing",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                self._browser = browser.connect_over_cdp(remote_url)
-            else:
-                # ws:// Hub: the Hub routes to the selected node.
-                if self.node is not None and self._browser_name == "chromium":
-                    # Chromium persistent node: the Hub relays to the node's CDP
-                    # endpoint; the default (persistent) context is contexts[0].
-                    self._browser = browser.connect_over_cdp(
-                        remote_url,
-                        headers={"x-playwright-launch-options": json.dumps(options)},
-                    )
-                    self._context = self._browser.contexts[0]
-                    self._persistent = True
-                else:
-                    if self.node is not None and self._browser_name != "chromium":
-                        # Firefox/WebKit nodes are non-persistent over the Hub.
-                        pass
-                    elif self._user_data_dir is not None:
-                        warnings.warn(
-                            "user_data_dir is ignored for remote connections",
-                            UserWarning,
-                            stacklevel=2,
-                        )
-                    self._browser = browser.connect(
-                        remote_url,
-                        headers={"x-playwright-launch-options": json.dumps(options)},
-                    )
+            self._browser = browser.connect(
+                remote_url,
+                headers={"x-playwright-launch-options": json.dumps(options)},
+            )
         elif self._user_data_dir is not None:
+            if self._storage_state is not None:
+                warnings.warn(
+                    "storage_state is ignored for persistent contexts "
+                    "(profile/user_data_dir); use save_storage_state instead",
+                    UserWarning,
+                    stacklevel=2,
+                )
             proxy_settings = self._proxy_settings()
             self._context = browser.launch_persistent_context(
                 user_data_dir=self._user_data_dir,
@@ -423,13 +418,13 @@ class WebPagePlaywright(WebPage, ABC):
     def capture(self, filter_url=None):
         """Start a network request capture session.
 
-    Args:
-        filter_url: Function that takes a URL and returns True if the request
-                   should be captured. If None, all requests are captured.
+        Args:
+            filter_url: Function that takes a URL and returns True if the request
+                       should be captured. If None, all requests are captured.
 
-    Returns:
-        A CaptureSession to be used as a context manager.
-    """
+        Returns:
+            A CaptureSession to be used as a context manager.
+        """
         return CaptureSession(self, filter_url)
 
 
@@ -441,11 +436,12 @@ class WebPagePlaywrightChromium(WebPagePlaywright):
         url=None,
         params: dict | None = None,
         cookies: dict | None = None,
-        cookies_file=None,
         headless: bool = True,
         profile: str | None = None,
         user_data_dir: str | None = None,
         node: str | None = None,
+        storage_state: str | os.PathLike | dict | None = None,
+        context_options: dict | None = None,
     ):
         if not url:
             url = "about:blank"
@@ -455,9 +451,10 @@ class WebPagePlaywrightChromium(WebPagePlaywright):
             profile=profile,
             user_data_dir=user_data_dir,
             node=node,
+            storage_state=storage_state,
+            context_options=context_options,
         )
         self._cookies = cookies or {}
-        self._cookies_file = cookies_file
         self._headless = headless
 
 
@@ -469,11 +466,12 @@ class WebPagePlaywrightFirefox(WebPagePlaywright):
         url=None,
         params: dict | None = None,
         cookies: dict | None = None,
-        cookies_file=None,
         headless: bool = True,
         profile: str | None = None,
         user_data_dir: str | None = None,
         node: str | None = None,
+        storage_state: str | os.PathLike | dict | None = None,
+        context_options: dict | None = None,
     ):
         if not url:
             url = "about:blank"
@@ -483,9 +481,10 @@ class WebPagePlaywrightFirefox(WebPagePlaywright):
             profile=profile,
             user_data_dir=user_data_dir,
             node=node,
+            storage_state=storage_state,
+            context_options=context_options,
         )
         self._cookies = cookies or {}
-        self._cookies_file = cookies_file
         self._headless = headless
 
 
@@ -497,11 +496,12 @@ class WebPagePlaywrightWebKit(WebPagePlaywright):
         url=None,
         params: dict | None = None,
         cookies: dict | None = None,
-        cookies_file=None,
         headless: bool = True,
         profile: str | None = None,
         user_data_dir: str | None = None,
         node: str | None = None,
+        storage_state: str | os.PathLike | dict | None = None,
+        context_options: dict | None = None,
     ):
         if not url:
             url = "about:blank"
@@ -511,9 +511,10 @@ class WebPagePlaywrightWebKit(WebPagePlaywright):
             profile=profile,
             user_data_dir=user_data_dir,
             node=node,
+            storage_state=storage_state,
+            context_options=context_options,
         )
         self._cookies = cookies or {}
-        self._cookies_file = cookies_file
         self._headless = headless
 
 
