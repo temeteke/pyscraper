@@ -200,7 +200,7 @@ video002.ts
         assert hls_file.read() == content[256:]
 
     def test_read_files(self, hls_file, web_files):
-        for hls_file_content, web_file in zip(hls_file.read_files(), web_files):
+        for hls_file_content, web_file in zip(hls_file.read_files(), web_files, strict=True):
             with web_file.open() as wf:
                 assert hls_file_content == wf.read()
 

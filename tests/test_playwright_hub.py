@@ -415,7 +415,7 @@ class TestRelay:
             handler = hub._RegistryHandler.__new__(hub._RegistryHandler)
             handler.path = path
             codes = []
-            handler.send_response = lambda c: codes.append(c)
+            handler.send_response = lambda c, codes=codes: codes.append(c)
             handler.send_header = lambda k, v: None
             handler.end_headers = lambda: None
             handler.wfile = io.BytesIO()

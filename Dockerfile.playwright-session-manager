@@ -1,10 +1,10 @@
 # Playwright session manager for the gateway UI (local build only, not published).
 # Only the playwright *client* package is needed (remote connect to the
 # nodes); no browser binaries are installed in this image.
-# Keep PLAYWRIGHT_VERSION in sync with setup.cfg and
-# Dockerfile.playwright-node. Keep FASTAPI_VERSION / UVICORN_VERSION in
-# sync with setup.cfg (gateway extra) and
-# Dockerfile.selenium-session-manager (no pin test exists).
+# Keep PLAYWRIGHT_VERSION in sync with setup.cfg,
+# Dockerfile.playwright-node, and Dockerfile.standalone. Keep
+# FASTAPI_VERSION / UVICORN_VERSION in sync with setup.cfg (gateway
+# extra) and Dockerfile.selenium-session-manager (no pin test exists).
 ARG PLAYWRIGHT_VERSION=1.62.0
 ARG FASTAPI_VERSION=0.119.0
 ARG UVICORN_VERSION=0.37.0

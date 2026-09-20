@@ -41,7 +41,7 @@ def _int_env(name, default):
     try:
         result = int(os.environ.get(name, str(default)))
     except ValueError:
-        raise SystemExit(f"[node] invalid {name}: must be an integer")
+        raise SystemExit(f"[node] invalid {name}: must be an integer") from None
     if not 1 <= result <= 65535:
         raise SystemExit(f"[node] invalid {name}: must be 1-65535")
     return result
@@ -150,7 +150,7 @@ def _rewrite_endpoint(reported):
     try:
         port = parsed.port or PORT
     except ValueError:
-        raise ValueError(f"invalid endpoint port: {reported!r}")
+        raise ValueError(f"invalid endpoint port: {reported!r}") from None
     return urlunparse(parsed._replace(netloc=f"{ADVERTISE_HOST}:{port}"))
 
 

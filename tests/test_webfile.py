@@ -159,7 +159,7 @@ class TestWebFile:
 
     def test_exists_open(self):
         with WebFile("https://httpbin.org/status/200") as wf:
-            wf.exists() is True
+            assert wf.exists() is True
 
     def test_not_exists_close(self):
         assert WebFile("https://httpbin.org/status/404").exists() is False

@@ -185,7 +185,7 @@ class _PlaywrightWorker(threading.Thread):
         try:
             ok, result = reply.get(timeout=WORKER_TIMEOUT)
         except queue.Empty:
-            raise TimeoutError(f"worker reply timed out after {WORKER_TIMEOUT}s")
+            raise TimeoutError(f"worker reply timed out after {WORKER_TIMEOUT}s") from None
         if not ok:
             raise result
         return result
@@ -227,7 +227,7 @@ def _resolve_state_path(value):
     try:
         p.resolve().relative_to(STATE_DIR.resolve())
     except ValueError:
-        raise ValueError(f"path escapes state dir: {value!r}")
+        raise ValueError(f"path escapes state dir: {value!r}") from None
     return str(p)
 
 
@@ -332,10 +332,7 @@ class OpenRequest(BaseModel):
             raise ValueError("storage_state must not be empty")
         # Eager path check so escapes are 422, not a worker-thread
         # failure surfaced as 502.
-        try:
-            _resolve_state_path(value)
-        except ValueError as exc:
-            raise ValueError(str(exc))
+        _resolve_state_path(value)
         return value.strip() if isinstance(value, str) else value
 
 

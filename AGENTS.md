@@ -62,8 +62,9 @@ docker compose config --quiet    # validate compose files
   for sessions/save/state-files, `selenium-session-manager` on :8082 for
   sessions; both local build only).
 - `playwright` client/node protocol pinned in `setup.cfg`,
-  `Dockerfile.playwright-node`, and `Dockerfile.playwright-session-manager`;
-  keep in sync. The Hub's `websockets>=12.0,<14.0` pin lives in
+  `Dockerfile.playwright-node`, `Dockerfile.playwright-session-manager`,
+  and `Dockerfile.standalone`; keep in sync. The Hub's
+  `websockets>=12.0,<14.0` pin lives in
   `Dockerfile.playwright-hub` and in the `setup.cfg` `gateway` extra
   (used by the Hub tests); keep the two in sync (legacy websockets API).
 - Both session managers are FastAPI apps (Pydantic validation, Starlette

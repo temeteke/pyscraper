@@ -210,7 +210,7 @@ class _SeleniumBackend:
             if exc.code == 404 or "no such session" in (str(exc) + body).lower():
                 reason = f"code={exc.code} body={body[:200]!r}"
                 gone_id = session.get("session_id") if isinstance(session, dict) else None
-                raise _GoneFromGrid(gone_id, reason)
+                raise _GoneFromGrid(gone_id, reason) from exc
             raise
 
 

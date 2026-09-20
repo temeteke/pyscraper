@@ -45,7 +45,7 @@ class CachedGenerator:
             try:
                 self.cache.append(next(self.generator))
             except StopIteration:
-                raise IndexError("Index out of range")
+                raise IndexError("Index out of range") from None
         return self.cache[index]
 
     def __contains__(self, item):
