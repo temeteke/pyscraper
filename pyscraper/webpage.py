@@ -8,7 +8,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import lxml.html
 from retry import retry
 
-
 logger = logging.getLogger(__name__)
 
 

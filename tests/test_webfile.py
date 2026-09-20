@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 import requests
+
 from pyscraper.webfile import WebFile, WebFileClientError, WebFileError, WebFileSeekError
 
 

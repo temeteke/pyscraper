@@ -4,7 +4,6 @@ from functools import cached_property
 
 from pyscraper.webpage import WebPage
 
-
 logger = logging.getLogger(__name__)
 
 

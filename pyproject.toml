@@ -8,6 +8,9 @@ version_scheme = "only-version"
 [tool.ruff]
 line-length = 99
 
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
 [tool.pytest.ini_options]
 markers = [
     "integration: Integration tests that use real external dependencies (HTTP, FFmpeg, Browser)",

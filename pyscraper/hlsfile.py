@@ -6,10 +6,10 @@ import shutil
 from functools import cached_property
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlunparse
-from fake_useragent import UserAgent  # noqa: F401 -- patched by tests
 
 import ffmpy
 import m3u8
+from fake_useragent import UserAgent  # noqa: F401 -- patched by tests
 
 from pyscraper.requests import RequestsMixin
 from pyscraper.utils import get_filename_from_url

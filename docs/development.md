@@ -176,10 +176,12 @@ infrastructure, and execution strategy, see [testing.md](testing.md).
 class WebPageRequests:
     pass
 
+
 # Function/variable names: snake_case
 def download_file(url, filename):
     file_path = Path(filename)
     ...
+
 
 # Constants: UPPER_CASE
 DEFAULT_TIMEOUT = 10

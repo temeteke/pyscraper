@@ -5,10 +5,10 @@ import os
 import time
 import warnings
 from abc import ABC
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from dataclasses import dataclass
 
 import lxml.html
 
@@ -19,7 +19,6 @@ from pyscraper.webpage import (
     WebPageNoSuchElementError,
     _get_env_anycase,
 )
-
 
 logger = logging.getLogger(__name__)
 

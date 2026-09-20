@@ -12,7 +12,6 @@ from tqdm import tqdm
 from pyscraper.requests import RequestsMixin
 from pyscraper.utils import get_filename_from_url
 
-
 logger = logging.getLogger(__name__)
 
 

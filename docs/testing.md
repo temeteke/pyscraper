@@ -261,6 +261,7 @@ pytest tests/ -n auto
 ```python
 # tests/test_your_module.py
 
+
 def test_download_file():
     """Test file download functionality"""
     # No marker needed (defaults to unit test)
@@ -276,6 +277,7 @@ def test_download_file():
 
 ```python
 # tests/test_your_module.py
+
 
 @pytest.mark.integration
 def test_download_real_file():

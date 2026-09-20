@@ -5,7 +5,6 @@ import lxml.html
 from pyscraper.requests import RequestsMixin
 from pyscraper.webpage import WebPage, WebPageError
 
-
 logger = logging.getLogger(__name__)
 
 

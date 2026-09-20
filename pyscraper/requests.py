@@ -1,7 +1,7 @@
-from fake_useragent import UserAgent
 import logging
-import requests
 
+import requests
+from fake_useragent import UserAgent
 
 logger = logging.getLogger(__name__)
 

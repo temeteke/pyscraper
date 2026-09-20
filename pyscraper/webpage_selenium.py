@@ -30,7 +30,6 @@ from pyscraper.webpage import (
     _get_env_anycase,
 )
 
-
 logger = logging.getLogger(__name__)
 
 

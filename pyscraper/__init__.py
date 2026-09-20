@@ -1,5 +1,7 @@
-from .hlsfile import HlsFile, HlsFileError
+from importlib.metadata import PackageNotFoundError, version
+
 from .constants import HEADERS
+from .hlsfile import HlsFile, HlsFileError
 from .webfile import (
     WebFile,
     WebFileClientError,
@@ -15,7 +17,6 @@ from .webpage import (
     WebPageTimeoutError,
 )
 from .webpage_curl import WebPageCurl
-from .webpage_requests import WebPageRequests
 from .webpage_playwright import (
     CaptureSession,
     RequestEntry,
@@ -23,9 +24,8 @@ from .webpage_playwright import (
     WebPagePlaywrightFirefox,
     WebPagePlaywrightWebKit,
 )
+from .webpage_requests import WebPageRequests
 from .webpage_selenium import WebPageChrome, WebPageFirefox
-
-from importlib.metadata import version, PackageNotFoundError
 
 try:
     __version__ = version("pyscraper")

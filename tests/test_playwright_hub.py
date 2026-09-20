@@ -336,6 +336,7 @@ class TestRelay:
 
     def test_relay_double_close_suppressed(self, hub):
         from unittest.mock import AsyncMock
+
         from websockets.exceptions import ConnectionClosed
 
         ws = _make_client_ws(json.dumps({"browser": "chromium"}))

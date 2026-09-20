@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 import requests
 
-from pyscraper.webfile import WebFile
 from pyscraper.hlsfile import HlsFile, HlsFileError
+from pyscraper.webfile import WebFile
 
 logger = logging.getLogger("pyscraper")
 logger.setLevel(logging.DEBUG)

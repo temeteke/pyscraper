@@ -1,7 +1,8 @@
 """Pytest configuration and fixtures for mocking external dependencies."""
 
+from unittest.mock import MagicMock, Mock
+
 import pytest
-from unittest.mock import Mock, MagicMock
 from requests.exceptions import HTTPError
 
 

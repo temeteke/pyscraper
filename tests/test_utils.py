@@ -1,5 +1,6 @@
 import pytest
-from pyscraper.utils import CachedGenerator, cached_generator, LazyList
+
+from pyscraper.utils import CachedGenerator, LazyList, cached_generator
 
 
 class TestCachedGenerator:

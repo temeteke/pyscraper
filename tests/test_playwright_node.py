@@ -153,8 +153,9 @@ class TestPlainNodeLaunchWait:
 
     def test_silent_launch_server_times_out(self, monkeypatch):
         import os
-        import pytest
         from unittest.mock import patch
+
+        import pytest
 
         server = _load_server(monkeypatch)
         monkeypatch.setattr(server, "LAUNCH_WAIT_TIMEOUT", 1)
@@ -173,8 +174,9 @@ class TestPlainNodeLaunchWait:
 
     def test_stubborn_launch_server_killed(self, monkeypatch):
         import os
-        import pytest
         from unittest.mock import patch
+
+        import pytest
 
         server = _load_server(monkeypatch)
         monkeypatch.setattr(server, "LAUNCH_WAIT_TIMEOUT", 1)

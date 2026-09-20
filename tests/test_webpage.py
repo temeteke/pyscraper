@@ -988,8 +988,9 @@ class TestWebPageMutableDefaults:
 
 class TestWebPageElementInnerText:
     def test_inner_text_includes_child_tail(self):
-        from pyscraper.webpage import WebPageElement
         import lxml.html
+
+        from pyscraper.webpage import WebPageElement
 
         html = "<div>Hello <b>World</b> and more</div>"
         element = lxml.html.fromstring(html)
@@ -997,8 +998,9 @@ class TestWebPageElementInnerText:
         assert "and more" in wp_element.inner_text
 
     def test_inner_html_includes_child_tail(self):
-        from pyscraper.webpage import WebPageElement
         import lxml.html
+
+        from pyscraper.webpage import WebPageElement
 
         html = "<div>Hello <b>World</b> and more</div>"
         element = lxml.html.fromstring(html)

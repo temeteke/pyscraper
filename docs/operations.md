@@ -102,9 +102,7 @@ across sessions:
 ```python
 from pyscraper import WebPagePlaywrightChromium
 
-with WebPagePlaywrightChromium(
-    "https://example.com", profile="/path/to/profile"
-) as web_page:
+with WebPagePlaywrightChromium("https://example.com", profile="/path/to/profile") as web_page:
     for element in web_page.get("//a"):
         print(element.text)
 ```
@@ -114,9 +112,7 @@ browsers. Pass it to load, call `save_storage_state()` to persist --
 the internal Playwright context is never exposed:
 
 ```python
-with WebPagePlaywrightChromium(
-    "https://example.com", storage_state="state.json"
-) as web_page:
+with WebPagePlaywrightChromium("https://example.com", storage_state="state.json") as web_page:
     ...
     web_page.save_storage_state("state.json")  # save to file
     state = web_page.save_storage_state()  # or get the dict back
