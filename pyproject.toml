@@ -18,3 +18,10 @@ markers = [
 
 # Run unit (mocked) tests by default; exclude integration tests
 addopts = "-m 'not integration'"
+
+filterwarnings = [
+    # Starlette's TestClient touches a deprecated anyio alias internally
+    # (anyio>=4 + starlette<1.0); unrelated to our code. Re-check when
+    # bumping fastapi/starlette.
+    "ignore::DeprecationWarning:starlette.testclient",
+]

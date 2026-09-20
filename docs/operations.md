@@ -132,8 +132,8 @@ and proxy env (`HTTPS_PROXY`/`HTTP_PROXY`) are set, the env wins.
 
 Two-port Hub: `4000` = websocket relay, `4001` = HTTP node registry at
 `/register`/`/nodes` (health at `/health`). `/nodes` returns
-`[{"name", "browser", "ws_endpoint"}]`. The Hub does not inspect the
-websocket path -- any path works:
+`{"nodes": [{"name", "browser", "ws_endpoint"}]}`. The Hub does not
+inspect the websocket path -- any path works:
 
 - Set `PLAYWRIGHT_CHROMIUM_URL=ws://playwright-hub:4000/ws` (and the
   `PLAYWRIGHT_FIREFOX_URL` / `PLAYWRIGHT_WEBKIT_URL` equivalents) to
@@ -214,8 +214,9 @@ If no URL is given, the session opens on a blank page (Chrome shows
 
 ### Session managers
 
-Two services (both local build only, never published) open/close browser
-sessions for the gateway UI without running pyscraper client code:
+Two services (both FastAPI, local build only, never published)
+open/close browser sessions for the gateway UI without running
+pyscraper client code:
 
 - `servers/playwright_session_manager.py` (service
   `playwright-session-manager`, via
@@ -228,23 +229,54 @@ sessions for the gateway UI without running pyscraper client code:
   /api/state-files` and `POST .../save`.
 - `servers/selenium_session_manager.py` (service
   `selenium-session-manager`, via
-  `Dockerfile.selenium-session-manager`, stdlib only): sessions open via
+  `Dockerfile.selenium-session-manager`): sessions open via
   the Grid REST API (`/wd/hub/session`) with an optional
   `pyscraper:node` stereotype; close deletes the Grid session. Grid
   response session ids are validated (alphanumeric plus hyphens,
-  Selenium Grid 4 UUID shape); anything else is rejected.
+  Selenium Grid 4 UUID shape); anything else is rejected. Both
+  managers treat a malformed entry as `500` (Selenium re-validates the
+  id with the same expression on close; Playwright duck-types the
+  worker with `callable()` checks).
 - Close is retryable: the entry is kept server-side until close
-  succeeds, and a failed close returns `{"error", "retryable": true}`
+  succeeds, and a failed close returns `{"detail": ..., "retryable": true}`
   (HTTP 502) so the UI can retry without losing the handle.
-- Request bodies are capped at 1 MiB (`413` when exceeded); invalid
-  `Content-Length` is rejected with `400`.
+- Recovery for a stuck session: there is no `?force` escape hatch.
+  Restarting the owning manager container (`docker compose restart
+  playwright-session-manager` / `selenium-session-manager`) only drops
+  the in-memory handle; the underlying resource is left behind and must
+  be released explicitly. For Selenium, delete the orphaned session
+  against the Grid (`DELETE /wd/hub/session/<id>` or the Grid UI at
+  `/ui`), or restart the Grid container. For Playwright, restart the
+  node container (`docker compose restart` the node service) to drop the
+  leftover browser. The manager's failure logs name the affected
+  manager id (and, on a gone session, the Grid id).
+- Payload validation errors
+  are `422` with Starlette's default `{"detail": ...}` shape (unknown
+  targets, blank or unknown fields, path escapes, malformed JSON).
+  Error detail messages are returned verbatim (raw backend errors
+  included): the gateway runs on a closed compose network with trusted
+  clients, so no fixed-message substitution, truncation, or body-size
+  cap is applied to client requests. The Selenium manager still caps
+  its own Grid response reads at 1 MiB (`GRID_READ_CAP`), which is a
+  server-side self-protection, not a client-facing limit. See the trust
+  boundary note in [architecture.md](architecture.md).
+  Explicitly handled errors use the `{"detail": ...}` envelope
+  (Starlette convention); uncaught exceptions fall back to Starlette's
+  default plain-text `500`. Only the envelope shape is contractual, not
+  the message wording. (The Hub registry is stdlib and keeps its own
+  `{"error": ...}` shape; out of scope here.) Undefined method/path
+  combinations are `404` (unknown path) or `405` (known path, wrong
+  method). A direct `GET /api/state-files/` `307`-redirects to the
+  canonical path; via the gateway the nginx alias normalizes it
+  before proxying. Both managers serve auto-generated
+  `/openapi.json` + `/docs`.
 - State files live in `SESSION_STATE_DIR` (`/data/sessions`, backed by
   the `session-states` compose volume shared with the host), listed via
   `GET /api/state-files`. Paths are confined to the state dir (absolute
-  paths escaping it are rejected with `400`). Playwright accepts either
-  a bare file   name (resolved under the state dir, subdirectories
+  paths escaping it are rejected with `422`). Playwright accepts either
+  a bare file name (resolved under the state dir, subdirectories
   allowed but only top-level files are listed), a confined absolute server-side path, or an inline dict for
-  `storage_state` open; `save` accepts paths only (a dict path is `400`).
+  `storage_state` open; `save` accepts paths only (a dict path is `422`).
 - The gateway UI exposes Open/Close + URL only; `storage_state`
   save/load is API-only (`curl` against `/api/...` above).
 - Timeouts: `PLAYWRIGHT_OPEN_TIMEOUT` (default `60`s, bounds each open
@@ -262,8 +294,12 @@ sessions for the gateway UI without running pyscraper client code:
   create, navigate, compensating close -- so ~`90`s worst case, still
   well under the nginx `150`s above).
 - Invalid numeric env values (including non-positive timeouts/ports)
-  fall back to defaults with a warning on
-  stderr (managers, Hub); the node fails fast with an explicit error.
+  fall back to defaults with a warning on stderr (managers, Hub); the
+  node fails fast with an explicit error. Lifecycle messages
+  (listening, node registration) go to stdout; warnings and
+  request-processing failures go to stderr, matching uvicorn's defaults
+  (startup/errors on stderr, access logs on stdout). `docker logs`
+  merges both streams.
 - Restart policies: `gateway` and both session managers use
   `restart: unless-stopped`. The Hub and nodes have none by design --
   nodes self-register with retries and the Hub is stateless, so all
@@ -316,17 +352,19 @@ Tag semantics:
 Notes:
 
 - `compose.yaml` references the Docker Hub images, so no login is
-  needed for public pulls. All services declare `image:`, so
+  needed for public pulls. Services published to registries declare
+  `image:` (plus a `build:` section for local development), so
   `docker compose pull` followed by `docker compose up -d` (without
-  `--build`) runs the whole stack with no local build. `build:` sections
-  are kept alongside for local development; note that
-  `docker compose build` rebuilds (and retags) the same names locally.
+  `--build`) runs those with no local build; `docker compose build`
+  rebuilds (and retags) the same names locally. The two session
+  managers are local-build only (`build:` without `image:`), so `up`
+  always builds them.
 - The WebKit image is `linux/amd64` only (Playwright WebKit has no official
   arm64 Linux support); `compose.yaml` pins `platform: linux/amd64`
   for that service.
 
 ```sh
-# Fastest: pull from registry (no local build)
+# Fastest: pull published images (session managers still build locally)
 docker compose pull
 docker compose up -d
 ```

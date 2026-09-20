@@ -51,8 +51,10 @@ if (!t) {
   $("frame").src = vncUrl;
   function showToast(msg) {
     // Failure-only notification: auto-dismisses, never shifts layout.
+    // Truncate the visible text; the full message stays in title.
     const el = document.getElementById('toast');
-    el.textContent = msg;
+    el.textContent = msg.length > 300 ? msg.slice(0, 300) + "…" : msg;
+    el.title = msg.slice(0, 2000);
     el.style.display = 'block';
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => { el.style.display = 'none'; }, 8000);
@@ -60,14 +62,43 @@ if (!t) {
   async function refreshSession() {
     try {
       const res = await fetch(apiBase);
-      const data = await res.json();
-      const mine = (data.sessions || []).filter(s => s.target === target);
-      sessionId = mine.length ? mine[mine.length - 1].id : null;
-    } catch (e) { sessionId = null; }
+      const data = (await res.json().catch(() => ({}))) ?? {};
+      if (!res.ok) {
+        sessionId = null;
+        $("badge").textContent = `error (${res.status})`;
+        $("badge").classList.remove("open");
+        // Keep Open enabled: the error may be transient (manager
+        // restart) and the poller retries anyway; manual retry stays
+        // available. Close is meaningless without a session id.
+        $("open").disabled = false;
+        $("close").disabled = true;
+        return;
+      }
+      const sessions = (data && typeof data === "object" && Array.isArray(data.sessions)) ? data.sessions : [];
+      const mine = sessions.filter(s => s && s.target === target);
+      const last = mine.length ? mine[mine.length - 1] : null;
+      sessionId = (last && typeof last.id === "string") ? last.id : null;
+    } catch (e) {
+      // Network failure: same error state as !res.ok (Open stays
+      // enabled for manual retry; the poller retries anyway).
+      sessionId = null;
+      $("badge").textContent = "error (0)";
+      $("badge").classList.remove("open");
+      $("open").disabled = false;
+      $("close").disabled = true;
+      return;
+    }
     $("badge").textContent = sessionId ? `open (${sessionId})` : "closed";
     $("badge").classList.toggle("open", !!sessionId);
     $("open").disabled = !!sessionId;
     $("close").disabled = !sessionId;
+  }
+  // detail may be a string (self errors) or an array (422 validation).
+  function formatDetail(data, status) {
+    const detail = (data && typeof data === "object") ? data.detail : undefined;
+    if (detail == null) return String(status);
+    if (typeof detail === "string") return detail;
+    return JSON.stringify(detail);
   }
   $("open").onclick = async () => {
     const payload = {target};
@@ -75,8 +106,8 @@ if (!t) {
     if (url) payload.url = url;
     try {
       const res = await fetch(apiBase, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || res.status);
+      const data = (await res.json().catch(() => ({}))) ?? {};
+      if (!res.ok) throw new Error(formatDetail(data, res.status));
       await refreshSession();
     } catch (e) { showToast(`Open failed: ${e.message}`); }
   };
@@ -84,8 +115,8 @@ if (!t) {
     if (!sessionId) return;
     try {
       const res = await fetch(`${apiBase}/${sessionId}`, {method: "DELETE"});
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || res.status);
+      const data = (await res.json().catch(() => ({}))) ?? {};
+      if (!res.ok) throw new Error(formatDetail(data, res.status));
       await refreshSession();
     } catch (e) { showToast(`Close failed: ${e.message}`); }
   };

@@ -8,7 +8,7 @@ Pyscraper maintains two distinct types of tests: **Unit Tests** and **Integratio
 
 | Test Type | External Dependencies | Speed | Default Execution | Use Case |
 |-----------|----------------------|-------|-------------------|----------|
-| **Unit Tests** | None (mocked) | Fast (~1s) | ✅ Yes | Daily development, CI/CD |
+| **Unit Tests** | None (mocked) | Fast (offline) | ✅ Yes | Daily development, CI/CD |
 | **Integration Tests** | Yes (real services) | Slow (minutes) | ❌ No | Pre-release verification |
 
 ```sh
@@ -40,7 +40,7 @@ pytest tests/ -m "" -v
 ### Characteristics
 
 - ✅ **No external dependencies**: All external services are mocked
-- ✅ **Fast execution**: Completes in ~1s
+- ✅ **Fast execution**: Runs offline against mocks
 - ✅ **Offline capable**: No internet connection required
 - ✅ **100% reproducible**: Environment-independent
 - ✅ **CI/CD friendly**: Can run on every commit
@@ -296,7 +296,7 @@ def test_download_real_file():
 
 **A:** To balance development speed and quality.
 
-- **Unit tests**: Fast feedback (~1s) enables TDD
+- **Unit tests**: Fast offline feedback enables TDD
 - **Integration tests**: Verify real-world compatibility
 
 Having both enables fast development cycles and safe releases.
@@ -412,7 +412,7 @@ ptc        # Measure coverage
 
 **Benefits of two-tier test classification:**
 
-- ✅ **Faster development**: Unit tests provide fast feedback (~1s)
+- ✅ **Faster development**: Unit tests provide fast offline feedback
 - ✅ **Quality assurance**: Integration tests verify production compatibility
 - ✅ **CI/CD cost reduction**: Default is unit tests only
 - ✅ **Clear strategy**: explicit guidance on when to run what

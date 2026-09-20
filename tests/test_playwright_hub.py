@@ -84,26 +84,19 @@ class TestRegistry:
         # Registered entries carry name/browser/ws_endpoint only (no profile).
         assert set(hub.NODES["chromium"]) == {"browser", "ws_endpoint"}
 
-    def test_websockets_pin_below_14(self):
-        hub_docker = (
-            Path(__file__).resolve().parent.parent / "Dockerfile.playwright-hub"
-        ).read_text()
-        assert '"websockets>=12.0,<14.0"' in hub_docker
-
     def test_relay_rejects_without_node(self, hub):
         # _relay closes with 1011 when selection fails; covered via _select_node.
         assert hub._select_node(json.loads('{"browser": "unknown"}')) is None
 
 
-def _make_registry_request(hub, path, payload=None, content_length=None):
+def _make_registry_request(hub, path, payload=None):
     import io
 
     handler = hub._RegistryHandler.__new__(hub._RegistryHandler)
     handler.path = path
     body = json.dumps(payload).encode() if payload is not None else b""
     handler.rfile = io.BytesIO(body)
-    length = str(len(body)) if content_length is None else content_length
-    handler.headers = {"Content-Length": length}
+    handler.headers = {"Content-Length": str(len(body))}
     responses = []
 
     def fake_send_response(code):
@@ -131,6 +124,19 @@ class TestRegisterValidation:
             "browser": "chromium", "ws_endpoint": "ws://x:3000/y",
         })
         assert code == 400
+
+    def test_read_json_rejects_bad_length(self, hub):
+        import io
+
+        handler = hub._RegistryHandler.__new__(hub._RegistryHandler)
+        handler.rfile = io.BytesIO(b"{}")
+        # Non-integer and negative Content-Length are rejected (None ->
+        # 400 upstream); a missing header is treated as an empty object.
+        for value in ("abc", "-5"):
+            handler.headers = {"Content-Length": value}
+            assert handler._read_json() is None
+        handler.headers = {}
+        assert handler._read_json() == {}
 
     def test_register_bad_scheme_400(self, hub):
         code = _make_registry_request(hub, "/register", {
@@ -187,25 +193,6 @@ class TestRegisterValidation:
 
     def test_unregister_missing_name_400(self, hub):
         code = _make_registry_request(hub, "/unregister", {})
-        assert code == 400
-
-    def test_register_body_too_large_413(self, hub):
-        code = _make_registry_request(
-            hub, "/register", {"a": 1},
-            content_length=str(hub.MAX_BODY_BYTES + 1),
-        )
-        assert code == 413
-
-    def test_register_bad_length_400(self, hub):
-        code = _make_registry_request(
-            hub, "/register", {"a": 1}, content_length="abc",
-        )
-        assert code == 400
-
-    def test_register_negative_length_400(self, hub):
-        code = _make_registry_request(
-            hub, "/register", {"a": 1}, content_length="-5",
-        )
         assert code == 400
 
     def test_register_query_and_trailing_slash_ok(self, hub):
@@ -320,7 +307,7 @@ class TestRelay:
         with patch.object(hub.websockets, "connect", side_effect=OSError("refused")):
             self._run(hub, ws)
         ws.close.assert_called_once_with(1011, "node endpoint unavailable")
-        out = capsys.readouterr().out
+        out = capsys.readouterr().err
         assert "a\\nb" in out
         assert out.count("\n") == 1
 

@@ -92,9 +92,32 @@ subpaths, and `/api/` proxies to the session managers.
 relay, one owner thread per session, `storage_state` load/save, plus the
 `state-files` listing) and `servers/selenium_session_manager.py`
 (open/close via the Grid REST API, no state restore) are
-both stdlib HTTP, local build only. State files live in the
+both FastAPI apps (Pydantic validation, `422` on invalid bodies,
+auto-generated `/openapi.json` + `/docs`), local build only. The Hub
+registry and the node's Python wrapper stay stdlib-only (the node image
+also ships Playwright). State files live in the
 `session-states` compose volume shared with the host. No auth (closed
 compose network, local dev use).
+
+### Trust boundary: closed network, trusted clients
+
+The gateway stack assumes a closed compose network and trusted
+clients. Consequences, decided deliberately and not to be re-litigated
+in review without new threat information:
+
+- Error details are returned verbatim (`str(exc)` in `{"detail"}`) and
+  reflected validation input is Starlette's default (untruncated).
+  No fixed-message substitution, no truncation helpers, no body-size
+  cap on client requests.
+- There is no `?force` escape hatch. Restarting the owning manager
+  container only discards the in-memory handle; the Grid session or
+  node-side browser is NOT released by that restart and must be cleaned
+  up separately (see the recovery note in [operations.md](operations.md)).
+- Prior reflection-hardening work (custom 422 handler, `_safe_str`,
+  `_truncate_*`, 413 middleware, `?force`) was removed for this
+  reason. Future review findings of the form "unbounded reflection"
+  should be closed by pointing here unless the trust assumption
+  changes.
 
 ### Version from Git tags
 

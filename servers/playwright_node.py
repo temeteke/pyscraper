@@ -88,7 +88,11 @@ def _post(path, payload, retries=5):
             return
         except urllib.error.URLError as exc:  # pragma: no cover - network best-effort
             if attempt == retries - 1:
-                print(f"[node] hub {path} failed after {retries} attempts: {exc!r}", flush=True)
+                print(
+                    f"[node] hub {path} failed after {retries} attempts: {exc!r}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             else:
                 time.sleep(1 * (attempt + 1))
 

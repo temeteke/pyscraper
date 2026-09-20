@@ -61,8 +61,20 @@ docker compose config --quiet    # validate compose files
   proxied to the session managers (`playwright-session-manager` on :8081
   for sessions/save/state-files, `selenium-session-manager` on :8082 for
   sessions; both local build only).
-- `playwright==1.62.0` pinned in `setup.cfg`, `Dockerfile.playwright-node`,
-  and `Dockerfile.playwright-session-manager` (`ARG PLAYWRIGHT_VERSION`); keep in sync.
+- `playwright` client/node protocol pinned in `setup.cfg`,
+  `Dockerfile.playwright-node`, and `Dockerfile.playwright-session-manager`;
+  keep in sync. The Hub's `websockets>=12.0,<14.0` pin lives in
+  `Dockerfile.playwright-hub` and in the `setup.cfg` `gateway` extra
+  (used by the Hub tests); keep the two in sync (legacy websockets API).
+- Both session managers are FastAPI apps (Pydantic validation, Starlette
+  default `{"detail": ...}` errors, auto-generated `/openapi.json` + `/docs`).
+  Gateway pins live in `setup.cfg` (`gateway` extra) and both
+  session-manager Dockerfiles (`ARG FASTAPI_VERSION` /
+  `ARG UVICORN_VERSION`); keep them in sync (no pin test exists, so
+  update all three together). `.github/workflows/tests.yml` installs
+  `.[gateway]`, so it picks the `setup.cfg` pins up without its own
+  literals. Note: `httpx` is test-only and lives in `setup.cfg` alone
+  (not shipped in images).
 
 ## Before committing
 

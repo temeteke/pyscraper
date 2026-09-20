@@ -205,7 +205,7 @@ services:
   playwright-session-manager:
     # Playwright session open/close/save API for the gateway UI (local
     # build only, never published to registries -- see
-    # Dockerfile.playwright-session-manager).
+    # Dockerfile.playwright-session-manager). FastAPI + uvicorn.
     build:
       context: .
       dockerfile: Dockerfile.playwright-session-manager
@@ -235,7 +235,7 @@ services:
   selenium-session-manager:
     # Selenium session open/close API for the gateway UI (local build
     # only, never published to registries -- see
-    # Dockerfile.selenium-session-manager). Stdlib only.
+    # Dockerfile.selenium-session-manager). FastAPI + uvicorn.
     build:
       context: .
       dockerfile: Dockerfile.selenium-session-manager

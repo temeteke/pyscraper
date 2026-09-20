@@ -29,7 +29,7 @@ const TARGETS = [
   {target: "playwright-firefox", family: "playwright", label: "Firefox (Playwright)", sub: "playwright-firefox"},
   {target: "playwright-webkit", family: "playwright", label: "WebKit (Playwright)", sub: "playwright-webkit"},
 ];
-const state = {}; // target -> {id}
+const state = {}; // target -> {id} | {error: number} | null
 
 function vncUrl(t) {
   return `/${t.sub}/vnc.html?path=/${t.sub}/websockify&autoconnect=true&resize=scale`;
@@ -41,10 +41,13 @@ async function refreshSessions() {
   for (const t of TARGETS) {
     try {
       const res = await fetch(apiBase(t));
-      const data = await res.json();
-      const mine = (data.sessions || []).filter(s => s.target === t.target);
-      state[t.target] = mine.length ? mine[mine.length - 1] : null;
-    } catch (e) { state[t.target] = null; }
+      const data = (await res.json().catch(() => ({}))) ?? {};
+      if (!res.ok) { state[t.target] = {error: res.status}; continue; }
+      const sessions = (data && typeof data === "object" && Array.isArray(data.sessions)) ? data.sessions : [];
+      const mine = sessions.filter(s => s && s.target === t.target);
+      const last = mine.length ? mine[mine.length - 1] : null;
+      state[t.target] = (last && typeof last.id === "string") ? last : null;
+    } catch (e) { state[t.target] = {error: 0}; }
   }
   renderBadges();
 }
@@ -52,8 +55,13 @@ function renderBadges() {
   for (const t of TARGETS) {
     const badge = document.getElementById(`badge-${t.target}`);
     const s = state[t.target];
-    badge.textContent = s ? `open (${s.id})` : "closed";
-    badge.classList.toggle("open", !!s);
+    if (s && s.error !== undefined) {
+      badge.textContent = `error (${s.error})`;
+      badge.classList.remove("open");
+    } else {
+      badge.textContent = s ? `open (${s.id})` : "closed";
+      badge.classList.toggle("open", !!s);
+    }
   }
 }
 function buildTiles() {

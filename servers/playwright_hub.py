@@ -24,6 +24,7 @@ Environment:
 import asyncio
 import json
 import os
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -41,10 +42,10 @@ def _int_env(name, default):
     try:
         result = int(os.environ.get(name, str(default)))
     except ValueError:
-        print(f"[hub] invalid {name}, using {default}", flush=True)
+        print(f"[hub] invalid {name}, using {default}", file=sys.stderr, flush=True)
         return default
     if result <= 0:
-        print(f"[hub] invalid {name}, using {default}", flush=True)
+        print(f"[hub] invalid {name}, using {default}", file=sys.stderr, flush=True)
         return default
     return result
 
@@ -52,7 +53,7 @@ def _int_env(name, default):
 PORT = _int_env("PLAYWRIGHT_HUB_PORT", 4000)
 # REG_PORT derives as PORT+1, so cap at 65534 to keep both bindable.
 if not 1 <= PORT <= 65534:
-    print(f"[hub] invalid PLAYWRIGHT_HUB_PORT, using 4000", flush=True)
+    print("[hub] invalid PLAYWRIGHT_HUB_PORT, using 4000", file=sys.stderr, flush=True)
     PORT = 4000
 REG_PORT = PORT + 1
 NODES = {}  # name -> {"browser": ..., "ws_endpoint": ...}
@@ -60,9 +61,6 @@ _LOCK = threading.Lock()
 
 # Timeout for the outbound node websocket dial.
 NODE_CONNECT_TIMEOUT = _int_env("PLAYWRIGHT_NODE_CONNECT_TIMEOUT", 10)
-
-# Maximum registry request body.
-MAX_BODY_BYTES = 1 << 20
 
 
 def _select_node(options):
@@ -127,7 +125,7 @@ async def _relay(client_ws):
     try:
         node_ws = await websockets.connect(target, open_timeout=NODE_CONNECT_TIMEOUT)
     except Exception as exc:  # noqa: BLE001 -- fail-closed: any dial failure rejects the client
-        print(f"[hub] node connect failed ({target!r}): {exc!r}", flush=True)
+        print(f"[hub] node connect failed ({target!r}): {exc!r}", file=sys.stderr, flush=True)
         try:
             await client_ws.close(1011, "node endpoint unavailable")
         except Exception:
@@ -163,16 +161,16 @@ class _RegistryHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _read_json(self):
+        # Trusted closed network: no body-size cap; malformed or
+        # unparseable bodies surface as None (400) below.
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except (TypeError, ValueError):
-            return "bad-length"
+            return None
         if length < 0:
-            return "bad-length"
-        if length > MAX_BODY_BYTES:
-            return "too-large"
+            return None
         try:
-            return json.loads(self.rfile.read(max(length, 0)) or b"{}")
+            return json.loads(self.rfile.read(length) or b"{}")
         except (ValueError, json.JSONDecodeError):
             return None
 
@@ -185,20 +183,12 @@ class _RegistryHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "ok"})
         elif path == "/nodes":
             with _LOCK:
-                self._send_json(
-                    {"nodes": [{"name": k, **v} for k, v in NODES.items()]}
-                )
+                self._send_json({"nodes": [{"name": k, **v} for k, v in NODES.items()]})
         else:
             self._send_json({"error": "not found"}, status=404)
 
     def do_POST(self):
         payload = self._read_json()
-        if payload == "bad-length":
-            self._send_json({"error": "invalid Content-Length"}, status=400)
-            return
-        if payload == "too-large":
-            self._send_json({"error": "request body too large"}, status=413)
-            return
         if payload is None or not isinstance(payload, dict):
             self._send_json({"error": "invalid json"}, status=400)
             return
@@ -207,10 +197,14 @@ class _RegistryHandler(BaseHTTPRequestHandler):
             name = payload.get("name")
             browser = payload.get("browser")
             ws_endpoint = payload.get("ws_endpoint")
-            if not (isinstance(name, str) and name.strip()) or not (isinstance(browser, str) and browser.strip()):
+            if not (isinstance(name, str) and name.strip()) or not (
+                isinstance(browser, str) and browser.strip()
+            ):
                 self._send_json({"error": "name and browser are required"}, status=400)
                 return
-            if not isinstance(ws_endpoint, str) or not ws_endpoint.strip().startswith(("ws://", "wss://")):
+            if not isinstance(ws_endpoint, str) or not ws_endpoint.strip().startswith(
+                ("ws://", "wss://")
+            ):
                 self._send_json({"error": "ws_endpoint must be a ws(s) URL"}, status=400)
                 return
             name = name.strip()

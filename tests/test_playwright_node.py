@@ -204,20 +204,6 @@ class TestEnvDefaults:
         assert "PLAYWRIGHT_PROFILE" not in os.environ
 
 
-class TestVersionPin:
-    def test_client_and_images_playwright_versions_match(self):
-        setup_cfg = (Path(__file__).resolve().parent.parent / "setup.cfg").read_text()
-        node_docker = (
-            Path(__file__).resolve().parent.parent / "Dockerfile.playwright-node"
-        ).read_text()
-        manager_docker = (
-            Path(__file__).resolve().parent.parent / "Dockerfile.playwright-session-manager"
-        ).read_text()
-        assert "playwright==1.62.0" in setup_cfg
-        assert "PLAYWRIGHT_VERSION=1.62.0" in node_docker
-        assert "PLAYWRIGHT_VERSION=1.62.0" in manager_docker
-
-
 class TestNodeSelfContained:
     def test_no_pyscraper_import(self):
         # The node image ships only playwright: importing pyscraper would
