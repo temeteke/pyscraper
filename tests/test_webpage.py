@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -308,6 +309,18 @@ class TestWebPageCurl(MixinTestWebPage):
     def web_page_instance(self, web_page_class, url):
         with web_page_class(url) as wp:
             yield wp
+
+
+class TestWebPageCurlCommand:
+    """Unit checks for how WebPageCurl invokes curl (no real network)."""
+
+    def test_html_passes_check_and_captures_stderr(self):
+        with patch("pyscraper.webpage_curl.subprocess.run") as run:
+            run.return_value.stdout = b"<html></html>"
+            assert WebPageCurl("https://example.com").html == "<html></html>"
+        kwargs = run.call_args.kwargs
+        assert kwargs["check"] is True
+        assert kwargs["stderr"] == subprocess.PIPE
 
 
 class TestConfigureNoProxyForRemote:

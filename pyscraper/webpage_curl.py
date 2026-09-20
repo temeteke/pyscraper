@@ -11,5 +11,8 @@ class WebPageCurl(WebPage):
     @cached_property
     def html(self):
         return subprocess.run(
-            ["curl", self.url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+            ["curl", self.url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
         ).stdout.decode()
