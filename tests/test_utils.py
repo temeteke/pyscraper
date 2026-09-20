@@ -98,28 +98,28 @@ class TestLazyList:
     def test_lazy_evaluation(self):
         """Test that items are only evaluated when accessed"""
         # Create new LazyList without accessing items
-        call_count = {'count': 0}
+        call_count = {"count": 0}
 
         def counting_generator(item):
-            call_count['count'] += 1
+            call_count["count"] += 1
             return item * 2
 
         lazy = LazyList([1, 2, 3], counting_generator)
 
         # No items should be generated yet
-        assert call_count['count'] == 0
+        assert call_count["count"] == 0
 
         # Access first item
         _ = lazy[0]
-        assert call_count['count'] == 1
+        assert call_count["count"] == 1
 
         # Access same item again (should use cache)
         _ = lazy[0]
-        assert call_count['count'] == 1
+        assert call_count["count"] == 1
 
         # Access second item
         _ = lazy[1]
-        assert call_count['count'] == 2
+        assert call_count["count"] == 2
 
     def test_empty_list(self):
         """Test LazyList with empty list"""

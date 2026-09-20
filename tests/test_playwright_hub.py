@@ -113,16 +113,27 @@ def _make_registry_request(hub, path, payload=None):
 
 class TestRegisterValidation:
     def test_register_ok(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "name": "webkit", "browser": "webkit", "ws_endpoint": "ws://webkit:3000/x",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": "webkit",
+                "browser": "webkit",
+                "ws_endpoint": "ws://webkit:3000/x",
+            },
+        )
         assert code == 200
         assert hub.NODES["webkit"]["browser"] == "webkit"
 
     def test_register_missing_name_400(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "browser": "chromium", "ws_endpoint": "ws://x:3000/y",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "browser": "chromium",
+                "ws_endpoint": "ws://x:3000/y",
+            },
+        )
         assert code == 400
 
     def test_read_json_rejects_bad_length(self, hub):
@@ -139,45 +150,81 @@ class TestRegisterValidation:
         assert handler._read_json() == {}
 
     def test_register_bad_scheme_400(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "name": "evil", "browser": "chromium", "ws_endpoint": "http://evil:3000/",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": "evil",
+                "browser": "chromium",
+                "ws_endpoint": "http://evil:3000/",
+            },
+        )
         assert code == 400
         assert "evil" not in hub.NODES
 
     def test_register_non_string_400(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "name": 123, "browser": "chromium", "ws_endpoint": "ws://x:3000/y",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": 123,
+                "browser": "chromium",
+                "ws_endpoint": "ws://x:3000/y",
+            },
+        )
         assert code == 400
         assert 123 not in hub.NODES
 
     def test_register_blank_name_400(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "name": "   ", "browser": "chromium", "ws_endpoint": "ws://x:3000/y",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": "   ",
+                "browser": "chromium",
+                "ws_endpoint": "ws://x:3000/y",
+            },
+        )
         assert code == 400
         assert "   " not in hub.NODES
 
     def test_register_strips_name(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "name": " padded ", "browser": "chromium", "ws_endpoint": "ws://x:3000/y",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": " padded ",
+                "browser": "chromium",
+                "ws_endpoint": "ws://x:3000/y",
+            },
+        )
         assert code == 200
         assert "padded" in hub.NODES
         assert " padded " not in hub.NODES
 
     def test_register_strips_endpoint(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "name": "sp", "browser": "chromium", "ws_endpoint": "ws://x:3000/y  ",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": "sp",
+                "browser": "chromium",
+                "ws_endpoint": "ws://x:3000/y  ",
+            },
+        )
         assert code == 200
         assert hub.NODES["sp"]["ws_endpoint"] == "ws://x:3000/y"
 
     def test_register_blank_browser_400(self, hub):
-        code = _make_registry_request(hub, "/register", {
-            "name": "x", "browser": "   ", "ws_endpoint": "ws://x:3000/y",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": "x",
+                "browser": "   ",
+                "ws_endpoint": "ws://x:3000/y",
+            },
+        )
         assert code == 400
 
     def test_unregister_stripped_name(self, hub):
@@ -197,17 +244,28 @@ class TestRegisterValidation:
 
     def test_register_query_and_trailing_slash_ok(self, hub):
         for path in ("/register?x=1", "/register/"):
-            code = _make_registry_request(hub, path, {
-                "name": "q", "browser": "chromium", "ws_endpoint": "ws://x:3000/y",
-            })
+            code = _make_registry_request(
+                hub,
+                path,
+                {
+                    "name": "q",
+                    "browser": "chromium",
+                    "ws_endpoint": "ws://x:3000/y",
+                },
+            )
             assert code == 200
         assert hub.NODES["q"]["browser"] == "chromium"
 
     def test_register_newline_name_logged_escaped(self, hub, capsys):
-        code = _make_registry_request(hub, "/register", {
-            "name": "evil\ninjected", "browser": "chromium",
-            "ws_endpoint": "ws://x:3000/y",
-        })
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": "evil\ninjected",
+                "browser": "chromium",
+                "ws_endpoint": "ws://x:3000/y",
+            },
+        )
         assert code == 200
         out = capsys.readouterr().out
         assert "evil\\ninjected" in out
@@ -285,10 +343,13 @@ class TestRelay:
         closed = ConnectionClosed(None, None)
         node_ws.close.side_effect = closed
         ws.close.side_effect = closed
+
         async def _connect(*args, **kwargs):
             return node_ws
+
         async def _noop(src, dst):
             return None
+
         with patch.object(hub.websockets, "connect", side_effect=_connect):
             with patch.object(hub, "_pipe", side_effect=_noop):
                 self._run(hub, ws)  # must not raise
@@ -301,7 +362,8 @@ class TestRelay:
 
     def test_relay_connect_failure_logs_escaped(self, hub, capsys):
         hub.NODES["evil"] = {
-            "browser": "chromium", "ws_endpoint": "ws://x:3000/a\nb",
+            "browser": "chromium",
+            "ws_endpoint": "ws://x:3000/a\nb",
         }
         ws = _make_client_ws(json.dumps({"node": "evil"}))
         with patch.object(hub.websockets, "connect", side_effect=OSError("refused")):

@@ -11,7 +11,14 @@ logger = logging.getLogger(__name__)
 
 class WebPageRequests(RequestsMixin, WebPage):
     def __init__(
-        self, url, params: dict | None = None, encoding=None, headers: dict | None = None, cookies: dict | None = None, session=None, timeout=10
+        self,
+        url,
+        params: dict | None = None,
+        encoding=None,
+        headers: dict | None = None,
+        cookies: dict | None = None,
+        session=None,
+        timeout=10,
     ):
         self.response = None
 

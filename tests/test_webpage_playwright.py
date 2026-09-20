@@ -6,21 +6,17 @@ Integration tests are marked with @pytest.mark.integration.
 
 import json
 import os
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-import lxml.html
 
 from pyscraper.webpage import (
     WebPageError,
     WebPageNoSuchElementError,
-    WebPageTimeoutError,
 )
 from pyscraper.webpage_playwright import (
     CaptureSession,
     PlaywrightWebPageElement,
-    RequestEntry,
-    WebPagePlaywright,
     WebPagePlaywrightChromium,
     WebPagePlaywrightFirefox,
     WebPagePlaywrightWebKit,
@@ -1207,14 +1203,17 @@ class TestCaptureSession:
 
     def test_wp_capture_with_filter(self, mock_pw):
         with WebPagePlaywrightChromium("https://example.com") as wp:
-            f = lambda u: "api" in u
+
+            def f(u):
+                return "api" in u
+
             cap = wp.capture(filter_url=f)
             assert cap._filter_url is f
 
     def test_enter_registers_listeners(self, mock_pw):
         page_mock = mock_pw[0]
         with WebPagePlaywrightChromium("https://example.com") as wp:
-            with wp.capture() as cap:
+            with wp.capture():
                 request_calls = [c for c in page_mock.on.call_args_list if c.args[0] == "request"]
                 response_calls = [
                     c for c in page_mock.on.call_args_list if c.args[0] == "response"
@@ -1225,7 +1224,7 @@ class TestCaptureSession:
     def test_exit_removes_listeners(self, mock_pw):
         page_mock = mock_pw[0]
         with WebPagePlaywrightChromium("https://example.com") as wp:
-            with wp.capture() as cap:
+            with wp.capture():
                 pass
             remove_calls = page_mock.remove_listener.call_args_list
             names = [c.args[0] for c in remove_calls]
@@ -1300,7 +1299,6 @@ class TestCaptureSession:
         assert cap.requests == []
 
     def test_stop_idempotent(self, mock_pw):
-        page_mock = mock_pw[0]
         with WebPagePlaywrightChromium("https://example.com") as wp:
             with wp.capture() as cap:
                 pass

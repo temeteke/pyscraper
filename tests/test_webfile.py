@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -20,7 +20,7 @@ def filename():
 def content(url):
     # Return mocked content instead of making real HTTP request
     # This matches what httpbin.org/range/1024 would return
-    return b'x' * 1024
+    return b"x" * 1024
 
 
 class TestWebFile:
@@ -305,10 +305,10 @@ class TestWebFile:
 @pytest.mark.integration
 class TestWebFileIntegration:
     """Integration tests using real httpbin.org endpoints.
-    
+
     These tests make actual network requests and verify the library
     works correctly with real-world HTTP responses.
-    
+
     Run with: pytest tests/test_webfile.py -m integration -v
     """
 
@@ -349,6 +349,7 @@ class TestWebFileIntegration:
 
         with wf as f:
             import json
+
             data = json.loads(f.read().decode())
             # httpbin.org echoes back the headers we sent
             assert "X-Test-Header" in data["headers"]
@@ -362,6 +363,7 @@ class TestWebFileIntegration:
 
         with wf as f:
             import json
+
             data = json.loads(f.read().decode())
             # Should contain some User-Agent string
             assert "user-agent" in data
@@ -487,5 +489,6 @@ class TestWebFileIntegrationEdgeCases:
 
             # Parse to verify it's valid JSON
             import json
+
             data = json.loads(content.decode())
             assert isinstance(data, dict)

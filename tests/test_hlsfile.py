@@ -71,7 +71,7 @@ def content(web_files):
     # This simulates the concatenated video segments
     # video000.ts (57152 bytes) + video001.ts (56400 bytes) + video002.ts (23312 bytes) = 136864 bytes
     segment_size = 20000  # Mock segment size
-    return b'\x47' + b'x' * (segment_size * 3 - 1)  # 3 segments of ~20KB each
+    return b"\x47" + b"x" * (segment_size * 3 - 1)  # 3 segments of ~20KB each
 
 
 class TestHlsFile:
@@ -251,7 +251,9 @@ video002.ts
         calls = []
 
         class CaptureFFmpeg:
-            def __init__(self, inputs=None, outputs=None, global_options=None, executable="ffmpeg"):
+            def __init__(
+                self, inputs=None, outputs=None, global_options=None, executable="ffmpeg"
+            ):
                 calls.append((inputs, outputs, global_options, executable))
                 self.outputs = outputs or {}
 
@@ -306,7 +308,7 @@ video002.ts
     def test_url_change_clears_cache(self, hls_file, url_error):
         """Test that changing URL automatically clears cached properties"""
         # Access cached properties
-        original_obj = hls_file.m3u8_obj
+        _ = hls_file.m3u8_obj
         _ = hls_file.web_files
 
         # Verify properties are cached
@@ -339,15 +341,21 @@ video002.ts
 
     def test_web_files_headers_cookies_not_shared(self):
         hls = HlsFile("https://a.com/playlist.m3u8")
-        wf1 = WebFile("https://a.com/seg0.ts", headers=dict(hls.headers), cookies=dict(hls.cookies))
-        wf2 = WebFile("https://a.com/seg1.ts", headers=dict(hls.headers), cookies=dict(hls.cookies))
+        wf1 = WebFile(
+            "https://a.com/seg0.ts", headers=dict(hls.headers), cookies=dict(hls.cookies)
+        )
+        wf2 = WebFile(
+            "https://a.com/seg1.ts", headers=dict(hls.headers), cookies=dict(hls.cookies)
+        )
         wf1.request_headers["X"] = "1"
         assert "X" not in wf2.request_headers
 
     def test_no_map_in_segment_only_playlist(self, hls_file):
         content = hls_file.m3u8_content_filename
         assert "#EXT-X-MAP:" not in content
-        assert content.strip() == """
+        assert (
+            content.strip()
+            == """
 #EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:8
@@ -359,6 +367,7 @@ video001.ts
 video002.ts
 #EXT-X-ENDLIST
 """.strip()
+        )
 
 
 class TestHlsFileWithMap:
@@ -370,7 +379,7 @@ class TestHlsFileWithMap:
         content = hls_file_with_map.m3u8_content_filename
         assert "#EXT-X-MAP:" in content
         assert "init.mp4?token=abc" not in content
-        assert "#EXT-X-MAP:URI=\"init.mp4\"" in content
+        assert '#EXT-X-MAP:URI="init.mp4"' in content
         assert "BYTERANGE" in content
 
     def test_m3u8_content_filename_segments(self, hls_file_with_map):
@@ -390,8 +399,8 @@ class TestHlsFileWithMap:
 
     def test_read_contains_init(self, hls_file_with_map):
         data = hls_file_with_map.read()
-        assert data[:5] == b'i' * 5
-        assert b'xx' in data
+        assert data[:5] == b"i" * 5
+        assert b"xx" in data
 
     def test_download_with_map(self, hls_file_with_map):
         f = hls_file_with_map.download()
@@ -415,9 +424,7 @@ class TestHlsFileCollideSeg:
 
     def test_seg_filenames_differ(self, hls_file_collide_seg):
         mapping = hls_file_collide_seg._uri_to_local_name
-        seg_uris = [
-            s.absolute_uri for s in hls_file_collide_seg.m3u8_obj.segments
-        ]
+        seg_uris = [s.absolute_uri for s in hls_file_collide_seg.m3u8_obj.segments]
         f0, f1 = (mapping[u] for u in seg_uris)
         assert f0 != f1
         assert f0.endswith(".ts")
@@ -427,10 +434,7 @@ class TestHlsFileCollideSeg:
 
     def test_init_filenames_differ(self, hls_file_collide_seg):
         mapping = hls_file_collide_seg._uri_to_local_name
-        init_uris = [
-            s.init_section.absolute_uri
-            for s in hls_file_collide_seg.m3u8_obj.segments
-        ]
+        init_uris = [s.init_section.absolute_uri for s in hls_file_collide_seg.m3u8_obj.segments]
         f0, f1 = (mapping[u] for u in init_uris)
         assert f0 != f1
         assert f0.endswith(".mp4")
@@ -466,10 +470,10 @@ class TestHlsFileCollideSeg:
 
     def test_read_order(self, hls_file_collide_seg):
         data = hls_file_collide_seg.read()
-        assert data[:200] == b'i' * 200
-        assert data[200:20200] == b'x' * 20000
-        assert data[20200:20400] == b'i' * 200
-        assert data[20400:] == b'x' * 20000
+        assert data[:200] == b"i" * 200
+        assert data[200:20200] == b"x" * 20000
+        assert data[20200:20400] == b"i" * 200
+        assert data[20400:] == b"x" * 20000
 
 
 class TestHlsFileCollideInitQuery:
@@ -483,10 +487,7 @@ class TestHlsFileCollideInitQuery:
 
     def test_init_filenames_differ(self, hls_file_collide_query):
         mapping = hls_file_collide_query._uri_to_local_name
-        init_uris = [
-            s.init_section.absolute_uri
-            for s in hls_file_collide_query.m3u8_obj.segments
-        ]
+        init_uris = [s.init_section.absolute_uri for s in hls_file_collide_query.m3u8_obj.segments]
         f0, f1 = (mapping[u] for u in init_uris)
         assert f0 != f1
 
@@ -523,18 +524,27 @@ class TestHlsFileQueryString:
     def test_web_files_preserve_query_string(self, hls_file_qs):
         files = hls_file_qs.web_files
         for wf in files:
-            assert 'token=abc123' in wf.url, f"Query string missing in {wf.url}"
+            assert "token=abc123" in wf.url, f"Query string missing in {wf.url}"
 
     def test_web_files_urls(self, hls_file_qs):
         files = hls_file_qs.web_files
         assert len(files) == 3
-        assert files[0].url == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts?token=abc123"
-        assert files[1].url == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video001.ts?token=abc123"
-        assert files[2].url == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts?token=abc123"
+        assert (
+            files[0].url
+            == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video000.ts?token=abc123"
+        )
+        assert (
+            files[1].url
+            == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video001.ts?token=abc123"
+        )
+        assert (
+            files[2].url
+            == "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video002.ts?token=abc123"
+        )
 
     def test_m3u8_content_url_no_query_params_in_segments(self, hls_file_qs):
         content = hls_file_qs.m3u8_content_url
-        assert '?token=abc123' not in content
+        assert "?token=abc123" not in content
 
     def test_with_map_preserves_query_string(self):
         url = "https://raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/video_with_map.m3u8?token=xyz"
@@ -542,10 +552,10 @@ class TestHlsFileQueryString:
         files = hls.web_files
         assert len(files) == 3
         # init.mp4 already has ?token=abc in the playlist, so it keeps its own query
-        assert '?token=abc' in files[0].url
+        assert "?token=abc" in files[0].url
         # segments get the parent query string appended
-        assert files[1].url.endswith('?token=xyz')
-        assert files[2].url.endswith('?token=xyz')
+        assert files[1].url.endswith("?token=xyz")
+        assert files[2].url.endswith("?token=xyz")
 
     def test_from_url_getter(self, hls_file_qs, url_with_qs):
         assert hls_file_qs.url == url_with_qs

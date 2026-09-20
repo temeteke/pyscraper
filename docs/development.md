@@ -22,15 +22,30 @@ pytest tests/
 ### Recommended Tools
 
 Linting and formatting are handled by ruff (see `pyproject.toml` and
-`.pre-commit-config.yaml`):
+`.pre-commit-config.yaml`). Run the install once after cloning (inside
+the devcontainer, where `pre-commit` is available) to enable the commit
+hook:
 
 ```bash
-# Run the linter
-ruff check .
+# One-time: install the git hook (ruff --fix + ruff-format on commit)
+pre-commit install
+```
 
-# Run the formatter
+After that every commit runs the hooks on the changed files. To run them
+across the whole tree (as CI does), or to use the tools directly:
+
+```bash
+# Run all hooks over every file
+pre-commit run --all-files
+
+# Run the linter / formatter directly
+ruff check .
 ruff format .
 ```
+
+CI runs `pre-commit run --all-files` in a dedicated lint job, so a tree
+that is not clean fails the build. `tests/testdata/` is excluded from
+the whitespace/EOF hooks because it holds binary fixtures.
 
 ---
 

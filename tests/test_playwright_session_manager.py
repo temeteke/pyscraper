@@ -110,7 +110,11 @@ class TestPlaywrightSessions:
         with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
             r = client.post(
                 "/api/playwright/sessions",
-                json={"target": "playwright-chromium", "node": "chromium", "url": "https://example.com"},
+                json={
+                    "target": "playwright-chromium",
+                    "node": "chromium",
+                    "url": "https://example.com",
+                },
             )
             assert r.status_code == 200
             m.assert_called_once_with(
@@ -129,9 +133,7 @@ class TestPlaywrightSessions:
 
     def test_open_unknown_target_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post(
-            "/api/playwright/sessions", json={"target": "nope"}
-        )
+        r = _client(sm).post("/api/playwright/sessions", json={"target": "nope"})
         assert r.status_code == 422
 
     def test_open_unknown_field_422(self, monkeypatch, tmp_path):
@@ -268,9 +270,7 @@ class TestPlaywrightSessions:
 
     def test_open_constructor_failure_502(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)
-        with patch.object(
-            sm, "_PlaywrightWorker", side_effect=RuntimeError("hub down")
-        ):
+        with patch.object(sm, "_PlaywrightWorker", side_effect=RuntimeError("hub down")):
             r = _client(sm).post(
                 "/api/playwright/sessions",
                 json={"target": "playwright-chromium"},
@@ -302,14 +302,10 @@ class TestPlaywrightSessions:
 
         with patch.object(sm._PlaywrightBackend, "open", side_effect=fake_open):
             with patch.object(sm._PlaywrightBackend, "close", side_effect=spy_close):
-                with patch.object(
-                    sm._PlaywrightBackend, "save", return_value={"cookies": []}
-                ):
+                with patch.object(sm._PlaywrightBackend, "save", return_value={"cookies": []}):
                     worker = sm._PlaywrightWorker("playwright-chromium")
                     assert worker.error is None
-                    other = __import__("threading").Thread(
-                        target=worker.close
-                    )
+                    other = __import__("threading").Thread(target=worker.close)
                     other.start()
                     other.join()
         assert len(opened_threads) == 1
@@ -392,7 +388,11 @@ class TestPlaywrightSessions:
         with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
             r = client.post(
                 "/api/playwright/sessions",
-                json={"target": "playwright-chromium", "node": "  chromium  ", "url": "  https://example.com  "},
+                json={
+                    "target": "playwright-chromium",
+                    "node": "  chromium  ",
+                    "url": "  https://example.com  ",
+                },
             )
             assert r.status_code == 200
             m.assert_called_once_with(
@@ -410,9 +410,7 @@ class TestPlaywrightSessions:
         with patch.object(sm._PlaywrightBackend, "open", return_value=session):
             r = client.post("/api/playwright/sessions", json={"target": "playwright-firefox"})
             sid = r.json()["id"]
-        r = client.post(
-            f"/api/playwright/sessions/{sid}/save", json={"path": "/etc/evil.json"}
-        )
+        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "/etc/evil.json"})
         assert r.status_code == 422
         assert "escapes state dir" in str(r.json()["detail"])
 
@@ -423,9 +421,7 @@ class TestPlaywrightSessions:
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
             r = client.post("/api/playwright/sessions", json={"target": "playwright-firefox"})
             sid = r.json()["id"]
-        r = client.post(
-            f"/api/playwright/sessions/{sid}/save", json={"path": {"a": 1}}
-        )
+        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": {"a": 1}})
         assert r.status_code == 422
 
     def test_call_timeout(self, monkeypatch, tmp_path):
@@ -450,9 +446,7 @@ class TestPlaywrightSessions:
 
     def test_save_unknown_session(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post(
-            "/api/playwright/sessions/xxx/save", json={"path": "s.json"}
-        )
+        r = _client(sm).post("/api/playwright/sessions/xxx/save", json={"path": "s.json"})
         assert r.status_code == 404
         assert "detail" in r.json()
 
@@ -505,14 +499,10 @@ class TestPlaywrightSessions:
         client = _client(sm)
         session = self._mock_backend(sm, "playwright-chromium")
         with patch.object(sm._PlaywrightBackend, "open", return_value=session):
-            r = client.post(
-                "/api/playwright/sessions", json={"target": "playwright-chromium"}
-            )
+            r = client.post("/api/playwright/sessions", json={"target": "playwright-chromium"})
             assert r.status_code == 200
             sid = r.json()["id"]
-        with patch.object(
-            sm._PlaywrightBackend, "close", side_effect=RuntimeError("hub down")
-        ):
+        with patch.object(sm._PlaywrightBackend, "close", side_effect=RuntimeError("hub down")):
             r = client.delete(f"/api/playwright/sessions/{sid}")
             assert r.status_code == 502
             assert r.json()["retryable"] is True

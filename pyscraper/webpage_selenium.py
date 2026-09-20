@@ -59,9 +59,7 @@ def _warn_unsupported_capabilities(capabilities):
         return
     for key, value in capabilities.items():
         if key in _RESERVED_CAPABILITY_KEYS:
-            logger.warning(
-                "Capability key %r is managed by the library and was ignored", key
-            )
+            logger.warning("Capability key %r is managed by the library and was ignored", key)
             continue
         try:
             json.dumps(value)

@@ -17,7 +17,6 @@ from pyscraper.webpage import (
     WebPageElement,
     WebPageError,
     WebPageNoSuchElementError,
-    WebPageTimeoutError,
     _get_env_anycase,
 )
 

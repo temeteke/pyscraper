@@ -6,7 +6,7 @@ import shutil
 from functools import cached_property
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlunparse
-from fake_useragent import UserAgent
+from fake_useragent import UserAgent  # noqa: F401 -- patched by tests
 
 import ffmpy
 import m3u8
@@ -49,7 +49,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         self.filename = filename
         self.filestem = filestem
         self.filesuffix = filesuffix
-        self._base_query_string = ''
+        self._base_query_string = ""
 
     @property
     def url(self):
@@ -63,16 +63,18 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     @cached_property
     def m3u8_obj(self):
         def get_best_playlist(url):
-            with WebFile(url, session=self.session, headers=self.request_headers, cookies=self.request_cookies) as wf:
+            with WebFile(
+                url,
+                session=self.session,
+                headers=self.request_headers,
+                cookies=self.request_cookies,
+            ) as wf:
                 content = wf.read().decode()
                 base_uri = wf.response.url
                 self._base_query_string = urlparse(base_uri).query
                 m3u8_obj = m3u8.loads(content, uri=base_uri)
             if m3u8_obj.playlists:
-                best = sorted(
-                    m3u8_obj.playlists,
-                    key=lambda x: x.stream_info.bandwidth
-                )[-1]
+                best = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
                 variant_url = best.absolute_uri
                 if self._base_query_string:
                     parsed = urlparse(variant_url)
@@ -178,7 +180,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         mapping = self._uri_to_local_name
         files = []
         last_init_uri = None
-        base_qs = getattr(self, '_base_query_string', '')
+        base_qs = getattr(self, "_base_query_string", "")
         for segment in self.m3u8_obj.segments:
             seg_url = segment.absolute_uri
             init = segment.init_section
@@ -248,7 +250,12 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                     )
                 )
         for segment in self.m3u8_obj.segments:
-            if segment.key and segment.key.uri and segment.key.absolute_uri in mapping and segment.key.absolute_uri not in seen_keys:
+            if (
+                segment.key
+                and segment.key.uri
+                and segment.key.absolute_uri in mapping
+                and segment.key.absolute_uri not in seen_keys
+            ):
                 seen_keys.add(segment.key.absolute_uri)
                 key_url = segment.key.absolute_uri
                 if base_qs:
@@ -277,20 +284,20 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
     def clear_cache(self):
         """Clear all cached properties."""
         cached_properties = [
-            'm3u8_obj',
-            'm3u8_content',
-            'm3u8_content_url',
-            'm3u8_content_filename',
-            '_has_encryption',
-            '_uri_to_local_name',
-            'web_files'
+            "m3u8_obj",
+            "m3u8_content",
+            "m3u8_content_url",
+            "m3u8_content_filename",
+            "_has_encryption",
+            "_uri_to_local_name",
+            "web_files",
         ]
         for prop_name in cached_properties:
             try:
                 delattr(self, prop_name)
             except AttributeError:
                 pass
-        self._base_query_string = ''
+        self._base_query_string = ""
 
     def read(self, size=None):
         """
@@ -402,7 +409,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 if progress_callback:
                     progress_callback(current_file, total_files)
 
-        ff = ffmpy.FFmpeg(inputs={str(m3u8_file): "-allowed_extensions ALL -extension_picky 0"}, outputs={str(self.temp_file): "-c copy"})
+        ff = ffmpy.FFmpeg(
+            inputs={str(m3u8_file): "-allowed_extensions ALL -extension_picky 0"},
+            outputs={str(self.temp_file): "-c copy"},
+        )
         ff.run()
 
         self.temp_file.rename(self.filepath)
