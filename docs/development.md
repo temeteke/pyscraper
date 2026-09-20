@@ -242,7 +242,9 @@ def download_file(url: str, directory: Path) -> Path:
    - Wait for review
 
 7. **After Merge**
-   - Integration tests run on main branch
+   - Integration tests are opt-in (`pytest -m integration`) and are not
+     run in CI; run them locally when the change touches browser or
+     network code.
 
 ---
 

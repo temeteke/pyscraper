@@ -166,7 +166,7 @@ git commit -m "..."
 # GitHub Actions example
 - name: Run integration tests
   run: pytest tests/ -m integration -v
-  if: github.ref == 'refs/heads/main'
+  if: github.ref == 'refs/heads/master'
 ```
 
 **Executed tests:**
