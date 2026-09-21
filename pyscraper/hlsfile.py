@@ -22,18 +22,25 @@ def _validate_temp_directory(temp_directory, filepath):
     """Reject scratch directories that would destroy the output on cleanup.
 
     ``download()`` unconditionally removes ``temp_directory`` with
-    ``shutil.rmtree``, so a directory that is empty, ``.``, ``..``, the output
-    file itself, or one of its ancestors would delete the merged result (or the
-    current working directory). Returns the original path when it is safe.
+    ``shutil.rmtree``, so a directory that is empty, ``.``, ``..``, the current
+    working directory, the filesystem root, the output file itself, or one of
+    its ancestors would delete the merged result (or more). Returns the original
+    path when it is safe.
+
+    Paths are compared as resolved ``Path`` objects: case-sensitive on POSIX and
+    case-insensitive on Windows (``WindowsPath`` equality). Case-insensitive
+    POSIX filesystems (e.g. default macOS APFS) are not distinguished.
     """
     raw = str(temp_directory)
-    if raw.strip() in ("", ".", ".."):
+    if raw.rstrip("/\\").strip() in ("", ".", ".."):
         raise ValueError(f"Invalid temp_directory: {temp_directory!r}")
-    resolved = os.path.normcase(str(Path(temp_directory).resolve()))
-    output_path = Path(filepath).resolve()
-    output = os.path.normcase(str(output_path))
-    output_parents = {os.path.normcase(str(parent)) for parent in output_path.parents}
-    if resolved == output or resolved in output_parents:
+    resolved = Path(temp_directory).resolve()
+    if resolved == resolved.parent:
+        raise ValueError(f"Invalid temp_directory (filesystem root): {temp_directory!r}")
+    if resolved == Path.cwd().resolve():
+        raise ValueError(f"Invalid temp_directory (current working directory): {temp_directory!r}")
+    output = Path(filepath).resolve()
+    if resolved == output or resolved in output.parents:
         raise ValueError(
             f"temp_directory {temp_directory!r} must not contain the output file {filepath!r}"
         )

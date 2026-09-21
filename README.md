@@ -70,10 +70,12 @@ Relative overrides are resolved against the current working directory (not
 while `HlsFile` creates the `temp_directory` (including parents). To clean up a
 custom path, pass the same value to `unlink(temp_file=...)` /
 `unlink(temp_directory=...)`; `unlink()` with no arguments removes the default
-paths. A `temp_directory` that is empty, `.`, `..`, the output file itself, or
-one of its ancestors is rejected with `ValueError` (it would otherwise be
-removed together with the output). `WebFile.tempfile` is a deprecated alias for
-`WebFile.temp_file`.
+paths. A `temp_directory` that is empty, `.`, `..`, the current working
+directory, the filesystem root, the output file itself, or one of its ancestors
+is rejected with `ValueError` (it would otherwise be removed together with the
+output). Paths are compared as-is: case-sensitive on POSIX and case-insensitive
+on Windows; case-insensitive POSIX filesystems (e.g. default macOS APFS) are not
+distinguished. `WebFile.tempfile` is a deprecated alias for `WebFile.temp_file`.
 
 #### Content-Disposition filename resolution
 
@@ -88,7 +90,8 @@ removed together with the output). `WebFile.tempfile` is a deprecated alias for
 Directory components (both `/` and `\`) are stripped, so `filename="C:\dir\a.mp4"`
 yields `a.mp4`. Empty, whitespace-only, `.`, `..`, or values containing control
 characters are rejected and fall back to the URL basename, as are malformed
-`filename*` values (no `'` charset/language separator). `HlsFile` ignores
+`filename*` values (no `'` charset/language separator) and ones with an invalid
+percent-encoding or an undecodable charset. `HlsFile` ignores
 `Content-Disposition` (it uses the URL stem plus a fixed `.mp4` suffix).
 
 > **Migrating to v2:** Playwright remote persistence moved from node-owned

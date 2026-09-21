@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import requests
 
-from pyscraper.hlsfile import HlsFile, HlsFileError
+from pyscraper.hlsfile import HlsFile, HlsFileError, _validate_temp_directory
 from pyscraper.webfile import WebFile
 
 logger = logging.getLogger("pyscraper")
@@ -433,6 +433,28 @@ video002.ts
 
         assert hls.get_filename() == "video.mp4"
 
+    @pytest.mark.parametrize("temp_directory", ["", ".", "..", "./", "foo/..", "/"])
+    def test_validate_temp_directory_rejects_dangerous(self, temp_directory, tmp_path):
+        output = tmp_path / "out" / "video.mp4"
+        with pytest.raises(ValueError):
+            _validate_temp_directory(temp_directory, output)
+
+    def test_validate_temp_directory_rejects_cwd(self, tmp_path):
+        output = tmp_path / "video.mp4"
+        with pytest.raises(ValueError):
+            _validate_temp_directory(str(Path.cwd()), output)
+
+    def test_validate_temp_directory_rejects_output_and_ancestors(self, tmp_path):
+        output = tmp_path / "out" / "video.mp4"
+        for temp_directory in (output, output.parent, tmp_path):
+            with pytest.raises(ValueError):
+                _validate_temp_directory(temp_directory, output)
+
+    def test_validate_temp_directory_allows_sibling(self, tmp_path):
+        output = tmp_path / "out" / "video.mp4"
+        sibling = tmp_path / "alt"
+        assert _validate_temp_directory(sibling, output) == sibling
+
     def test_download_rejects_temp_directory_containing_output(self, url, tmp_path):
         hls = HlsFile(url)
         output_dir = tmp_path / "out"
@@ -444,14 +466,9 @@ video002.ts
         hls = HlsFile(url)
         with pytest.raises(ValueError):
             hls.download(directory=tmp_path, temp_directory=tmp_path / "video.mp4")
+        assert (tmp_path / "video.mp4").exists() is False
 
-    @pytest.mark.parametrize("temp_directory", ["", ".", ".."])
-    def test_download_rejects_dangerous_temp_directory(self, url, temp_directory):
-        hls = HlsFile(url)
-        with pytest.raises(ValueError):
-            hls.download(temp_directory=temp_directory)
-
-    def test_unlink_rejects_dangerous_temp_directory_without_deleting(self, url, tmp_path):
+    def test_unlink_rejects_temp_directory_containing_output_without_deleting(self, url, tmp_path):
         hls = HlsFile(url, directory=tmp_path, filename="video.mp4")
         filepath = hls.filepath
         temp_directory = hls.temp_directory
@@ -460,7 +477,7 @@ video002.ts
         (temp_directory / "video000.ts").write_bytes(b"segment")
 
         with pytest.raises(ValueError):
-            hls.unlink(temp_directory=".")
+            hls.unlink(temp_directory=tmp_path)
 
         assert filepath.exists() is True
         assert temp_directory.exists() is True

@@ -57,9 +57,11 @@ validation goes through `_ensure_open()`.
   Overrides are call-local (they do not mutate the instance), and
   `HlsFile` builds segment `WebFile`s from the resolved directory rather
   than the cached `web_files`, so a prior `exists()` cannot pin a stale
-  directory. A `temp_directory` that is empty, `.`, `..`, the output file,
-  or one of its ancestors is rejected (it would be removed together with
-  the output by `shutil.rmtree`). `WebFile.tempfile` is a deprecated alias.
+  directory. A `temp_directory` that is empty, `.`, `..`, the current
+  working directory, the filesystem root, the output file, or one of its
+  ancestors is rejected (it would be removed together with the output by
+  `shutil.rmtree`). Paths are compared as-is (case-sensitive on POSIX,
+  case-insensitive on Windows). `WebFile.tempfile` is a deprecated alias.
 - The final temporary-to-output move uses `shutil.move` (rename on the
   same filesystem, copy + delete across filesystems).
 - `WebFile.get_filename()` resolves `Content-Disposition` `filename*`
