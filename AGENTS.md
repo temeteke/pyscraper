@@ -85,3 +85,7 @@ pytest tests/ -v
 
 All unit tests must pass. Docs-only changes need no test run, but keep
 `docker compose config --quiet` green when touching compose files.
+
+Workflow actions in `.github/workflows/` are pinned to full commit SHAs with a
+`# vX.Y.Z` comment; `.github/dependabot.yml` refreshes them weekly. Never
+replace a SHA pin with a floating tag.

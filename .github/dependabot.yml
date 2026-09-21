@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Workflow actions are pinned to full commit SHAs (supply-chain
+  # hardening). Dependabot understands SHA pins and updates both the SHA
+  # and the `# vX.Y.Z` comment, keeping the pins fresh.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
