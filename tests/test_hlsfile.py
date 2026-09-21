@@ -410,6 +410,7 @@ video002.ts
 
         assert f == tmp_path / "video.mp4"
         assert f.exists()
+        assert f.read_bytes() == b"mock ffmpeg output"
 
     def test_unlink_temp_path_overrides(self, url, tmp_path):
         hls = HlsFile(url, directory=tmp_path)
@@ -431,6 +432,22 @@ video002.ts
         hls.response = Mock(headers={"Content-Disposition": 'attachment; filename="evil.mp4"'})
 
         assert hls.get_filename() == "video.mp4"
+
+    def test_download_rejects_temp_directory_containing_output(self, url, tmp_path):
+        hls = HlsFile(url)
+        with pytest.raises(ValueError):
+            hls.download(directory=tmp_path, temp_directory=tmp_path)
+
+    @pytest.mark.parametrize("temp_directory", ["", ".", ".."])
+    def test_download_rejects_dangerous_temp_directory(self, url, temp_directory):
+        hls = HlsFile(url)
+        with pytest.raises(ValueError):
+            hls.download(temp_directory=temp_directory)
+
+    def test_unlink_rejects_dangerous_temp_directory(self, url):
+        hls = HlsFile(url)
+        with pytest.raises(ValueError):
+            hls.unlink(temp_directory=".")
 
     def test_session(self):
         session = requests.Session()

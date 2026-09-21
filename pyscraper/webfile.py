@@ -20,18 +20,17 @@ _HEXDIGITS = set("0123456789abcdefABCDEF")
 
 
 def _parse_header_params(value):
-    """Split a header value into its disposition type and ``;``-separated parameters.
+    """Split a header value into its ``;``-separated parameters.
 
     Handles both quoted and unquoted parameter values. Inside a quoted string only
     ``\\"`` and ``\\\\`` are treated as escapes, so Windows-style backslashes in a
-    value such as ``filename="C:\\dir\\a.mp4"`` are preserved. A header without a
-    disposition type (no ``;``) is parsed as parameters only. Returns ``None`` when
-    a quoted value is left unterminated.
+    value such as ``filename="C:\\dir\\a.mp4"`` are preserved. A leading disposition
+    type (a token without ``=``) is skipped, so headers that consist of parameters
+    only are handled too. Returns ``None`` when a quoted value is left unterminated.
     """
     params = []
     length = len(value)
-    separator = value.find(";")
-    i = separator if separator != -1 else 0
+    i = 0
 
     while i < length:
         if value[i] == ";":
@@ -46,36 +45,40 @@ def _parse_header_params(value):
             i += 1
         name = value[name_start:i].strip().lower()
 
-        param_value = ""
-        if i < length and value[i] == "=":
+        if i >= length or value[i] != "=":
+            # Disposition type or a stray token without a value; skip it.
+            continue
+
+        i += 1
+        while i < length and value[i] in " \t":
             i += 1
-            while i < length and value[i] in " \t":
-                i += 1
-            if i < length and value[i] == '"':
-                i += 1
-                chars = []
-                closed = False
-                while i < length:
+
+        param_value = ""
+        if i < length and value[i] == '"':
+            i += 1
+            chars = []
+            closed = False
+            while i < length:
+                char = value[i]
+                if char == '"':
+                    closed = True
+                    i += 1
+                    break
+                if char == "\\" and i + 1 < length and value[i + 1] in '"\\':
+                    i += 1
                     char = value[i]
-                    if char == '"':
-                        closed = True
-                        i += 1
-                        break
-                    if char == "\\" and i + 1 < length and value[i + 1] in '"\\':
-                        i += 1
-                        char = value[i]
-                    chars.append(char)
-                    i += 1
-                if not closed:
-                    return None
-                param_value = "".join(chars)
-                while i < length and value[i] != ";":
-                    i += 1
-            else:
-                value_start = i
-                while i < length and value[i] != ";":
-                    i += 1
-                param_value = value[value_start:i].strip()
+                chars.append(char)
+                i += 1
+            if not closed:
+                return None
+            param_value = "".join(chars)
+            while i < length and value[i] != ";":
+                i += 1
+        else:
+            value_start = i
+            while i < length and value[i] != ";":
+                i += 1
+            param_value = value[value_start:i].strip()
 
         if name:
             params.append((name, param_value))
@@ -95,14 +98,17 @@ def _has_invalid_percent_encoding(value):
 
 
 def _decode_extended_value(value):
-    """Decode an RFC 5987/6266 ``ext-value`` (``charset'language'pct-encoded``)."""
-    charset = "UTF-8"
-    encoded = value
-    if "'" in value:
-        charset, _, rest = value.partition("'")
-        charset = charset or "UTF-8"
-        _, separator, remainder = rest.partition("'")
-        encoded = remainder if separator else rest
+    """Decode an RFC 5987/6266 ``ext-value`` (``charset'language'pct-encoded``).
+
+    Returns ``None`` for values that are not ext-values (no ``'`` separator),
+    carry an invalid percent-encoding, or fail to decode.
+    """
+    if "'" not in value:
+        return None
+    charset, _, rest = value.partition("'")
+    charset = charset or "UTF-8"
+    _, separator, remainder = rest.partition("'")
+    encoded = remainder if separator else rest
     if _has_invalid_percent_encoding(encoded):
         return None
     try:
@@ -116,7 +122,7 @@ def _basename(value):
 
 
 def _is_valid_filename(name):
-    if name in ("", ".", ".."):
+    if not name.strip() or name in (".", ".."):
         return False
     return not any(ord(char) < 32 or ord(char) == 127 for char in name)
 

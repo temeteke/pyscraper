@@ -18,6 +18,26 @@ from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, W
 logger = logging.getLogger(__name__)
 
 
+def _validate_temp_directory(temp_directory, filepath):
+    """Reject scratch directories that would destroy the output on cleanup.
+
+    ``download()`` unconditionally removes ``temp_directory`` with
+    ``shutil.rmtree``, so a directory that is empty, ``.``, ``..``, the output
+    file itself, or one of its ancestors would delete the merged result (or the
+    current working directory). Returns the original path when it is safe.
+    """
+    raw = str(temp_directory)
+    if raw.strip() in ("", ".", ".."):
+        raise ValueError(f"Invalid temp_directory: {temp_directory!r}")
+    resolved = Path(temp_directory).resolve()
+    output = Path(filepath).resolve()
+    if resolved == output or resolved in output.parents:
+        raise ValueError(
+            f"temp_directory {temp_directory!r} must not contain the output file {filepath!r}"
+        )
+    return Path(temp_directory)
+
+
 class HlsFileError(Exception):
     pass
 
@@ -406,8 +426,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         self.filesuffix = filesuffix
 
         resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
-        resolved_temp_directory = (
-            Path(temp_directory) if temp_directory is not None else self.temp_directory
+        resolved_temp_directory = _validate_temp_directory(
+            temp_directory if temp_directory is not None else self.temp_directory,
+            self.filepath,
         )
 
         if self.filepath.exists():
@@ -461,14 +482,15 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             temp_directory (str or Path, optional): Temporary directory to remove
                 instead of the default :attr:`temp_directory`.
         """
-        super().unlink()
-
         resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
+        resolved_temp_directory = _validate_temp_directory(
+            temp_directory if temp_directory is not None else self.temp_directory,
+            self.filepath,
+        )
+
+        super().unlink()
         resolved_temp_file.unlink(missing_ok=True)
 
-        resolved_temp_directory = (
-            Path(temp_directory) if temp_directory is not None else self.temp_directory
-        )
         if resolved_temp_directory.exists():
             shutil.rmtree(resolved_temp_directory)
 

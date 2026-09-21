@@ -53,7 +53,7 @@ gateway, see [Operations Guide](docs/operations.md).
 `WebFile` and `HlsFile` download to temporary paths and only move to the
 final `filepath` once the transfer completes. The move uses `shutil.move`, so
 it is a rename on the same filesystem and falls back to copy + delete across
-filesystems.
+filesystems (a failed cross-filesystem copy can leave a partial output file).
 
 | Class | Temporary path | Default |
 | --- | --- | --- |
@@ -66,10 +66,14 @@ filesystems.
 call. Overrides are **local to the call**: they do not mutate the instance, so
 `WebFile.temp_file` / `HlsFile.temp_directory` keep returning the defaults.
 Relative overrides are resolved against the current working directory (not
-`directory`), and their parent directory is not created automatically. To
-clean up a custom path, pass the same value to `unlink(temp_file=...)` /
+`directory`); a `temp_file` parent directory is not created automatically,
+while `HlsFile` creates the `temp_directory` (including parents). To clean up a
+custom path, pass the same value to `unlink(temp_file=...)` /
 `unlink(temp_directory=...)`; `unlink()` with no arguments removes the default
-paths. `WebFile.tempfile` is a deprecated alias for `WebFile.temp_file`.
+paths. A `temp_directory` that is empty, `.`, `..`, the output file itself, or
+one of its ancestors is rejected with `ValueError` (it would otherwise be
+removed together with the output). `WebFile.tempfile` is a deprecated alias for
+`WebFile.temp_file`.
 
 #### Content-Disposition filename resolution
 

@@ -365,6 +365,18 @@ class TestWebFile:
         wf = self._webfile_with_content_disposition("filename=a.mp4")
         assert wf.get_filename() == "a.mp4"
 
+    def test_get_filename_content_disposition_without_type_multiple_params(self):
+        wf = self._webfile_with_content_disposition('filename="a.mp4"; size=1')
+        assert wf.get_filename() == "a.mp4"
+
+    def test_get_filename_content_disposition_without_type_quoted_semicolon(self):
+        wf = self._webfile_with_content_disposition('filename="a;b.mp4"')
+        assert wf.get_filename() == "a;b.mp4"
+
+    def test_get_filename_content_disposition_without_type_multiple_filenames(self):
+        wf = self._webfile_with_content_disposition('filename="a.mp4"; filename="b.mp4"')
+        assert wf.get_filename() == "a.mp4"
+
     def test_get_filename_content_disposition_extended_utf8(self):
         wf = self._webfile_with_content_disposition("attachment; filename*=UTF-8''a%20b.mp4")
         assert wf.get_filename() == "a b.mp4"
@@ -405,6 +417,14 @@ class TestWebFile:
 
     def test_get_filename_content_disposition_unterminated_quote_falls_back(self):
         wf = self._webfile_with_content_disposition('attachment; filename="C:\\dir\\')
+        assert wf.get_filename() == "fallback.bin"
+
+    def test_get_filename_content_disposition_malformed_extended_falls_back(self):
+        wf = self._webfile_with_content_disposition("attachment; filename*=a.mp4")
+        assert wf.get_filename() == "fallback.bin"
+
+    def test_get_filename_content_disposition_blank_falls_back(self):
+        wf = self._webfile_with_content_disposition('attachment; filename="  "')
         assert wf.get_filename() == "fallback.bin"
 
     def test_get_filename_content_disposition_extended_priority(self):
