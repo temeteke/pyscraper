@@ -162,15 +162,13 @@ git commit -m "..."
 
 ### After Main Branch Merge
 
-```yaml
-# GitHub Actions example
-- name: Run integration tests
-  run: pytest tests/ -m integration -v
-  if: github.ref == 'refs/heads/master'
-```
+Integration tests are **not** run in CI; they are opt-in and require
+network/browsers. Run them locally when a change touches browser or
+network code (see [development.md](development.md)):
 
-**Executed tests:**
-- ✅ Integration tests
+```bash
+pytest tests/ -m integration -v
+```
 
 ### Before Release
 
@@ -372,7 +370,8 @@ curl https://httpbin.org/get
 # Check curl command
 curl --version
 
-# Extend timeout
+# Extend timeout (requires the pytest-timeout plugin)
+pip install pytest-timeout
 pytest tests/ -m integration -v --timeout=300
 ```
 

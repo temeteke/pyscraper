@@ -73,8 +73,9 @@ intentionally not hardcoded in docs).
 
 ## Docker
 
-Prebuilt images are published to Docker Hub and GHCR on every `vX.Y.Z`
-tag, on a weekly schedule, or manually via `workflow_dispatch`.
+Prebuilt images are published to Docker Hub and GHCR on `vX.Y.Z` tag
+pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags),
+on a weekly schedule, or manually via `workflow_dispatch`.
 See [Operations Guide](docs/operations.md) for the image table, tag
 semantics, and `docker compose` usage.
 
