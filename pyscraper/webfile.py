@@ -1,9 +1,10 @@
 import logging
 import mimetypes
-import re
+import shutil
 import sys
 from functools import partial
 from pathlib import Path
+from urllib.parse import unquote
 
 import requests
 import urllib3.exceptions
@@ -13,6 +14,135 @@ from pyscraper.requests import RequestsMixin
 from pyscraper.utils import get_filename_from_url
 
 logger = logging.getLogger(__name__)
+
+
+_HEXDIGITS = set("0123456789abcdefABCDEF")
+
+
+def _parse_header_params(value):
+    """Split a header value into its disposition type and ``;``-separated parameters.
+
+    Handles both quoted and unquoted parameter values. Inside a quoted string only
+    ``\\"`` and ``\\\\`` are treated as escapes, so Windows-style backslashes in a
+    value such as ``filename="C:\\dir\\a.mp4"`` are preserved. A header without a
+    disposition type (no ``;``) is parsed as parameters only. Returns ``None`` when
+    a quoted value is left unterminated.
+    """
+    params = []
+    length = len(value)
+    separator = value.find(";")
+    i = separator if separator != -1 else 0
+
+    while i < length:
+        if value[i] == ";":
+            i += 1
+        while i < length and value[i] in " \t":
+            i += 1
+        if i >= length:
+            break
+
+        name_start = i
+        while i < length and value[i] not in "=;":
+            i += 1
+        name = value[name_start:i].strip().lower()
+
+        param_value = ""
+        if i < length and value[i] == "=":
+            i += 1
+            while i < length and value[i] in " \t":
+                i += 1
+            if i < length and value[i] == '"':
+                i += 1
+                chars = []
+                closed = False
+                while i < length:
+                    char = value[i]
+                    if char == '"':
+                        closed = True
+                        i += 1
+                        break
+                    if char == "\\" and i + 1 < length and value[i + 1] in '"\\':
+                        i += 1
+                        char = value[i]
+                    chars.append(char)
+                    i += 1
+                if not closed:
+                    return None
+                param_value = "".join(chars)
+                while i < length and value[i] != ";":
+                    i += 1
+            else:
+                value_start = i
+                while i < length and value[i] != ";":
+                    i += 1
+                param_value = value[value_start:i].strip()
+
+        if name:
+            params.append((name, param_value))
+
+    return params
+
+
+def _has_invalid_percent_encoding(value):
+    index = value.find("%")
+    while index != -1:
+        if index + 3 > len(value) or any(
+            c not in _HEXDIGITS for c in value[index + 1 : index + 3]
+        ):
+            return True
+        index = value.find("%", index + 3)
+    return False
+
+
+def _decode_extended_value(value):
+    """Decode an RFC 5987/6266 ``ext-value`` (``charset'language'pct-encoded``)."""
+    charset = "UTF-8"
+    encoded = value
+    if "'" in value:
+        charset, _, rest = value.partition("'")
+        charset = charset or "UTF-8"
+        _, separator, remainder = rest.partition("'")
+        encoded = remainder if separator else rest
+    if _has_invalid_percent_encoding(encoded):
+        return None
+    try:
+        return unquote(encoded, encoding=charset, errors="strict")
+    except (LookupError, UnicodeDecodeError):
+        return None
+
+
+def _basename(value):
+    return value.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _is_valid_filename(name):
+    if name in ("", ".", ".."):
+        return False
+    return not any(ord(char) < 32 or ord(char) == 127 for char in name)
+
+
+def _filename_from_content_disposition(content_disposition):
+    """Resolve a filename from a Content-Disposition header value.
+
+    ``filename*`` takes precedence over ``filename``. Returns ``None`` when no
+    usable value is present, letting the caller fall back to the URL basename.
+    """
+    params = _parse_header_params(content_disposition)
+    if params is None:
+        return None
+    extended = next((v for k, v in params if k == "filename*"), None)
+    plain = next((v for k, v in params if k == "filename"), None)
+
+    for raw, is_extended in ((extended, True), (plain, False)):
+        if raw is None:
+            continue
+        value = _decode_extended_value(raw) if is_extended else raw
+        if value is None:
+            continue
+        name = _basename(value)
+        if _is_valid_filename(name):
+            return name
+    return None
 
 
 class MyTqdm(tqdm):
@@ -207,10 +337,20 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return int(content_length)
 
     def get_filename(self):
+        """Resolve the output filename.
+
+        When the response carries a ``Content-Disposition`` header, its
+        ``filename*`` parameter (RFC 5987, ``charset'language'percent-encoded``,
+        UTF-8 when the charset is omitted) takes precedence over ``filename``.
+        Both quoted and unquoted values are supported, directory components
+        (``/`` and ``\\``) are stripped, and empty, ``.``, ``..`` or
+        control-character values are rejected. Anything rejected or absent
+        falls back to the URL basename.
+        """
         if self.response is not None:
             if content_disposition := self.response.headers.get("Content-Disposition"):
-                if m := re.search('filename="?([^"]+)"?', content_disposition):
-                    return m.group(1)
+                if filename := _filename_from_content_disposition(content_disposition):
+                    return filename
         return super().get_filename()
 
     @property
@@ -234,8 +374,18 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self._filesuffix = filesuffix
 
     @property
-    def tempfile(self):
+    def temp_file(self):
+        """Temporary path used while downloading.
+
+        Defaults to ``<filepath>.part``. Overridable per call via
+        ``download(temp_file=...)`` without mutating the instance.
+        """
         return self.filepath.with_name(self.filepath.name + ".part")
+
+    @property
+    def tempfile(self):
+        """Deprecated alias for :attr:`temp_file`."""
+        return self.temp_file
 
     def open_response(self):
         self.logger.debug("Getting {}".format(self.request_url))
@@ -326,6 +476,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         file_suffix=None,
         filesuffix=None,
         progress_callback=None,
+        temp_file=None,
     ):
         """
         Download the file from the web and save it locally.
@@ -339,12 +490,19 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                 where:
                     current_size (int): Number of bytes downloaded so far.
                     total_size (int or None): Total number of bytes to download (None if unknown).
+            temp_file (str or Path, optional):
+                Override the temporary path used for the partial download.
+                Defaults to ``<filepath>.part`` when omitted. The override is
+                local to this call and does not mutate the instance; pass it to
+                ``unlink(temp_file=...)`` to clean it up.
         """
 
         self.directory = directory
         self.filename = file_name or filename
         self.filestem = file_stem or filestem
         self.filesuffix = file_suffix or filesuffix
+
+        resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -356,12 +514,12 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         with self as wf:
             if wf.size:
-                if wf.tempfile.exists():
-                    downloaded_file_size = wf.tempfile.stat().st_size
+                if resolved_temp_file.exists():
+                    downloaded_file_size = resolved_temp_file.stat().st_size
                     try:
                         wf.seek(downloaded_file_size)
                     except WebFileSeekError:
-                        wf.tempfile.unlink()
+                        resolved_temp_file.unlink()
                         downloaded_file_size = 0
                 else:
                     downloaded_file_size = 0
@@ -373,7 +531,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                     unit_scale=True,
                     dynamic_ncols=True,
                 ) as pbar:
-                    with self.tempfile.open("ab") as f:
+                    with resolved_temp_file.open("ab") as f:
                         current_size = downloaded_file_size
                         for chunk in iter(partial(wf.read, 8192), b""):
                             f.write(chunk)
@@ -384,17 +542,19 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
                 # Check file size after download if not compressed
                 if not wf.response.headers.get("Content-Encoding"):
-                    wf.logger.debug(f"Comparing file size {wf.tempfile.stat().st_size} {wf.size}")
-                    if wf.tempfile.stat().st_size > wf.size:
-                        wf.tempfile.unlink()
+                    wf.logger.debug(
+                        f"Comparing file size {resolved_temp_file.stat().st_size} {wf.size}"
+                    )
+                    if resolved_temp_file.stat().st_size > wf.size:
+                        resolved_temp_file.unlink()
                         raise WebFileError(
                             "Downloaded file size is larger than expected. Removed downloaded file."
                         )
-                    elif wf.tempfile.stat().st_size < wf.size:
+                    elif resolved_temp_file.stat().st_size < wf.size:
                         raise WebFileError("Downloaded file size is smaller than expected.")
 
                 wf.logger.debug("Removing temporary file")
-                wf.tempfile.rename(wf.filepath)
+                shutil.move(resolved_temp_file, wf.filepath)
 
             else:
                 with wf.filepath.open("wb") as f:
@@ -407,9 +567,16 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         return self.filepath
 
-    def unlink(self):
+    def unlink(self, temp_file=None):
+        """Remove the downloaded file and its temporary file.
+
+        Args:
+            temp_file (str or Path, optional): Temporary path to remove instead
+                of the default :attr:`temp_file`.
+        """
         super().unlink()
-        self.tempfile.unlink(missing_ok=True)
+        resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
+        resolved_temp_file.unlink(missing_ok=True)
 
     def exists(self):
         if self.response is None:

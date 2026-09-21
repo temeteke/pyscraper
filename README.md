@@ -48,6 +48,44 @@ with WebPagePlaywrightChromium("https://example.com") as web_page:
 For Grid/Hub routing (`node=`), profiles vs `storage_state`, and the browser
 gateway, see [Operations Guide](docs/operations.md).
 
+### Downloading files
+
+`WebFile` and `HlsFile` download to temporary paths and only move to the
+final `filepath` once the transfer completes. The move uses `shutil.move`, so
+it is a rename on the same filesystem and falls back to copy + delete across
+filesystems.
+
+| Class | Temporary path | Default |
+| --- | --- | --- |
+| `WebFile.temp_file` | Partial download | `<filepath>.part` |
+| `HlsFile.temp_file` | ffmpeg merge output | `.<filename>` (same directory as the output) |
+| `HlsFile.temp_directory` | Segment/playlist scratch directory | `<directory>/<filestem>` |
+
+`WebFile.download()` accepts `temp_file=`; `HlsFile.download()` accepts both
+`temp_file=` and `temp_directory=` to override the temporary paths for that
+call. Overrides are **local to the call**: they do not mutate the instance, so
+`WebFile.temp_file` / `HlsFile.temp_directory` keep returning the defaults.
+Relative overrides are resolved against the current working directory (not
+`directory`), and their parent directory is not created automatically. To
+clean up a custom path, pass the same value to `unlink(temp_file=...)` /
+`unlink(temp_directory=...)`; `unlink()` with no arguments removes the default
+paths. `WebFile.tempfile` is a deprecated alias for `WebFile.temp_file`.
+
+#### Content-Disposition filename resolution
+
+`WebFile.get_filename()` resolves the output name in this order:
+
+1. `filename*` (RFC 5987): `charset'language'percent-encoded`, decoded with the
+   declared charset (UTF-8 when the charset is omitted).
+2. `filename` (quoted or unquoted; `;`-separated trailing parameters are not
+   consumed).
+3. The URL basename.
+
+Directory components (both `/` and `\`) are stripped, so `filename="C:\dir\a.mp4"`
+yields `a.mp4`. Empty, `.`, `..`, or values containing control characters are
+rejected and fall back to the URL basename. `HlsFile` ignores
+`Content-Disposition` (it uses the URL stem plus a fixed `.mp4` suffix).
+
 > **Migrating to v2:** Playwright remote persistence moved from node-owned
 > profiles (Chromium-only CDP) to client-owned `storage_state`
 > (`storage_state=` / `save_storage_state()`, all browsers). The unimplemented

@@ -175,8 +175,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             segment.uri = mapping[segment.absolute_uri]
         return obj.dumps()
 
-    @cached_property
-    def web_files(self):
+    def _build_web_files(self, temp_directory):
         mapping = self._uri_to_local_name
         files = []
         last_init_uri = None
@@ -195,7 +194,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                         init_url,
                         headers=dict(self.headers),
                         cookies=dict(self.cookies),
-                        directory=self.temp_directory,
+                        directory=temp_directory,
                         filename=mapping[init.absolute_uri],
                     )
                 )
@@ -209,7 +208,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                     seg_url,
                     headers=dict(self.headers),
                     cookies=dict(self.cookies),
-                    directory=self.temp_directory,
+                    directory=temp_directory,
                     filename=mapping[segment.absolute_uri],
                 )
             )
@@ -228,7 +227,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                         key_url,
                         headers=dict(self.headers),
                         cookies=dict(self.cookies),
-                        directory=self.temp_directory,
+                        directory=temp_directory,
                         filename=mapping[key.absolute_uri],
                     )
                 )
@@ -245,7 +244,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                         key_url,
                         headers=dict(self.headers),
                         cookies=dict(self.cookies),
-                        directory=self.temp_directory,
+                        directory=temp_directory,
                         filename=mapping[key.absolute_uri],
                     )
                 )
@@ -267,18 +266,34 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                         key_url,
                         headers=dict(self.headers),
                         cookies=dict(self.cookies),
-                        directory=self.temp_directory,
+                        directory=temp_directory,
                         filename=mapping[segment.key.absolute_uri],
                     )
                 )
         return files
 
+    @cached_property
+    def web_files(self):
+        """Segment/key ``WebFile`` objects for the default :attr:`temp_directory`."""
+        return self._build_web_files(self.temp_directory)
+
     @property
     def temp_directory(self):
+        """Scratch directory for segments and the local playlist.
+
+        Defaults to ``directory / filestem``. Overridable per call via
+        ``download(temp_directory=...)`` without mutating the instance.
+        """
         return self.directory / self.filestem
 
-    @cached_property
+    @property
     def temp_file(self):
+        """Temporary output path for the ffmpeg merge step.
+
+        Defaults to ``.<filename>`` (extension preserved so ffmpeg can infer the
+        container). Overridable per call via ``download(temp_file=...)`` without
+        mutating the instance.
+        """
         return self.filepath.with_name("." + self.filepath.name)
 
     def clear_cache(self):
@@ -356,6 +371,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         filestem=None,
         filesuffix=None,
         progress_callback=None,
+        temp_file=None,
+        temp_directory=None,
     ):
         """
         Download all playlist resources (init segments, media segments) and merge into a single file.
@@ -374,11 +391,24 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 where:
                     current_resource_count (int): Number of resources downloaded so far.
                     total_resource_count (int): Total number of resources to download.
+            temp_file (str or Path, optional):
+                Override the ffmpeg merge output path. Defaults to ``.<filename>``.
+                The override is local to this call and does not mutate the
+                instance; pass it to ``unlink(temp_file=...)`` to clean it up.
+            temp_directory (str or Path, optional):
+                Override the segment/playlist scratch directory. Defaults to
+                ``directory / filestem``. Local to this call; pass it to
+                ``unlink(temp_directory=...)`` to clean it up.
         """
         self.directory = directory
         self.filename = filename
         self.filestem = filestem
         self.filesuffix = filesuffix
+
+        resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
+        resolved_temp_directory = (
+            Path(temp_directory) if temp_directory is not None else self.temp_directory
+        )
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -386,23 +416,24 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
         self.logger.info(f"Downloading {self.url} to {self.filepath}")
 
-        self.temp_directory.mkdir(parents=True, exist_ok=True)
+        resolved_temp_directory.mkdir(parents=True, exist_ok=True)
 
-        if self.temp_file.exists():
-            self.temp_file.unlink()
+        if resolved_temp_file.exists():
+            resolved_temp_file.unlink()
 
-        m3u8_file = self.temp_directory / Path(self.filestem + ".m3u8")
+        m3u8_file = resolved_temp_directory / Path(self.filestem + ".m3u8")
         with m3u8_file.open("w") as f:
             f.write(self.m3u8_content_filename)
 
-        total_files = len(self.web_files)
+        web_files = self._build_web_files(resolved_temp_directory)
+        total_files = len(web_files)
         current_file = 0
         with MyTqdm(
             total=total_files,
             unit="file",
             dynamic_ncols=True,
         ) as pbar:
-            for web_file in self.web_files:
+            for web_file in web_files:
                 web_file.download()
                 current_file += 1
                 pbar.update(1)
@@ -411,22 +442,35 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
         ff = ffmpy.FFmpeg(
             inputs={str(m3u8_file): "-allowed_extensions ALL -extension_picky 0"},
-            outputs={str(self.temp_file): "-c copy"},
+            outputs={str(resolved_temp_file): "-c copy"},
         )
         ff.run()
 
-        self.temp_file.rename(self.filepath)
+        shutil.move(resolved_temp_file, self.filepath)
 
-        shutil.rmtree(self.temp_directory)
+        shutil.rmtree(resolved_temp_directory)
 
         return self.filepath
 
-    def unlink(self):
+    def unlink(self, temp_file=None, temp_directory=None):
+        """Remove the merged file and the temporary file/directory.
+
+        Args:
+            temp_file (str or Path, optional): Temporary file to remove instead
+                of the default :attr:`temp_file`.
+            temp_directory (str or Path, optional): Temporary directory to remove
+                instead of the default :attr:`temp_directory`.
+        """
         super().unlink()
 
-        temp_directory = self.temp_directory
-        if temp_directory.exists():
-            shutil.rmtree(temp_directory)
+        resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
+        resolved_temp_file.unlink(missing_ok=True)
+
+        resolved_temp_directory = (
+            Path(temp_directory) if temp_directory is not None else self.temp_directory
+        )
+        if resolved_temp_directory.exists():
+            shutil.rmtree(resolved_temp_directory)
 
     def exists(self):
         # NOTE: checks reachability of the first resource in playlist order.

@@ -271,6 +271,167 @@ video002.ts
         assert "-allowed_extensions ALL" in input_opts
         assert "-extension_picky 0" in input_opts
 
+    def test_temp_file_default(self, hls_file):
+        assert hls_file.temp_file == hls_file.filepath.with_name("." + hls_file.filepath.name)
+        assert hls_file.temp_file == Path(".video.mp4")
+
+    def test_temp_directory_default(self, hls_file):
+        assert hls_file.temp_directory == hls_file.directory / hls_file.filestem
+        assert hls_file.temp_directory == Path("video")
+
+    def test_download_temp_file_override(self, url, tmp_path, mocker):
+        hls = HlsFile(url)
+        calls = []
+
+        class CaptureFFmpeg:
+            def __init__(
+                self, inputs=None, outputs=None, global_options=None, executable="ffmpeg"
+            ):
+                calls.append((inputs, outputs))
+                self.outputs = outputs or {}
+
+            def run(self, *args, **kwargs):
+                out_file = list(self.outputs.keys())[0] if self.outputs else None
+                if out_file:
+                    Path(out_file).write_bytes(b"mock")
+
+        mocker.patch("pyscraper.hlsfile.ffmpy.FFmpeg", CaptureFFmpeg)
+        temp_file = tmp_path / "custom.mp4"
+        f = hls.download(directory=tmp_path, temp_file=temp_file)
+
+        assert calls
+        _, outputs = calls[0]
+        assert str(temp_file) in outputs
+        assert f == tmp_path / "video.mp4"
+        assert f.exists()
+
+    def test_download_temp_directory_override(self, url, tmp_path, mocker):
+        hls = HlsFile(url)
+        calls = []
+
+        class CaptureFFmpeg:
+            def __init__(
+                self, inputs=None, outputs=None, global_options=None, executable="ffmpeg"
+            ):
+                calls.append((inputs, outputs))
+                self.outputs = outputs or {}
+
+            def run(self, *args, **kwargs):
+                out_file = list(self.outputs.keys())[0] if self.outputs else None
+                if out_file:
+                    Path(out_file).write_bytes(b"mock")
+
+        mocker.patch("pyscraper.hlsfile.ffmpy.FFmpeg", CaptureFFmpeg)
+        mocker.patch("pyscraper.hlsfile.shutil.rmtree")
+        temp_directory = tmp_path / "alt"
+
+        hls.download(directory=tmp_path, temp_directory=temp_directory)
+
+        assert hls.temp_directory == tmp_path / "video"
+        inputs, _ = calls[0]
+        assert str(temp_directory / "video.m3u8") in inputs
+        assert (temp_directory / "video000.ts").exists()
+        assert (temp_directory / "video001.ts").exists()
+        assert (temp_directory / "video002.ts").exists()
+
+    def test_exists_then_download_temp_directory_override(self, url, tmp_path, mocker):
+        hls = HlsFile(url)
+        assert hls.exists() is True
+
+        calls = []
+
+        class CaptureFFmpeg:
+            def __init__(
+                self, inputs=None, outputs=None, global_options=None, executable="ffmpeg"
+            ):
+                calls.append((inputs, outputs))
+                self.outputs = outputs or {}
+
+            def run(self, *args, **kwargs):
+                out_file = list(self.outputs.keys())[0] if self.outputs else None
+                if out_file:
+                    Path(out_file).write_bytes(b"mock")
+
+        mocker.patch("pyscraper.hlsfile.ffmpy.FFmpeg", CaptureFFmpeg)
+        mocker.patch("pyscraper.hlsfile.shutil.rmtree")
+        temp_directory = tmp_path / "alt"
+
+        hls.download(directory=tmp_path, temp_directory=temp_directory)
+
+        inputs, _ = calls[0]
+        assert str(temp_directory / "video.m3u8") in inputs
+        assert (temp_directory / "video000.ts").exists()
+
+    def test_unlink_removes_temp_file_and_directory(self, url, tmp_path):
+        hls = HlsFile(url, directory=tmp_path)
+        temp_file = hls.temp_file
+        temp_directory = hls.temp_directory
+        temp_file.write_bytes(b"partial")
+        temp_directory.mkdir(parents=True, exist_ok=True)
+        (temp_directory / "video000.ts").write_bytes(b"segment")
+
+        hls.unlink()
+
+        assert temp_file.exists() is False
+        assert temp_directory.exists() is False
+
+    def test_download_temp_paths_are_not_stateful(self, url, tmp_path, mocker):
+        hls = HlsFile(url)
+
+        class CaptureFFmpeg:
+            def __init__(
+                self, inputs=None, outputs=None, global_options=None, executable="ffmpeg"
+            ):
+                self.outputs = outputs or {}
+
+            def run(self, *args, **kwargs):
+                out_file = list(self.outputs.keys())[0] if self.outputs else None
+                if out_file:
+                    Path(out_file).write_bytes(b"mock")
+
+        mocker.patch("pyscraper.hlsfile.ffmpy.FFmpeg", CaptureFFmpeg)
+        mocker.patch("pyscraper.hlsfile.shutil.rmtree")
+
+        hls.download(directory=tmp_path, temp_directory=tmp_path / "alt")
+
+        assert hls.temp_directory == tmp_path / "video"
+        assert hls.temp_file == tmp_path / ".video.mp4"
+
+    def test_download_uses_move_for_cross_device(self, url, tmp_path, mocker):
+        import errno
+
+        hls = HlsFile(url)
+        mocker.patch(
+            "os.rename",
+            side_effect=OSError(errno.EXDEV, "Invalid cross-device link"),
+        )
+
+        f = hls.download(directory=tmp_path)
+
+        assert f == tmp_path / "video.mp4"
+        assert f.exists()
+
+    def test_unlink_temp_path_overrides(self, url, tmp_path):
+        hls = HlsFile(url, directory=tmp_path)
+        temp_file = tmp_path / "custom.mp4"
+        temp_directory = tmp_path / "alt"
+        temp_file.write_bytes(b"partial")
+        temp_directory.mkdir(parents=True, exist_ok=True)
+        (temp_directory / "video000.ts").write_bytes(b"segment")
+
+        hls.unlink(temp_file=temp_file, temp_directory=temp_directory)
+
+        assert temp_file.exists() is False
+        assert temp_directory.exists() is False
+
+    def test_get_filename_ignores_content_disposition(self, url):
+        from unittest.mock import Mock
+
+        hls = HlsFile(url)
+        hls.response = Mock(headers={"Content-Disposition": 'attachment; filename="evil.mp4"'})
+
+        assert hls.get_filename() == "video.mp4"
+
     def test_session(self):
         session = requests.Session()
         session.headers["test"] = "test"

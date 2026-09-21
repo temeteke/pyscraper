@@ -297,6 +297,128 @@ class TestWebFile:
         with pytest.raises(WebFileError, match="not opened"):
             wf.seek(100)
 
+    def test_temp_file_default(self, webfile):
+        assert webfile.temp_file == webfile.filepath.with_name(webfile.filepath.name + ".part")
+        assert webfile.temp_file == Path("test.txt.part")
+
+    def test_tempfile_alias(self, webfile):
+        assert webfile.tempfile == webfile.temp_file
+
+    def test_download_temp_file_override(self, url, tmp_path):
+        wf = WebFile(url, filename="test.txt", directory=tmp_path)
+        temp_file = tmp_path / "custom.part"
+
+        f = wf.download(temp_file=temp_file)
+
+        assert f.exists() is True
+        assert wf.temp_file == tmp_path / "test.txt.part"
+        assert temp_file.exists() is False
+        assert (tmp_path / "test.txt.part").exists() is False
+
+        wf.unlink()
+        assert f.exists() is False
+
+    def test_download_temp_file_override_is_not_stateful(self, url, tmp_path):
+        wf = WebFile(url, filename="test.txt", directory=tmp_path)
+
+        wf.download(temp_file=tmp_path / "custom.part")
+
+        assert wf.temp_file == tmp_path / "test.txt.part"
+
+    def test_download_temp_file_override_unlink(self, url, tmp_path):
+        wf = WebFile(url, filename="test.txt", directory=tmp_path)
+        temp_file = tmp_path / "custom.part"
+        temp_file.write_bytes(b"partial")
+
+        wf.unlink(temp_file=temp_file)
+
+        assert temp_file.exists() is False
+
+    def test_download_uses_move_for_cross_device(self, url, tmp_path, mocker):
+        import errno
+
+        wf = WebFile(url, filename="test.txt", directory=tmp_path)
+        mocker.patch(
+            "os.rename",
+            side_effect=OSError(errno.EXDEV, "Invalid cross-device link"),
+        )
+
+        f = wf.download()
+
+        assert f.exists() is True
+        assert f.read_bytes() == b"x" * 1024
+
+    @staticmethod
+    def _webfile_with_content_disposition(value, url="https://example.com/fallback.bin"):
+        wf = WebFile(url)
+        response = Mock()
+        response.headers = {"Content-Disposition": value}
+        response.url = url
+        wf.response = response
+        return wf
+
+    def test_get_filename_content_disposition_quoted(self):
+        wf = self._webfile_with_content_disposition('attachment; filename="a.mp4"')
+        assert wf.get_filename() == "a.mp4"
+
+    def test_get_filename_content_disposition_without_type(self):
+        wf = self._webfile_with_content_disposition("filename=a.mp4")
+        assert wf.get_filename() == "a.mp4"
+
+    def test_get_filename_content_disposition_extended_utf8(self):
+        wf = self._webfile_with_content_disposition("attachment; filename*=UTF-8''a%20b.mp4")
+        assert wf.get_filename() == "a b.mp4"
+
+    def test_get_filename_content_disposition_extended_iso8859(self):
+        wf = self._webfile_with_content_disposition(
+            "attachment; filename*=iso-8859-1'en'%A3%20rates.mp4"
+        )
+        assert wf.get_filename() == "\u00a3 rates.mp4"
+
+    def test_get_filename_content_disposition_extended_single_apostrophe(self):
+        wf = self._webfile_with_content_disposition("attachment; filename*=UTF-8'a%20b.mp4")
+        assert wf.get_filename() == "a b.mp4"
+
+    def test_get_filename_content_disposition_extended_invalid_percent_falls_back(self):
+        wf = self._webfile_with_content_disposition("attachment; filename*=UTF-8''a%ZZ.mp4")
+        assert wf.get_filename() == "fallback.bin"
+
+    def test_get_filename_content_disposition_unquoted_trailing_param(self):
+        wf = self._webfile_with_content_disposition("attachment; filename=a.mp4; size=1")
+        assert wf.get_filename() == "a.mp4"
+
+    def test_get_filename_content_disposition_windows_path(self):
+        wf = self._webfile_with_content_disposition(r'attachment; filename="C:\dir\a.mp4"')
+        assert wf.get_filename() == "a.mp4"
+
+    def test_get_filename_content_disposition_quoted_semicolon(self):
+        wf = self._webfile_with_content_disposition('attachment; filename="a;b.mp4"')
+        assert wf.get_filename() == "a;b.mp4"
+
+    def test_get_filename_content_disposition_empty_falls_back(self):
+        wf = self._webfile_with_content_disposition('attachment; filename=""')
+        assert wf.get_filename() == "fallback.bin"
+
+    def test_get_filename_content_disposition_dotdot_falls_back(self):
+        wf = self._webfile_with_content_disposition('attachment; filename=".."')
+        assert wf.get_filename() == "fallback.bin"
+
+    def test_get_filename_content_disposition_unterminated_quote_falls_back(self):
+        wf = self._webfile_with_content_disposition('attachment; filename="C:\\dir\\')
+        assert wf.get_filename() == "fallback.bin"
+
+    def test_get_filename_content_disposition_extended_priority(self):
+        wf = self._webfile_with_content_disposition(
+            "attachment; filename=\"a.mp4\"; filename*=UTF-8''b%20c.mp4"
+        )
+        assert wf.get_filename() == "b c.mp4"
+
+    def test_get_filename_content_disposition_invalid_extended_falls_back_to_filename(self):
+        wf = self._webfile_with_content_disposition(
+            "attachment; filename=\"a.mp4\"; filename*=no-such-charset''b%20c.mp4"
+        )
+        assert wf.get_filename() == "a.mp4"
+
 
 # ============================================================================
 # Integration Tests (require real HTTP connections)
