@@ -18,6 +18,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write
