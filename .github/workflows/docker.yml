@@ -233,7 +233,7 @@ jobs:
           platforms: ${{ matrix.platforms }}
           push: true
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          cache-to: type=gha,scope=${{ matrix.image }},mode=min
           build-args: ${{ matrix.build_args }}
           tags: |
             ${{ matrix.image }}:latest

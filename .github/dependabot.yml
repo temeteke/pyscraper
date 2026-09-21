@@ -3,6 +3,8 @@ updates:
   # Workflow actions are pinned to full commit SHAs (supply-chain
   # hardening). Dependabot understands SHA pins and updates both the SHA
   # and the `# vX.Y.Z` comment, keeping the pins fresh.
+  # Minor/patch bumps are grouped into one PR; breaking major bumps get
+  # their own PR so they are reviewed individually.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -10,4 +12,4 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
-    open-pull-requests-limit: 5
+        update-types: ["minor", "patch"]
