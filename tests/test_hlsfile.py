@@ -433,7 +433,7 @@ video002.ts
 
         assert hls.get_filename() == "video.mp4"
 
-    @pytest.mark.parametrize("temp_directory", ["", ".", "..", "./", "foo/..", "/"])
+    @pytest.mark.parametrize("temp_directory", ["", ".", "..", "./", "//", "/./", "foo/..", "/"])
     def test_validate_temp_directory_rejects_dangerous(self, temp_directory, tmp_path):
         output = tmp_path / "out" / "video.mp4"
         with pytest.raises(ValueError):
@@ -443,6 +443,14 @@ video002.ts
         output = tmp_path / "video.mp4"
         with pytest.raises(ValueError):
             _validate_temp_directory(str(Path.cwd()), output)
+
+    def test_validate_temp_directory_rejects_cwd_ancestor(self, tmp_path, monkeypatch):
+        cwd = tmp_path / "cwd" / "sub"
+        cwd.mkdir(parents=True)
+        monkeypatch.chdir(cwd)
+        output = tmp_path / "out" / "video.mp4"
+        with pytest.raises(ValueError):
+            _validate_temp_directory(tmp_path / "cwd", output)
 
     def test_validate_temp_directory_rejects_output_and_ancestors(self, tmp_path):
         output = tmp_path / "out" / "video.mp4"
@@ -454,6 +462,17 @@ video002.ts
         output = tmp_path / "out" / "video.mp4"
         sibling = tmp_path / "alt"
         assert _validate_temp_directory(sibling, output) == sibling
+
+    def test_download_forwards_empty_temp_directory_to_validator(self, url, mocker):
+        hls = HlsFile(url)
+        validator = mocker.patch(
+            "pyscraper.hlsfile._validate_temp_directory", side_effect=ValueError
+        )
+
+        with pytest.raises(ValueError):
+            hls.download(temp_directory="")
+
+        assert validator.call_args.args[0] == ""
 
     def test_download_rejects_temp_directory_containing_output(self, url, tmp_path):
         hls = HlsFile(url)

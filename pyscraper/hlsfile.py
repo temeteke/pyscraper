@@ -23,13 +23,14 @@ def _validate_temp_directory(temp_directory, filepath):
 
     ``download()`` unconditionally removes ``temp_directory`` with
     ``shutil.rmtree``, so a directory that is empty, ``.``, ``..``, the current
-    working directory, the filesystem root, the output file itself, or one of
-    its ancestors would delete the merged result (or more). Returns the original
-    path when it is safe.
+    working directory (or one of its ancestors), the filesystem root, the
+    output file itself, or one of its ancestors would delete the merged result
+    (or more). Returns the original path when it is safe.
 
-    Paths are compared as resolved ``Path`` objects: case-sensitive on POSIX and
-    case-insensitive on Windows (``WindowsPath`` equality). Case-insensitive
-    POSIX filesystems (e.g. default macOS APFS) are not distinguished.
+    The value is used literally (no ``~`` expansion). Paths are compared as
+    resolved ``Path`` objects: case-sensitive on POSIX and case-insensitive on
+    Windows (``WindowsPath`` equality). Case-insensitive POSIX filesystems
+    (e.g. default macOS APFS) are not distinguished.
     """
     raw = str(temp_directory)
     if raw.rstrip("/\\").strip() in ("", ".", ".."):
@@ -37,8 +38,12 @@ def _validate_temp_directory(temp_directory, filepath):
     resolved = Path(temp_directory).resolve()
     if resolved == resolved.parent:
         raise ValueError(f"Invalid temp_directory (filesystem root): {temp_directory!r}")
-    if resolved == Path.cwd().resolve():
-        raise ValueError(f"Invalid temp_directory (current working directory): {temp_directory!r}")
+    cwd = Path.cwd().resolve()
+    if resolved == cwd or resolved in cwd.parents:
+        raise ValueError(
+            f"Invalid temp_directory (current working directory or its ancestor): "
+            f"{temp_directory!r}"
+        )
     output = Path(filepath).resolve()
     if resolved == output or resolved in output.parents:
         raise ValueError(

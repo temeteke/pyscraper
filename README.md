@@ -71,11 +71,13 @@ while `HlsFile` creates the `temp_directory` (including parents). To clean up a
 custom path, pass the same value to `unlink(temp_file=...)` /
 `unlink(temp_directory=...)`; `unlink()` with no arguments removes the default
 paths. A `temp_directory` that is empty, `.`, `..`, the current working
-directory, the filesystem root, the output file itself, or one of its ancestors
-is rejected with `ValueError` (it would otherwise be removed together with the
-output). Paths are compared as-is: case-sensitive on POSIX and case-insensitive
-on Windows; case-insensitive POSIX filesystems (e.g. default macOS APFS) are not
-distinguished. `WebFile.tempfile` is a deprecated alias for `WebFile.temp_file`.
+directory (or one of its ancestors), the filesystem root, the output file
+itself, or one of its ancestors is rejected with `ValueError` (it would
+otherwise be removed together with the output). Overrides are used literally
+(no `~` expansion). Paths are compared as-is: case-sensitive on POSIX and
+case-insensitive on Windows; case-insensitive POSIX filesystems (e.g. default
+macOS APFS) are not distinguished. `WebFile.tempfile` is a deprecated alias for
+`WebFile.temp_file`.
 
 #### Content-Disposition filename resolution
 
