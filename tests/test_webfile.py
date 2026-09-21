@@ -334,6 +334,88 @@ class TestWebFile:
 
         assert temp_file.exists() is False
 
+    @pytest.mark.parametrize(
+        "override", [pytest.param(False, id="default"), pytest.param(True, id="override")]
+    )
+    def test_download_unknown_size_uses_temp_file(
+        self, tmp_path, mock_session, mock_http_response, override
+    ):
+        mock_session.get.return_value = mock_http_response(200, b"generic response", {})
+        wf = WebFile(
+            "https://example.com/no-size.bin",
+            filename="no-size.bin",
+            directory=tmp_path,
+            session=mock_session,
+        )
+        temp_file = tmp_path / "custom.part" if override else wf.temp_file
+        temp_file.write_bytes(b"stale")
+        kwargs = {"temp_file": temp_file} if override else {}
+
+        f = wf.download(**kwargs)
+
+        assert f.read_bytes() == b"generic response"
+        assert temp_file.exists() is False
+
+    def test_download_unknown_size_interrupted_leaves_no_final_file(
+        self, tmp_path, mock_session, mock_http_response, mocker
+    ):
+        mock_session.get.return_value = mock_http_response(200, b"partial data", {})
+        wf = WebFile(
+            "https://example.com/no-size.bin",
+            filename="no-size.bin",
+            directory=tmp_path,
+            session=mock_session,
+        )
+        mocker.patch.object(wf, "read", side_effect=[b"partial data", WebFileError("boom")])
+
+        with pytest.raises(WebFileError):
+            wf.download()
+
+        assert wf.filepath.exists() is False
+        assert wf.temp_file.read_bytes() == b"partial data"
+
+    def test_download_size_mismatch_smaller_keeps_temp(
+        self, tmp_path, mock_session, mock_http_response
+    ):
+        mock_session.get.return_value = mock_http_response(
+            206,
+            b"x" * 10,
+            {"Content-Range": "bytes 0-9/1024", "Accept-Ranges": "bytes", "Content-Length": "10"},
+        )
+        wf = WebFile(
+            "https://example.com/file.bin",
+            filename="file.bin",
+            directory=tmp_path,
+            session=mock_session,
+        )
+
+        with pytest.raises(WebFileError, match="smaller"):
+            wf.download()
+
+        assert wf.filepath.exists() is False
+        assert wf.temp_file.read_bytes() == b"x" * 10
+
+    def test_download_size_mismatch_larger_removes_temp(
+        self, tmp_path, mock_session, mock_http_response
+    ):
+        mock_session.get.return_value = mock_http_response(
+            206,
+            b"x" * 10,
+            {"Content-Range": "bytes 0-4/5", "Accept-Ranges": "bytes", "Content-Length": "10"},
+        )
+        wf = WebFile(
+            "https://example.com/file.bin",
+            filename="file.bin",
+            directory=tmp_path,
+            session=mock_session,
+        )
+
+        with pytest.raises(WebFileError, match="larger"):
+            wf.download()
+
+        assert wf.filepath.exists() is False
+        assert wf.temp_file.exists() is False
+
     def test_download_uses_move_for_cross_device(self, url, tmp_path, mocker):
         import errno
 

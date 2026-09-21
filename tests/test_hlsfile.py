@@ -433,7 +433,9 @@ video002.ts
 
         assert hls.get_filename() == "video.mp4"
 
-    @pytest.mark.parametrize("temp_directory", ["", ".", "..", "./", "//", "/./", "foo/..", "/"])
+    @pytest.mark.parametrize(
+        "temp_directory", ["", "  ", " \t ", ".", "..", "./", "//", "/./", "foo/..", "/"]
+    )
     def test_validate_temp_directory_rejects_dangerous(self, temp_directory, tmp_path):
         output = tmp_path / "out" / "video.mp4"
         with pytest.raises(ValueError):

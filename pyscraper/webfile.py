@@ -551,17 +551,17 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                     elif resolved_temp_file.stat().st_size < wf.size:
                         raise WebFileError("Downloaded file size is smaller than expected.")
 
-                wf.logger.debug("Removing temporary file")
-                shutil.move(resolved_temp_file, wf.filepath)
-
             else:
-                with wf.filepath.open("wb") as f:
+                with resolved_temp_file.open("wb") as f:
                     current_size = 0
                     for chunk in iter(partial(wf.read, 8192), b""):
                         f.write(chunk)
                         current_size += len(chunk)
                         if progress_callback:
                             progress_callback(current_size, None)
+
+            wf.logger.debug("Removing temporary file")
+            shutil.move(resolved_temp_file, wf.filepath)
 
         return self.filepath
 

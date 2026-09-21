@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 def _validate_temp_directory(temp_directory, filepath):
     """Reject a scratch directory that ``shutil.rmtree`` must not remove.
 
-    Raises ``ValueError`` for empty/``.``/``..``, the current working directory
-    or its ancestors, the filesystem root, and the output file or its ancestors.
-    See docs/downloading.md for the full contract.
+    Raises ``ValueError`` for empty or whitespace-only values, ``.``, ``..``,
+    the current working directory or its ancestors, the filesystem root, and the
+    output file or its ancestors. See docs/downloading.md for the full contract.
     """
     raw = str(temp_directory)
     if raw.rstrip("/\\").strip() in ("", ".", ".."):

@@ -20,8 +20,10 @@ filesystems (a failed cross-filesystem copy can leave a partial output file).
 `WebFile.download()` accepts `temp_file=`. `HlsFile.download()` accepts both
 `temp_file=` and `temp_directory=`.
 
-- Overrides are **local to the call**: they do not mutate the instance, so
-  `WebFile.temp_file` / `HlsFile.temp_directory` keep returning the defaults.
+- Overrides are **local to the call**: the override is not stored on the
+  instance, so `WebFile.temp_file` / `HlsFile.temp_directory` never reflect it.
+  (Other naming arguments such as `directory` / `filename` do update the
+  instance, as before.)
 - Values are used literally (no `~` expansion).
 - Relative overrides resolve against the current working directory, not
   `directory`.
@@ -46,9 +48,10 @@ hls_file.unlink(temp_directory="scratch")
 ## `temp_directory` safety guard
 
 `HlsFile.download()` removes `temp_directory` with `shutil.rmtree`, so a
-`temp_directory` that is any of the following is rejected with `ValueError`:
+`temp_directory` that is any of the following is rejected with `ValueError`.
+`HlsFile.unlink()` applies the same guard.
 
-- empty, `.`, `..`
+- empty or whitespace-only, `.`, `..`
 - the current working directory or one of its ancestors
 - the filesystem root
 - the output file itself or one of its ancestors
@@ -69,9 +72,11 @@ filesystems (e.g. default macOS APFS) are not distinguished.
 
 Directory components (both `/` and `\`) are stripped, so
 `filename="C:\dir\a.mp4"` yields `a.mp4`. Empty, whitespace-only, `.`, `..`, or
-values containing control characters are rejected and fall back to the URL
-basename, as are malformed `filename*` values (no `'` charset/language
-separator) and ones with an invalid percent-encoding or an undecodable charset.
+values containing control characters are rejected, and each candidate falls
+through to the next source: a rejected or malformed `filename*` (no `'`
+charset/language separator, invalid percent-encoding, or undecodable charset)
+is skipped in favour of `filename`, and `filename` falls back to the URL
+basename.
 
 `HlsFile` ignores `Content-Disposition` (it uses the URL stem plus a fixed
 `.mp4` suffix).
