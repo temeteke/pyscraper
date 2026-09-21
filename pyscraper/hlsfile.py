@@ -29,9 +29,11 @@ def _validate_temp_directory(temp_directory, filepath):
     raw = str(temp_directory)
     if raw.strip() in ("", ".", ".."):
         raise ValueError(f"Invalid temp_directory: {temp_directory!r}")
-    resolved = Path(temp_directory).resolve()
-    output = Path(filepath).resolve()
-    if resolved == output or resolved in output.parents:
+    resolved = os.path.normcase(str(Path(temp_directory).resolve()))
+    output_path = Path(filepath).resolve()
+    output = os.path.normcase(str(output_path))
+    output_parents = {os.path.normcase(str(parent)) for parent in output_path.parents}
+    if resolved == output or resolved in output_parents:
         raise ValueError(
             f"temp_directory {temp_directory!r} must not contain the output file {filepath!r}"
         )

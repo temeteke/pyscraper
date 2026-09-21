@@ -435,8 +435,15 @@ video002.ts
 
     def test_download_rejects_temp_directory_containing_output(self, url, tmp_path):
         hls = HlsFile(url)
+        output_dir = tmp_path / "out"
         with pytest.raises(ValueError):
-            hls.download(directory=tmp_path, temp_directory=tmp_path)
+            hls.download(directory=output_dir, temp_directory=output_dir)
+        assert output_dir.exists() is False
+
+    def test_download_rejects_temp_directory_equal_to_output(self, url, tmp_path):
+        hls = HlsFile(url)
+        with pytest.raises(ValueError):
+            hls.download(directory=tmp_path, temp_directory=tmp_path / "video.mp4")
 
     @pytest.mark.parametrize("temp_directory", ["", ".", ".."])
     def test_download_rejects_dangerous_temp_directory(self, url, temp_directory):
@@ -444,10 +451,19 @@ video002.ts
         with pytest.raises(ValueError):
             hls.download(temp_directory=temp_directory)
 
-    def test_unlink_rejects_dangerous_temp_directory(self, url):
-        hls = HlsFile(url)
+    def test_unlink_rejects_dangerous_temp_directory_without_deleting(self, url, tmp_path):
+        hls = HlsFile(url, directory=tmp_path, filename="video.mp4")
+        filepath = hls.filepath
+        temp_directory = hls.temp_directory
+        filepath.write_bytes(b"merged")
+        temp_directory.mkdir(parents=True, exist_ok=True)
+        (temp_directory / "video000.ts").write_bytes(b"segment")
+
         with pytest.raises(ValueError):
             hls.unlink(temp_directory=".")
+
+        assert filepath.exists() is True
+        assert temp_directory.exists() is True
 
     def test_session(self):
         session = requests.Session()

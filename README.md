@@ -86,8 +86,9 @@ removed together with the output). `WebFile.tempfile` is a deprecated alias for
 3. The URL basename.
 
 Directory components (both `/` and `\`) are stripped, so `filename="C:\dir\a.mp4"`
-yields `a.mp4`. Empty, `.`, `..`, or values containing control characters are
-rejected and fall back to the URL basename. `HlsFile` ignores
+yields `a.mp4`. Empty, whitespace-only, `.`, `..`, or values containing control
+characters are rejected and fall back to the URL basename, as are malformed
+`filename*` values (no `'` charset/language separator). `HlsFile` ignores
 `Content-Disposition` (it uses the URL stem plus a fixed `.mp4` suffix).
 
 > **Migrating to v2:** Playwright remote persistence moved from node-owned
