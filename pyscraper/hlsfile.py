@@ -19,18 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_temp_directory(temp_directory, filepath):
-    """Reject scratch directories that would destroy the output on cleanup.
+    """Reject a scratch directory that ``shutil.rmtree`` must not remove.
 
-    ``download()`` unconditionally removes ``temp_directory`` with
-    ``shutil.rmtree``, so a directory that is empty, ``.``, ``..``, the current
-    working directory (or one of its ancestors), the filesystem root, the
-    output file itself, or one of its ancestors would delete the merged result
-    (or more). Returns the original path when it is safe.
-
-    The value is used literally (no ``~`` expansion). Paths are compared as
-    resolved ``Path`` objects: case-sensitive on POSIX and case-insensitive on
-    Windows (``WindowsPath`` equality). Case-insensitive POSIX filesystems
-    (e.g. default macOS APFS) are not distinguished.
+    Raises ``ValueError`` for empty/``.``/``..``, the current working directory
+    or its ancestors, the filesystem root, and the output file or its ancestors.
+    See docs/downloading.md for the full contract.
     """
     raw = str(temp_directory)
     if raw.rstrip("/\\").strip() in ("", ".", ".."):
@@ -313,21 +306,12 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def temp_directory(self):
-        """Scratch directory for segments and the local playlist.
-
-        Defaults to ``directory / filestem``. Overridable per call via
-        ``download(temp_directory=...)`` without mutating the instance.
-        """
+        """Scratch directory for segments and the playlist (default ``directory / filestem``)."""
         return self.directory / self.filestem
 
     @property
     def temp_file(self):
-        """Temporary output path for the ffmpeg merge step.
-
-        Defaults to ``.<filename>`` (extension preserved so ffmpeg can infer the
-        container). Overridable per call via ``download(temp_file=...)`` without
-        mutating the instance.
-        """
+        """Temporary ffmpeg output path (default ``.<filename>``)."""
         return self.filepath.with_name("." + self.filepath.name)
 
     def clear_cache(self):

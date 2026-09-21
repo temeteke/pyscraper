@@ -262,3 +262,4 @@ def download_file(url: str, directory: Path) -> Path:
 - [architecture.md](architecture.md) - Module responsibilities and design decisions
 - [operations.md](operations.md) - Grid/Hub operation and Docker
 - [testing.md](testing.md) - Testing guide
+- [downloading.md](downloading.md) - Temporary paths, overrides, and filename resolution

@@ -345,13 +345,9 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
     def get_filename(self):
         """Resolve the output filename.
 
-        When the response carries a ``Content-Disposition`` header, its
-        ``filename*`` parameter (RFC 5987, ``charset'language'percent-encoded``,
-        UTF-8 when the charset is omitted) takes precedence over ``filename``.
-        Both quoted and unquoted values are supported, directory components
-        (``/`` and ``\\``) are stripped, and empty, ``.``, ``..`` or
-        control-character values are rejected. Anything rejected or absent
-        falls back to the URL basename.
+        Prefers the ``Content-Disposition`` ``filename*`` parameter (RFC 5987),
+        then ``filename``, then the URL basename. See docs/downloading.md for
+        the full rules.
         """
         if self.response is not None:
             if content_disposition := self.response.headers.get("Content-Disposition"):
@@ -381,11 +377,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def temp_file(self):
-        """Temporary path used while downloading.
-
-        Defaults to ``<filepath>.part``. Overridable per call via
-        ``download(temp_file=...)`` without mutating the instance.
-        """
+        """Temporary path used while downloading (default ``<filepath>.part``)."""
         return self.filepath.with_name(self.filepath.name + ".part")
 
     @property

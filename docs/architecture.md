@@ -50,24 +50,14 @@ validation goes through `_ensure_open()`.
 - `HlsFile` (`HlsFileMixin`, `RequestsMixin`, `FileIOBase`) reuses the
   `WebFile` machinery for HLS segments (`HlsFileMixin` extends
   `WebFileMixin`); it is not a subclass of `WebFile`.
-- Temporary paths are canonicalized as `temp_file` / `temp_directory`
-  (Path) and are overridable per `download()` call; defaults are
-  `WebFile.temp_file` = `<filepath>.part`, `HlsFile.temp_file` =
-  `.<filename>`, and `HlsFile.temp_directory` = `directory / filestem`.
-  Overrides are call-local (they do not mutate the instance), and
-  `HlsFile` builds segment `WebFile`s from the resolved directory rather
-  than the cached `web_files`, so a prior `exists()` cannot pin a stale
-  directory. A `temp_directory` that is empty, `.`, `..`, the current
-  working directory (or one of its ancestors), the filesystem root, the
-  output file, or one of its ancestors is rejected (it would be removed
-  together with the output by `shutil.rmtree`). Paths are compared as-is
-  (case-sensitive on POSIX, case-insensitive on Windows).
-  `WebFile.tempfile` is a deprecated alias.
-- The final temporary-to-output move uses `shutil.move` (rename on the
-  same filesystem, copy + delete across filesystems).
-- `WebFile.get_filename()` resolves `Content-Disposition` `filename*`
-  (RFC 5987) before `filename`, strips path components, and falls back to
-  the URL basename for missing or invalid values.
+- Temporary paths are canonical `temp_file` / `temp_directory` properties
+  with call-local (non-mutating) overrides. `HlsFile` builds segment
+  `WebFile`s from the resolved directory rather than the cached
+  `web_files`, so a prior `exists()` cannot pin a stale directory, and it
+  validates `temp_directory` before `shutil.rmtree`. The final move uses
+  `shutil.move`. See the [Downloading Guide](downloading.md) for the
+  defaults, override and cleanup contract, safety guard, and
+  `Content-Disposition` rules.
 - `utils.py` provides `CachedGenerator` / `LazyList` for lazy evaluation
   of large element and segment collections.
 

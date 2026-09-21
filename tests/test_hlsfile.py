@@ -463,16 +463,28 @@ video002.ts
         sibling = tmp_path / "alt"
         assert _validate_temp_directory(sibling, output) == sibling
 
-    def test_download_forwards_empty_temp_directory_to_validator(self, url, mocker):
+    @pytest.mark.parametrize("method", ["download", "unlink"])
+    @pytest.mark.parametrize(
+        "temp_directory, expected",
+        [("", ""), (None, "default"), ("custom", "custom")],
+    )
+    def test_temp_directory_is_forwarded_to_validator(
+        self, url, mocker, method, temp_directory, expected
+    ):
         hls = HlsFile(url)
+        default = hls.temp_directory
         validator = mocker.patch(
             "pyscraper.hlsfile._validate_temp_directory", side_effect=ValueError
         )
 
         with pytest.raises(ValueError):
-            hls.download(temp_directory="")
+            getattr(hls, method)(temp_directory=temp_directory)
 
-        assert validator.call_args.args[0] == ""
+        passed = validator.call_args.args[0]
+        if expected == "default":
+            assert passed == default
+        else:
+            assert passed == expected
 
     def test_download_rejects_temp_directory_containing_output(self, url, tmp_path):
         hls = HlsFile(url)
