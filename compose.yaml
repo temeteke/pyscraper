@@ -179,16 +179,16 @@ services:
 
   gateway:
     # Single entry point: noVNC reverse proxy + UI + session-manager relay
-    # (/api/playwright/* and /api/state-files to playwright-session-manager,
+    # (/api/playwright/* (incl. state-files) to playwright-session-manager,
     # /api/selenium/* to selenium-session-manager).
-    # No build section (plain nginx:alpine + mounted config).
-    image: nginx:alpine
+    # Dedicated image (config + UI baked in, rendered at start from
+    # /etc/resolv.conf); the same image runs on any Docker network.
+    image: temeteke/pyscraper-gateway:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
     ports:
       - "8080:80"
-    volumes:
-      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./gateway/index.html:/usr/share/nginx/html/index.html:ro
-      - ./gateway/view.html:/usr/share/nginx/html/view.html:ro
     restart: unless-stopped
     # Startup order only (no health gate): the gateway resolves backends
     # via variable + resolver at request time and retries, so strict
@@ -203,9 +203,10 @@ services:
       - selenium-session-manager
 
   playwright-session-manager:
-    # Playwright session open/close/save API for the gateway UI (local
-    # build only, never published to registries -- see
-    # Dockerfile.playwright-session-manager). FastAPI + uvicorn.
+    # Playwright session open/close/save API for the gateway UI (published
+    # as temeteke/pyscraper-playwright-session-manager; build for local dev
+    # -- see Dockerfile.playwright-session-manager). FastAPI + uvicorn.
+    image: temeteke/pyscraper-playwright-session-manager:latest
     build:
       context: .
       dockerfile: Dockerfile.playwright-session-manager
@@ -215,9 +216,10 @@ services:
       - SESSION_STATE_DIR=/data/sessions
       # Browser startup can exceed the 60s open default on slow hosts
       # (webkit); raise if open timeouts appear in the manager logs.
-      # When raising timeouts, keep gateway/nginx.conf in sync:
-      # proxy_read_timeout > 2 * OPEN_TIMEOUT + 10 and > WORKER_TIMEOUT
-      # (OPEN 90 / WORKER 150 -> nginx 220s).
+      # When raising timeouts, keep the generated /api/ locations in sync
+      # (gateway/generate.jq): proxy_read_timeout > 2 * OPEN_TIMEOUT + 10 and
+      # > WORKER_TIMEOUT. The shipped default is 150s (OPEN 60 / WORKER
+      # 120); e.g. OPEN 90 / WORKER 150 needs 220s.
       # - PLAYWRIGHT_OPEN_TIMEOUT=90
       # - PLAYWRIGHT_WORKER_TIMEOUT=150
     volumes:
@@ -226,16 +228,17 @@ services:
       - "8081"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8081/api/state-files', timeout=2))"]
+      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8081/api/playwright/state-files', timeout=2))"]
       interval: 10s
       timeout: 3s
       retries: 6
       start_period: 10s
 
   selenium-session-manager:
-    # Selenium session open/close API for the gateway UI (local build
-    # only, never published to registries -- see
-    # Dockerfile.selenium-session-manager). FastAPI + uvicorn.
+    # Selenium session open/close API for the gateway UI (published as
+    # temeteke/pyscraper-selenium-session-manager; build for local dev --
+    # see Dockerfile.selenium-session-manager). FastAPI + uvicorn.
+    image: temeteke/pyscraper-selenium-session-manager:latest
     build:
       context: .
       dockerfile: Dockerfile.selenium-session-manager

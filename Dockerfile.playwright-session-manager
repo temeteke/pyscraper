@@ -1,4 +1,5 @@
-# Playwright session manager for the gateway UI (local build only, not published).
+# Playwright session manager for the gateway UI (published as
+# temeteke/pyscraper-playwright-session-manager + GHCR).
 # Only the playwright *client* package is needed (remote connect to the
 # nodes); no browser binaries are installed in this image.
 # Keep PLAYWRIGHT_VERSION in sync with setup.cfg,

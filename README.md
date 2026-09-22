@@ -55,15 +55,6 @@ final `filepath` when the transfer completes. See the
 [Downloading Guide](docs/downloading.md) for temporary path defaults, per-call
 overrides, cleanup, and `Content-Disposition` filename resolution.
 
-> **Migrating to v2:** Playwright remote persistence moved from node-owned
-> profiles (Chromium-only CDP) to client-owned `storage_state`
-> (`storage_state=` / `save_storage_state()`, all browsers). The unimplemented
-> `cookies_file` argument and the `node="chromium-profile"` Playwright service
-> were removed (unrelated to the Selenium `chromium-profile` stereotype, which
-> stays); use `node="chromium"` plus `storage_state` instead. `context_options`
-> passes locale/timezone/viewport etc. through to context creation.
-> `PLAYWRIGHT_*_URL` must be `ws://` (legacy CDP `http(s)://` is rejected).
-
 ## Testing
 
 ```sh
@@ -82,9 +73,12 @@ intentionally not hardcoded in docs).
 
 Prebuilt images are published to Docker Hub and GHCR on `vX.Y.Z` tag
 pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags),
-on a weekly schedule, or manually via `workflow_dispatch`.
+on a weekly schedule, or manually via `workflow_dispatch`. This includes
+the browser gateway and both session managers, so
+`docker compose pull && docker compose up -d` runs the whole stack from
+published images.
 See [Operations Guide](docs/operations.md) for the image table, tag
-semantics, and `docker compose` usage.
+semantics, `docker compose` usage, and gateway configuration.
 
 ## Documentation
 
@@ -93,3 +87,4 @@ semantics, and `docker compose` usage.
 - **[Development Guide](docs/development.md)** - Development setup and guidelines
 - **[Architecture](docs/architecture.md)** - Module responsibilities and design decisions
 - **[Downloading Guide](docs/downloading.md)** - Temporary paths, overrides, and filename resolution
+- **[Changelog](CHANGELOG.md)** - Release notes and breaking changes

@@ -81,17 +81,18 @@ class TestStateFiles:
     def test_get_state_files_endpoint(self, monkeypatch, tmp_path):
         (tmp_path / "s.json").write_text("{}")
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).get("/api/state-files")
+        r = _client(sm).get("/api/playwright/state-files")
         assert r.status_code == 200
-        assert r.json() == {"files": ["s.json"]}
+        assert r.json() == {"state_files": ["s.json"]}
 
 
 class TestPlaywrightSessions:
-    def _mock_backend(self, sm, target="playwright-chromium"):
+    def _mock_backend(self, sm, browser="playwright-chromium"):
         session = {
-            "target": target,
+            "browser": browser,
+            "node": None,
             "context": MagicMock(),
-            "browser": MagicMock(),
+            "playwright_browser": MagicMock(),
             "pw": MagicMock(),
         }
         session["context"].storage_state.return_value = {"cookies": []}
@@ -111,7 +112,7 @@ class TestPlaywrightSessions:
             r = client.post(
                 "/api/playwright/sessions",
                 json={
-                    "target": "playwright-chromium",
+                    "browser": "playwright-chromium",
                     "node": "chromium",
                     "url": "https://example.com",
                 },
@@ -126,21 +127,29 @@ class TestPlaywrightSessions:
             sid = r.json()["id"]
         r = client.get("/api/playwright/sessions")
         assert r.status_code == 200
-        assert r.json() == {"sessions": [{"id": sid, "target": "playwright-chromium"}]}
+        assert r.json() == {
+            "sessions": [
+                {
+                    "id": sid,
+                    "browser": "playwright-chromium",
+                    "node": "chromium",
+                }
+            ]
+        }
         r = client.delete(f"/api/playwright/sessions/{sid}")
         assert r.status_code == 200
         worker.close.assert_called_once_with()
 
-    def test_open_unknown_target_422(self, monkeypatch, tmp_path):
+    def test_open_unknown_browser_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post("/api/playwright/sessions", json={"target": "nope"})
+        r = _client(sm).post("/api/playwright/sessions", json={"browser": "nope"})
         assert r.status_code == 422
 
     def test_open_unknown_field_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"target": "playwright-chromium", "bogus": 1},
+            json={"browser": "playwright-chromium", "bogus": 1},
         )
         assert r.status_code == 422
 
@@ -148,7 +157,7 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"target": "playwright-chromium", "storage_state": "/etc/evil.json"},
+            json={"browser": "playwright-chromium", "storage_state": "/etc/evil.json"},
         )
         assert r.status_code == 422
         assert "escapes state dir" in str(r.json()["detail"])
@@ -157,7 +166,7 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"target": "playwright-chromium", "storage_state": "  ../outside.json  "},
+            json={"browser": "playwright-chromium", "storage_state": "  ../outside.json  "},
         )
         assert r.status_code == 422
         assert "escapes state dir" in str(r.json()["detail"])
@@ -178,7 +187,7 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"target": "playwright-chromium", "storage_state": {}},
+            json={"browser": "playwright-chromium", "storage_state": {}},
         )
         assert r.status_code == 422
 
@@ -191,7 +200,7 @@ class TestPlaywrightSessions:
         for bad in (123, ["a.json"]):
             r = _client(sm).post(
                 "/api/playwright/sessions",
-                json={"target": "playwright-chromium", "storage_state": bad},
+                json={"browser": "playwright-chromium", "storage_state": bad},
             )
             assert r.status_code == 422
 
@@ -199,7 +208,7 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"target": "playwright-chromium", "storage_state": ""},
+            json={"browser": "playwright-chromium", "storage_state": ""},
         )
         assert r.status_code == 422
 
@@ -207,7 +216,7 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"target": "playwright-chromium", "node": ["chromium"]},
+            json={"browser": "playwright-chromium", "node": ["chromium"]},
         )
         assert r.status_code == 422
         assert "node" in str(r.json()["detail"])
@@ -216,7 +225,7 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"target": "playwright-chromium", "url": {"u": 1}},
+            json={"browser": "playwright-chromium", "url": {"u": 1}},
         )
         assert r.status_code == 422
         assert "url" in str(r.json()["detail"])
@@ -224,9 +233,9 @@ class TestPlaywrightSessions:
     def test_open_blank_inputs_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
         for payload in (
-            {"target": "playwright-chromium", "node": "  "},
-            {"target": "playwright-chromium", "url": "  "},
-            {"target": "playwright-chromium", "storage_state": "  "},
+            {"browser": "playwright-chromium", "node": "  "},
+            {"browser": "playwright-chromium", "url": "  "},
+            {"browser": "playwright-chromium", "storage_state": "  "},
         ):
             r = _client(sm).post("/api/playwright/sessions", json=payload)
             assert r.status_code == 422
@@ -236,7 +245,7 @@ class TestPlaywrightSessions:
         client = _client(sm)
         worker = self._mock_worker(sm, None)
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-webkit"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-webkit"})
             sid = r.json()["id"]
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "  "})
         assert r.status_code == 422
@@ -246,7 +255,7 @@ class TestPlaywrightSessions:
         client = _client(sm)
         worker = self._mock_worker(sm, None)
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-firefox"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
             sid = r.json()["id"]
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "  s.json  "})
         assert r.status_code == 200
@@ -260,7 +269,7 @@ class TestPlaywrightSessions:
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
             r = _client(sm).post(
                 "/api/playwright/sessions",
-                json={"target": "playwright-chromium"},
+                json={"browser": "playwright-chromium"},
             )
             assert r.status_code == 502
             # Trusted clients on a closed network: the raw error is
@@ -273,7 +282,7 @@ class TestPlaywrightSessions:
         with patch.object(sm, "_PlaywrightWorker", side_effect=RuntimeError("hub down")):
             r = _client(sm).post(
                 "/api/playwright/sessions",
-                json={"target": "playwright-chromium"},
+                json={"browser": "playwright-chromium"},
             )
             assert r.status_code == 502
             # Same raw error on the constructor-raise path.
@@ -286,8 +295,9 @@ class TestPlaywrightSessions:
         opened_threads = []
         closed_threads = []
         fake_session = {
-            "target": "playwright-chromium",
-            "browser": None,
+            "browser": "playwright-chromium",
+            "node": None,
+            "playwright_browser": None,
             "context": None,
             "page": None,
             "pw": None,
@@ -316,7 +326,7 @@ class TestPlaywrightSessions:
         client = _client(sm)
         worker = self._mock_worker(sm, None)
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-firefox"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
             sid = r.json()["id"]
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "s.json"})
         assert r.status_code == 200
@@ -330,7 +340,7 @@ class TestPlaywrightSessions:
         worker = self._mock_worker(sm, None)
         worker.save.side_effect = RuntimeError("hub internal down")
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-firefox"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
             sid = r.json()["id"]
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "s.json"})
         assert r.status_code == 502
@@ -389,7 +399,7 @@ class TestPlaywrightSessions:
             r = client.post(
                 "/api/playwright/sessions",
                 json={
-                    "target": "playwright-chromium",
+                    "browser": "playwright-chromium",
                     "node": "  chromium  ",
                     "url": "  https://example.com  ",
                 },
@@ -408,7 +418,7 @@ class TestPlaywrightSessions:
         client = _client(sm)
         session = self._mock_backend(sm, "playwright-firefox")
         with patch.object(sm._PlaywrightBackend, "open", return_value=session):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-firefox"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
             sid = r.json()["id"]
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "/etc/evil.json"})
         assert r.status_code == 422
@@ -419,7 +429,7 @@ class TestPlaywrightSessions:
         client = _client(sm)
         worker = self._mock_worker(sm, None)
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-firefox"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
             sid = r.json()["id"]
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": {"a": 1}})
         assert r.status_code == 422
@@ -455,7 +465,7 @@ class TestPlaywrightSessions:
         client = _client(sm)
         worker = self._mock_worker(sm, None)
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-webkit"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-webkit"})
             sid = r.json()["id"]
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={})
         assert r.status_code == 422
@@ -499,7 +509,7 @@ class TestPlaywrightSessions:
         client = _client(sm)
         session = self._mock_backend(sm, "playwright-chromium")
         with patch.object(sm._PlaywrightBackend, "open", return_value=session):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-chromium"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-chromium"})
             assert r.status_code == 200
             sid = r.json()["id"]
         with patch.object(sm._PlaywrightBackend, "close", side_effect=RuntimeError("hub down")):
@@ -516,7 +526,7 @@ class TestPlaywrightSessions:
 
     def test_known_path_wrong_method_405(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post("/api/state-files", json={})
+        r = _client(sm).post("/api/playwright/state-files", json={})
         assert r.status_code == 405
         assert "detail" in r.json()
 
@@ -532,9 +542,9 @@ class TestPlaywrightSessions:
         from fastapi.testclient import TestClient as RawClient
 
         sm = _load_sm(monkeypatch, tmp_path)
-        r = RawClient(sm.app, follow_redirects=False).get("/api/state-files/")
+        r = RawClient(sm.app, follow_redirects=False).get("/api/playwright/state-files/")
         assert r.status_code == 307
-        assert r.headers["location"].endswith("/api/state-files")
+        assert r.headers["location"].endswith("/api/playwright/state-files")
 
     def test_close_failure_log_escapes_newline(self, monkeypatch, tmp_path, capsys):
         # Starlette strips raw newlines from path params, so call the
@@ -542,7 +552,7 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         worker = self._mock_worker(sm, None)
         worker.close.side_effect = RuntimeError("hub down")
-        sm._pw_sessions["evil\ninjected"] = {"target": "playwright-chromium", "worker": worker}
+        sm._pw_sessions["evil\ninjected"] = {"browser": "playwright-chromium", "worker": worker}
         resp = sm.close_session("evil\ninjected")
         assert resp.status_code == 502
         out = capsys.readouterr().err
@@ -553,7 +563,7 @@ class TestPlaywrightSessions:
         # An entry missing the worker is a bug, not a worker failure:
         # 500 without retryable (never retryable 502).
         sm = _load_sm(monkeypatch, tmp_path)
-        sm._pw_sessions["broken"] = {"target": "playwright-chromium"}
+        sm._pw_sessions["broken"] = {"browser": "playwright-chromium"}
         resp = sm.close_session("broken")
         assert resp.status_code == 500
         assert "retryable" not in json.loads(resp.body)
@@ -562,7 +572,7 @@ class TestPlaywrightSessions:
     def test_close_non_worker_entry_500(self, monkeypatch, tmp_path):
         # A truthy non-worker must not slip through to AttributeError→502.
         sm = _load_sm(monkeypatch, tmp_path)
-        sm._pw_sessions["fake"] = {"target": "playwright-chromium", "worker": "oops"}
+        sm._pw_sessions["fake"] = {"browser": "playwright-chromium", "worker": "oops"}
         resp = sm.close_session("fake")
         assert resp.status_code == 500
         assert "retryable" not in json.loads(resp.body)
@@ -575,7 +585,7 @@ class TestPlaywrightSessions:
 
     def test_save_malformed_entry_500(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)
-        sm._pw_sessions["broken"] = {"target": "playwright-chromium"}
+        sm._pw_sessions["broken"] = {"browser": "playwright-chromium"}
         resp = sm.save_session("broken", sm.SaveRequest(path="s.json"))
         assert resp.status_code == 500
         assert "retryable" not in json.loads(resp.body)
@@ -587,10 +597,10 @@ class TestPlaywrightSessions:
         client = _client(sm)
         worker = self._mock_worker(sm, None)
         with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"target": "playwright-chromium"})
+            r = client.post("/api/playwright/sessions", json={"browser": "playwright-chromium"})
             assert r.status_code == 200
             sid = r.json()["id"]
-        sm._pw_sessions["broken"] = {"target": "playwright-chromium"}
+        sm._pw_sessions["broken"] = {"browser": "playwright-chromium"}
         sm._pw_sessions["non-dict"] = ["oops"]
         r = client.get("/api/playwright/sessions")
         assert r.status_code == 200
@@ -614,6 +624,30 @@ class TestPlaywrightSessions:
         )
         assert sm.OPEN_TIMEOUT == 60
         assert sm.WORKER_TIMEOUT == 120
+
+
+class TestBrowserField:
+    def _worker(self):
+        worker = MagicMock()
+        worker.error = None
+        return worker
+
+    def test_browser_field_is_canonical(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        with patch.object(sm, "_PlaywrightWorker", return_value=self._worker()) as m:
+            r = _client(sm).post("/api/playwright/sessions", json={"browser": "playwright-webkit"})
+        assert r.status_code == 200
+        m.assert_called_once_with("playwright-webkit", node=None, url=None, storage_state=None)
+        body = r.json()
+        assert body["browser"] == "playwright-webkit"
+        assert "target" not in body
+
+    def test_target_field_is_rejected_422(self, monkeypatch, tmp_path):
+        # ``target`` was renamed to ``browser`` in v2.0.0 and is no longer
+        # accepted (no deprecation alias).
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post("/api/playwright/sessions", json={"target": "playwright-chromium"})
+        assert r.status_code == 422
 
 
 class TestOpenAPI:

@@ -25,6 +25,10 @@ jobs:
     steps:
       - name: Check out the repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history + tags so the editable install below resolves the
+          # real version from the Git tag.
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -37,6 +41,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[gateway]"
           pip install pytest pytest-cov pytest-mock
+
+      - name: Install gateway render tools (yq, jq)
+        # The gateway tests exercise the real entrypoint: yq (YAML->JSON) and
+        # jq (generate.jq). jq ships with the runner; yq is pinned and
+        # checksum-verified.
+        run: |
+          YQ_VERSION=v4.53.3
+          YQ_SHA256=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
+          curl -fsSL -o "$RUNNER_TEMP/yq" \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $RUNNER_TEMP/yq" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/yq"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/yq" --version
+          command -v jq >/dev/null || sudo apt-get install -y -qq jq
 
       - name: Run unit tests
         run: |

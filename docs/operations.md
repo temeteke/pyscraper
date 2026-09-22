@@ -166,26 +166,35 @@ inspect the websocket path -- any path works:
 
 Headed Playwright browsers run under Xvfb with x11vnc + noVNC bundled in
 every node image; the Selenium nodes ship their own noVNC on the same
-port. A single `gateway` service (plain `nginx:alpine` with mounted
-`gateway/` config, no dedicated image) is the unified entry point
-at `http://localhost:8080/`:
+port. A single `gateway` service (dedicated `Dockerfile.gateway` image,
+published as `temeteke/pyscraper-gateway`) is the unified entry point
+at `http://localhost:8080/`. The gateway is registry-driven: at start
+`gateway/entrypoint.sh` reads the endpoint registry
+(`gateway/endpoints.yaml`), validates it, and renders the nginx config and
+the UI's endpoint list from it, resolving the DNS resolver from
+`/etc/resolv.conf` so the same image adapts to its runtime environment
+(see [Gateway configuration](#gateway-configuration)):
 
-- `/` -- tile overview: all five browsers at once (Selenium first),
-  each tile a live noVNC preview plus an open/closed status badge; click
-  the browser name to open its full-size view where sessions are
-  opened/closed/saved.
-- `/view.html?browser=<target>` -- single-browser view (`<target>` is one of
-  `selenium-chrome`, `selenium-firefox`, `playwright-chromium`,
-  `playwright-firefox`, `playwright-webkit`).
-- `/playwright-chromium/`, `/playwright-firefox/`, `/playwright-webkit/`
-  -- Playwright headed browsers (raw noVNC pages).
-- `/selenium-chrome/`, `/selenium-firefox/` -- Selenium Grid nodes (raw
-  noVNC pages). The desktop is always visible; the browser appears once a
-  Grid session starts. Password authentication is disabled on the nodes
-  (`SE_VNC_NO_PASSWORD=true`).
+- `/` -- tile overview: one tile per registry entry, grouped by
+  `framework` (Selenium first), each a live noVNC preview plus an
+  open/closed status badge; click the browser name to open its full-size
+  view where sessions are opened/closed/saved.
+- `/view/<id>` -- full-size view (`<id>` is the registry id, e.g.
+  `selenium-chrome` or `playwright-chromium`).
+- `/vnc/<id>/` -- raw noVNC page for that entry. The default registry maps
+  the five compose browsers (`playwright-chromium`, `playwright-firefox`,
+  `playwright-webkit`, `selenium-chrome`, `selenium-firefox`). The
+  Selenium desktop is always visible; the browser appears once a Grid
+  session starts. Password authentication is disabled on the nodes
+  (`SE_VNC_NO_PASSWORD=true`). The trailing slash matters (noVNC resolves
+  its assets relative to the page URL); `/vnc/<id>` without it is
+  `301`-redirected to `/vnc/<id>/` by nginx. `/view` is not a route.
 - `/api/playwright/*` -- proxied to the `playwright-session-manager`
-  service; `/api/selenium/*` -- to the `selenium-session-manager`
-  service; `/api/state-files` -- to the Playwright one (see below).
+  service (including `/api/playwright/state-files`); `/api/selenium/*` --
+  to the `selenium-session-manager` service; `/api/endpoints` -- the
+  registry-derived list the UI reads (see below).
+
+All paths sit under `GATEWAY_BASE_PATH` when it is set (empty by default).
 
 Open a session from its full-size view (optional URL), resolve
 challenges manually in the tile or full-size view, then persist:
@@ -193,8 +202,10 @@ challenges manually in the tile or full-size view, then persist:
 If no URL is given, the session opens on a blank page (Chrome shows
 `data:,`): navigate manually inside noVNC afterwards.
 
-- Playwright: save `storage_state` JSON into the shared state dir via
-  the API (`POST /api/playwright/sessions/{id}/save`); reload it via
+- Playwright: the view offers a storage-state dropdown (load) and a
+  "Save state" control (save) when the entry sets `storage_state: true`.
+  Saving writes `storage_state` JSON into the shared state dir via the
+  API (`POST /api/playwright/sessions/{id}/save`); reload it via
   `storage_state=` in client code or a later session. Client-side
   equivalent:
 
@@ -210,8 +221,10 @@ If no URL is given, the session opens on a blank page (Chrome shows
 
 ### Session managers
 
-Two services (both FastAPI, local build only, never published)
-open/close browser sessions for the gateway UI without running
+Two services (both FastAPI, published as
+`temeteke/pyscraper-playwright-session-manager` and
+`temeteke/pyscraper-selenium-session-manager`) open/close browser
+sessions for the gateway UI without running
 pyscraper client code:
 
 - `servers/playwright_session_manager.py` (service
@@ -219,10 +232,10 @@ pyscraper client code:
   `Dockerfile.playwright-session-manager`): sessions open via the Hub
   relay on a dedicated owner thread per session (Playwright's sync API
   is bound to its creating thread; close/save are dispatched to that
-  thread), and are kept server-side with `{target, worker}` (the worker
-  owns `{target, browser, context, page, pw}`);
+  thread), and are kept server-side with `{browser, node, worker}` (the
+  worker owns `{browser, node, playwright_browser, context, page, pw}`);
   close releases the node-side browser. Also serves `GET
-  /api/state-files` and `POST .../save`.
+  /api/playwright/state-files` and `POST .../save`.
 - `servers/selenium_session_manager.py` (service
   `selenium-session-manager`, via
   `Dockerfile.selenium-session-manager`): sessions open via
@@ -246,9 +259,12 @@ pyscraper client code:
   node container (`docker compose restart` the node service) to drop the
   leftover browser. The manager's failure logs name the affected
   manager id (and, on a gone session, the Grid id).
+- Request/response field names: the browser target is `browser` (renamed
+  from `target` in v2.0.0; `target` is no longer accepted). Both managers
+  echo the request `node` in list/open responses.
 - Payload validation errors
   are `422` with Starlette's default `{"detail": ...}` shape (unknown
-  targets, blank or unknown fields, path escapes, malformed JSON).
+  browsers, blank or unknown fields, path escapes, malformed JSON).
   Error detail messages are returned verbatim (raw backend errors
   included): the gateway runs on a closed compose network with trusted
   clients, so no fixed-message substitution, truncation, or body-size
@@ -262,19 +278,21 @@ pyscraper client code:
   the message wording. (The Hub registry is stdlib and keeps its own
   `{"error": ...}` shape; out of scope here.) Undefined method/path
   combinations are `404` (unknown path) or `405` (known path, wrong
-  method). A direct `GET /api/state-files/` `307`-redirects to the
-  canonical path; via the gateway the nginx alias normalizes it
-  before proxying. Both managers serve auto-generated
+  method). A direct `GET /api/playwright/state-files/` `307`-redirects to
+  the canonical path. Both managers serve auto-generated
   `/openapi.json` + `/docs`.
 - State files live in `SESSION_STATE_DIR` (`/data/sessions`, backed by
   the `session-states` compose volume shared with the host), listed via
-  `GET /api/state-files`. Paths are confined to the state dir (absolute
+  `GET /api/playwright/state-files` as `{"state_files": [...]}`. Paths are
+  confined to the state dir (absolute
   paths escaping it are rejected with `422`). Playwright accepts either
   a bare file name (resolved under the state dir, subdirectories
   allowed but only top-level files are listed), a confined absolute server-side path, or an inline dict for
   `storage_state` open; `save` accepts paths only (a dict path is `422`).
-- The gateway UI exposes Open/Close + URL only; `storage_state`
-  save/load is API-only (`curl` against `/api/...` above).
+- The gateway UI exposes Open/Close + URL, and (for Playwright entries
+  with `storage_state: true`) a storage-state load dropdown and a save
+  control; all of it goes through the same API (`curl` against
+  `/api/...` above also works).
 - Timeouts: `PLAYWRIGHT_OPEN_TIMEOUT` (default `60`s, bounds each open
   phase -- Hub `connect` and `page.goto` separately; the opener waits up
   to `2 * OPEN_TIMEOUT + 10`s) / `PLAYWRIGHT_WORKER_TIMEOUT` (default
@@ -304,6 +322,74 @@ pyscraper client code:
   gateway binds `8080` on all interfaces; on shared hosts bind it to
   localhost or keep it behind a firewall.
 
+### Gateway configuration
+
+The gateway is registry-driven and not tied to a specific network setup.
+At start `gateway/entrypoint.sh` reads the endpoint registry, validates it,
+and renders the nginx config and the UI's endpoint list from it, and reads
+`/etc/resolv.conf` to pick the nginx `resolver`, so the same image adapts
+to the environment the container runs in (Docker's embedded DNS, an
+internal resolver, etc.). Upstreams are addressed by short service name by
+default; set `GATEWAY_UPSTREAM_SUFFIX` when short names do not resolve and
+a domain suffix must be appended.
+
+The registry lives at `/etc/gateway/endpoints.yaml` (YAML; `/etc/gateway/`
+holds only this file, so a directory mount is safe). Override the path with
+`GATEWAY_ENDPOINTS_FILE`. Each entry is:
+
+```yaml
+endpoints:
+  - id: selenium-chrome              # URL/UI key (unique, ^[a-z0-9-]+$, <=63 chars)
+    label: Chrome (Selenium)         # shown in the UI
+    framework: selenium              # playwright | selenium
+    browser: selenium-chrome         # target passed to the session manager
+    # node: chromium-profile         # optional node stereotype
+    storage_state: false             # Playwright only; default false
+    novnc:
+      host: selenium-chrome-node     # noVNC upstream (without the suffix)
+      port: 7900                     # default 7900
+```
+
+The gateway validates the registry at start (unique ids, known framework,
+label/host/port shape, ...) and refuses to start on any problem, printing
+the offending entry and reason. `framework` selects the session manager and
+the `/api/<framework>/` namespace; `browser` is the target passed to it and
+is validated by the manager (not the gateway), so a typo surfaces as a
+`422` when that endpoint is opened. The default registry wires the five
+compose browsers; Selenium profile nodes are not enabled by default (see
+the example in `gateway/endpoints.yaml`).
+
+Environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GATEWAY_ENDPOINTS_FILE` | `/etc/gateway/endpoints.yaml` | endpoint registry (YAML) |
+| `GATEWAY_BASE_PATH` | empty (root) | serve the gateway under a path prefix (e.g. `/gateway`); `/` then `308`-redirects to it |
+| `GATEWAY_RESOLVER` | first `nameserver` in `/etc/resolv.conf` | nginx `resolver` |
+| `GATEWAY_UPSTREAM_SUFFIX` | empty (short service names) | FQDN suffix appended to the registry noVNC hosts and the session-manager names |
+| `GATEWAY_PW_SESSION` | `playwright-session-manager` | `/api/playwright/*` (incl. `state-files`) |
+| `GATEWAY_SE_SESSION` | `selenium-session-manager` | `/api/selenium/*` |
+
+An explicit `GATEWAY_UPSTREAM_SUFFIX` is applied verbatim (for example
+`.example.internal`), so a deployment can pin the exact FQDN suffix it
+needs. It is never derived from `/etc/resolv.conf` search domains, which
+would break short service names on Docker's embedded DNS.
+`GATEWAY_PW_SESSION`, `GATEWAY_SE_SESSION`, and registry `novnc.host`
+values must match `[A-Za-z0-9._-]+` and be resolvable by the environment's
+DNS (underscores are accepted for compose service names, but strict DNS
+resolvers may reject them).
+
+The generated files are implementation details:
+`/etc/nginx/conf.d/gateway.conf` (the full server config, replacing the
+stock `default.conf`) and `/run/gateway/endpoints.json` (served at
+`<base>/api/endpoints`). The intermediate `/run/gateway/source.json`
+(yq output) and `/run/gateway/generated.json` (jq output) are kept for
+debugging. When the platform mounts the root filesystem read-only, mount
+writable volumes (e.g. `emptyDir`) at `/etc/nginx/conf.d`,
+`/run/gateway`, `/var/cache/nginx`, and `/var/run`. Changing the registry
+requires a restart (`docker compose restart gateway`); nginx is not
+reloaded in place.
+
 ## Docker
 
 You can use Docker to set up the development environment and run the application.
@@ -328,6 +414,9 @@ version rather than the latest:
 | Playwright Firefox | `temeteke/pyscraper-playwright-firefox` | `ghcr.io/temeteke/pyscraper-playwright-firefox` |
 | Playwright WebKit (amd64 only) | `temeteke/pyscraper-playwright-webkit` | `ghcr.io/temeteke/pyscraper-playwright-webkit` |
 | Playwright Hub | `temeteke/pyscraper-playwright-hub` | `ghcr.io/temeteke/pyscraper-playwright-hub` |
+| Gateway | `temeteke/pyscraper-gateway` | `ghcr.io/temeteke/pyscraper-gateway` |
+| Playwright session manager | `temeteke/pyscraper-playwright-session-manager` | `ghcr.io/temeteke/pyscraper-playwright-session-manager` |
+| Selenium session manager | `temeteke/pyscraper-selenium-session-manager` | `ghcr.io/temeteke/pyscraper-selenium-session-manager` |
 
 Each image is tagged `latest`, `X.Y.Z`, `X.Y.Z-YYYYMMDD`, and `X.Y`.
 (`X.Y` is auto-derived from the release and cannot be given as a manual
@@ -348,19 +437,18 @@ Tag semantics:
 Notes:
 
 - `compose.yaml` references the Docker Hub images, so no login is
-  needed for public pulls. Services published to registries declare
-  `image:` (plus a `build:` section for local development), so
+  needed for public pulls. Every service published to a registry
+  (including the gateway and both session managers) declares `image:`
+  plus a `build:` section for local development, so
   `docker compose pull` followed by `docker compose up -d` (without
-  `--build`) runs those with no local build; `docker compose build`
-  rebuilds (and retags) the same names locally. The two session
-  managers are local-build only (`build:` without `image:`), so `up`
-  always builds them.
+  `--build`) runs all of them with no local build; `docker compose build`
+  rebuilds (and retags) the same names locally.
 - The WebKit image is `linux/amd64` only (Playwright WebKit has no official
   arm64 Linux support); `compose.yaml` pins `platform: linux/amd64`
   for that service.
 
 ```sh
-# Fastest: pull published images (session managers still build locally)
+# Fastest: pull published images, no local build
 docker compose pull
 docker compose up -d
 ```

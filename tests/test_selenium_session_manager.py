@@ -38,33 +38,37 @@ class TestSeleniumSessions:
     def test_open_and_list_and_close(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
         client = _client(sm)
-        session = {"target": "selenium-chrome", "session_id": "abc"}
+        session = {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
         with patch.object(sm._SeleniumBackend, "open", return_value=session) as m:
             r = client.post(
                 "/api/selenium/sessions",
-                json={"target": "selenium-chrome", "node": "chromium-profile"},
+                json={"browser": "selenium-chrome", "node": "chromium-profile"},
             )
             assert r.status_code == 200
             m.assert_called_once_with("selenium-chrome", node="chromium-profile", url=None)
             sid = r.json()["id"]
         r = client.get("/api/selenium/sessions")
         assert r.status_code == 200
-        assert r.json() == {"sessions": [{"id": sid, "target": "selenium-chrome"}]}
+        sessions = r.json()["sessions"]
+        assert len(sessions) == 1
+        assert sessions[0]["id"] == sid
+        assert sessions[0]["browser"] == "selenium-chrome"
+        assert "target" not in sessions[0]
         with patch.object(sm._SeleniumBackend, "close") as m:
             r = client.delete(f"/api/selenium/sessions/{sid}")
             assert r.status_code == 200
             m.assert_called_once_with(session)
 
-    def test_open_unknown_target_422(self, monkeypatch, tmp_path):
+    def test_open_unknown_browser_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post("/api/selenium/sessions", json={"target": "nope"})
+        r = _client(sm).post("/api/selenium/sessions", json={"browser": "nope"})
         assert r.status_code == 422
 
     def test_open_unknown_field_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/selenium/sessions",
-            json={"target": "selenium-chrome", "bogus": 1},
+            json={"browser": "selenium-chrome", "bogus": 1},
         )
         assert r.status_code == 422
 
@@ -72,7 +76,7 @@ class TestSeleniumSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/selenium/sessions",
-            json={"target": "selenium-chrome", "node": ["x"]},
+            json={"browser": "selenium-chrome", "node": ["x"]},
         )
         assert r.status_code == 422
         assert "node" in str(r.json()["detail"])
@@ -82,7 +86,7 @@ class TestSeleniumSessions:
         for url in ({"u": 1}, "", "  "):
             r = _client(sm).post(
                 "/api/selenium/sessions",
-                json={"target": "selenium-chrome", "url": url},
+                json={"browser": "selenium-chrome", "url": url},
             )
             assert r.status_code == 422
             assert "url" in str(r.json()["detail"])
@@ -91,7 +95,7 @@ class TestSeleniumSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/selenium/sessions",
-            json={"target": "selenium-chrome", "node": "  "},
+            json={"browser": "selenium-chrome", "node": "  "},
         )
         assert r.status_code == 422
         assert "node" in str(r.json()["detail"])
@@ -102,19 +106,19 @@ class TestSeleniumSessions:
         client = _client(sm)
         created = {"value": {"sessionId": "w3c-id", "capabilities": {}}}
         with patch.object(sm._SeleniumBackend, "_request", return_value=created) as m:
-            r = client.post("/api/selenium/sessions", json={"target": "selenium-firefox"})
+            r = client.post("/api/selenium/sessions", json={"browser": "selenium-firefox"})
             assert r.status_code == 200
             assert m.call_count == 1  # no url follow-up without url
         r = client.get("/api/selenium/sessions")
         assert r.status_code == 200
-        assert r.json()["sessions"][0]["target"] == "selenium-firefox"
+        assert r.json()["sessions"][0]["browser"] == "selenium-firefox"
 
     def test_open_backend_failure_502(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)
         with patch.object(
             sm._SeleniumBackend, "open", side_effect=RuntimeError("grid internal down")
         ):
-            r = _client(sm).post("/api/selenium/sessions", json={"target": "selenium-chrome"})
+            r = _client(sm).post("/api/selenium/sessions", json={"browser": "selenium-chrome"})
             assert r.status_code == 502
             assert "grid internal down" in str(r.json()["detail"])
         assert "grid internal down" in capsys.readouterr().err
@@ -122,7 +126,7 @@ class TestSeleniumSessions:
     def test_open_rejects_malformed_session_id(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)
         with patch.object(sm._SeleniumBackend, "_request", return_value={"sessionId": "../evil"}):
-            r = _client(sm).post("/api/selenium/sessions", json={"target": "selenium-chrome"})
+            r = _client(sm).post("/api/selenium/sessions", json={"browser": "selenium-chrome"})
             assert r.status_code == 502
             # Trusted clients: the raw Grid reply is surfaced verbatim.
             assert "Grid did not return a sessionId" in str(r.json()["detail"])
@@ -155,9 +159,9 @@ class TestSeleniumSessions:
     def test_close_failure_retryable(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
         client = _client(sm)
-        session = {"target": "selenium-chrome", "session_id": "abc"}
+        session = {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
         with patch.object(sm._SeleniumBackend, "open", return_value=session):
-            r = client.post("/api/selenium/sessions", json={"target": "selenium-chrome"})
+            r = client.post("/api/selenium/sessions", json={"browser": "selenium-chrome"})
             assert r.status_code == 200
             sid = r.json()["id"]
         with patch.object(sm._SeleniumBackend, "close", side_effect=RuntimeError("grid down")):
@@ -174,9 +178,9 @@ class TestSeleniumSessions:
 
         sm = _load_sm(monkeypatch, tmp_path)
         client = _client(sm)
-        session = {"target": "selenium-chrome", "session_id": "abc"}
+        session = {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
         with patch.object(sm._SeleniumBackend, "open", return_value=session):
-            r = client.post("/api/selenium/sessions", json={"target": "selenium-chrome"})
+            r = client.post("/api/selenium/sessions", json={"browser": "selenium-chrome"})
             assert r.status_code == 200
             sid = r.json()["id"]
         err = urllib.error.HTTPError("http://grid/session/abc", 404, "Not Found", {}, None)
@@ -196,9 +200,9 @@ class TestSeleniumSessions:
 
         sm = _load_sm(monkeypatch, tmp_path)
         client = _client(sm)
-        session = {"target": "selenium-chrome", "session_id": "abc"}
+        session = {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
         with patch.object(sm._SeleniumBackend, "open", return_value=session):
-            r = client.post("/api/selenium/sessions", json={"target": "selenium-chrome"})
+            r = client.post("/api/selenium/sessions", json={"browser": "selenium-chrome"})
             assert r.status_code == 200
             sid = r.json()["id"]
         body = b'{"value": {"message": "no such session: abc"}}'
@@ -217,12 +221,12 @@ class TestSeleniumSessions:
 
     def test_open_strips_inputs(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        session = {"target": "selenium-chrome", "session_id": "abc"}
+        session = {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
         with patch.object(sm._SeleniumBackend, "open", return_value=session) as m:
             r = _client(sm).post(
                 "/api/selenium/sessions",
                 json={
-                    "target": "selenium-chrome",
+                    "browser": "selenium-chrome",
                     "node": "  chromium-profile  ",
                     "url": "  https://example.com  ",
                 },
@@ -288,7 +292,7 @@ class TestSeleniumSessions:
         # Starlette strips raw newlines from path params, so call the
         # endpoint directly with an attacker-controlled id.
         sm = _load_sm(monkeypatch, tmp_path)
-        session = {"target": "selenium-chrome", "session_id": "abc"}
+        session = {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
         sm._se_sessions["evil\ninjected"] = session
         with patch.object(sm._SeleniumBackend, "close", side_effect=RuntimeError("grid down")):
             resp = sm.close_session("evil\ninjected")
@@ -301,7 +305,7 @@ class TestSeleniumSessions:
         # An entry missing session_id is a bug, not a gone session:
         # 500 without retryable (never 404, never retryable 502).
         sm = _load_sm(monkeypatch, tmp_path)
-        sm._se_sessions["broken"] = {"target": "selenium-chrome"}
+        sm._se_sessions["broken"] = {"browser": "selenium-chrome", "node": None}
         resp = sm.close_session("broken")
         assert resp.status_code == 500
         assert "retryable" not in json.loads(resp.body)
@@ -310,7 +314,7 @@ class TestSeleniumSessions:
     def test_close_non_string_session_id_500(self, monkeypatch, tmp_path):
         # A non-string id must not reach the Grid (would 502 there).
         sm = _load_sm(monkeypatch, tmp_path)
-        sm._se_sessions["bad"] = {"target": "selenium-chrome", "session_id": 123}
+        sm._se_sessions["bad"] = {"browser": "selenium-chrome", "session_id": 123}
         resp = sm.close_session("bad")
         assert resp.status_code == 500
         assert "retryable" not in json.loads(resp.body)
@@ -326,17 +330,38 @@ class TestSeleniumSessions:
         # One broken entry must not take down the whole listing.
         sm = _load_sm(monkeypatch, tmp_path)
         client = _client(sm)
-        session = {"target": "selenium-chrome", "session_id": "abc"}
+        session = {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
         with patch.object(sm._SeleniumBackend, "open", return_value=session):
-            r = client.post("/api/selenium/sessions", json={"target": "selenium-chrome"})
+            r = client.post("/api/selenium/sessions", json={"browser": "selenium-chrome"})
             assert r.status_code == 200
             sid = r.json()["id"]
-        sm._se_sessions["broken"] = {"target": "selenium-chrome"}
+        sm._se_sessions["broken"] = {"browser": "selenium-chrome", "node": None}
         sm._se_sessions["non-dict"] = ["oops"]
         r = client.get("/api/selenium/sessions")
         assert r.status_code == 200
         ids = {s["id"] for s in r.json()["sessions"]}
         assert {sid, "broken", "non-dict"} <= ids
+
+
+class TestBrowserField:
+    def _session(self):
+        return {"browser": "selenium-chrome", "node": None, "session_id": "abc"}
+
+    def test_browser_field_is_canonical(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        with patch.object(sm._SeleniumBackend, "open", return_value=self._session()) as m:
+            r = _client(sm).post("/api/selenium/sessions", json={"browser": "selenium-firefox"})
+        assert r.status_code == 200
+        m.assert_called_once_with("selenium-firefox", node=None, url=None)
+        assert r.json()["browser"] == "selenium-firefox"
+        assert "target" not in r.json()
+
+    def test_target_field_is_rejected_422(self, monkeypatch, tmp_path):
+        # ``target`` was renamed to ``browser`` in v2.0.0 and is no longer
+        # accepted (no deprecation alias).
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post("/api/selenium/sessions", json={"target": "selenium-chrome"})
+        assert r.status_code == 422
 
 
 class TestOpenAPI:

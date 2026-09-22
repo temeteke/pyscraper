@@ -11,15 +11,16 @@ the node-side browser.
 
 Endpoints (all JSON):
 
-* ``GET /api/state-files`` -> ``{"files": [...]}`` (server-side
-  ``SESSION_STATE_DIR`` listing for UI dropdowns)
-* ``POST /api/playwright/sessions`` {target, node?, url?, storage_state?}
+* ``GET /api/playwright/state-files`` -> ``{"state_files": [...]}``
+  (server-side ``SESSION_STATE_DIR`` listing for UI dropdowns)
+* ``POST /api/playwright/sessions`` {browser, node?, url?, storage_state?}
 * ``POST /api/playwright/sessions/{id}/save`` {path}
 * ``GET /api/playwright/sessions`` / ``DELETE /api/playwright/sessions/{id}``
 * ``GET /openapi.json`` / ``GET /docs`` (auto-generated API reference)
 
-Targets are fixed names: ``playwright-chromium`` / ``playwright-firefox`` /
-``playwright-webkit``.
+Browsers are fixed names: ``playwright-chromium`` / ``playwright-firefox`` /
+``playwright-webkit``. The request field is ``browser`` (renamed from
+``target`` in v2.0.0; ``target`` is no longer accepted).
 
 Validation errors are ``422`` with Starlette's default ``{"detail": ...}``
 shape; unknown sessions are ``404``; worker/Hub failures are ``502``
@@ -96,14 +97,14 @@ PLAYWRIGHT_HUB_WS = os.environ.get("PLAYWRIGHT_HUB_WS", "ws://playwright-hub:400
 STATE_DIR = Path(os.environ.get("SESSION_STATE_DIR", "/data/sessions"))
 
 
-PLAYWRIGHT_TARGETS = {
+PLAYWRIGHT_BROWSERS = {
     "playwright-chromium": "chromium",
     "playwright-firefox": "firefox",
     "playwright-webkit": "webkit",
 }
 
 
-_pw_sessions = {}  # id -> {"target", "worker", ...}
+_pw_sessions = {}  # id -> {"browser", "node", "worker"}
 _LOCK = threading.Lock()
 
 
@@ -123,9 +124,9 @@ class _PlaywrightWorker(threading.Thread):
     on this worker via a request queue; HTTP handlers block on the reply.
     """
 
-    def __init__(self, target, node=None, url=None, storage_state=None):
+    def __init__(self, browser, node=None, url=None, storage_state=None):
         super().__init__(daemon=True)
-        self._args = (target, node, url, storage_state)
+        self._args = (browser, node, url, storage_state)
         self._requests = queue.Queue()
         self.session = None
         self.error = None
@@ -233,19 +234,19 @@ def _resolve_state_path(value):
 
 class _PlaywrightBackend:
     @staticmethod
-    def open(target, node=None, url=None, storage_state=None):
+    def open(browser, node=None, url=None, storage_state=None):
         from playwright.sync_api import sync_playwright
 
-        browser_name = PLAYWRIGHT_TARGETS[target]
+        browser_name = PLAYWRIGHT_BROWSERS[browser]
         options = {"browser": browser_name}
         if node:
             options["node"] = node
         pw = None
-        browser = None
+        playwright_browser = None
         try:
             pw = sync_playwright().start()
             browser_type = getattr(pw, browser_name)
-            browser = browser_type.connect(
+            playwright_browser = browser_type.connect(
                 PLAYWRIGHT_HUB_WS,
                 headers={"x-playwright-launch-options": json.dumps(options)},
                 timeout=OPEN_TIMEOUT * 1000,
@@ -254,14 +255,14 @@ class _PlaywrightBackend:
             resolved = _resolve_state_path(storage_state)
             if resolved is not None:
                 kwargs["storage_state"] = resolved
-            context = browser.new_context(**kwargs)
+            context = playwright_browser.new_context(**kwargs)
             page = context.new_page()
             if url:
                 page.goto(url, timeout=OPEN_TIMEOUT * 1000)
         except Exception:
-            if browser is not None:
+            if playwright_browser is not None:
                 try:
-                    browser.close()
+                    playwright_browser.close()
                 except Exception as exc:  # noqa: BLE001 -- log, keep original
                     print(
                         f"[playwright-session-manager] browser cleanup failed: {exc!r}",
@@ -278,7 +279,14 @@ class _PlaywrightBackend:
                         flush=True,
                     )
             raise
-        return {"target": target, "browser": browser, "context": context, "page": page, "pw": pw}
+        return {
+            "browser": browser,
+            "node": node,
+            "playwright_browser": playwright_browser,
+            "context": context,
+            "page": page,
+            "pw": pw,
+        }
 
     @staticmethod
     def save(session, path):
@@ -292,7 +300,7 @@ class _PlaywrightBackend:
             session["context"].close()
         finally:
             try:
-                session["browser"].close()
+                session["playwright_browser"].close()
             finally:
                 session["pw"].stop()
 
@@ -313,7 +321,7 @@ def _nonempty_str(value, field_name):
 class OpenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    target: Literal["playwright-chromium", "playwright-firefox", "playwright-webkit"]
+    browser: Literal["playwright-chromium", "playwright-firefox", "playwright-webkit"]
     node: Optional[str] = None
     url: Optional[str] = None
     storage_state: Optional[Union[str, dict]] = None
@@ -352,9 +360,9 @@ class SaveRequest(BaseModel):
 app = FastAPI(title="Playwright session manager")
 
 
-@app.get("/api/state-files")
+@app.get("/api/playwright/state-files")
 def state_files():
-    return {"files": _state_files()}
+    return {"state_files": _state_files()}
 
 
 @app.get("/api/playwright/sessions")
@@ -363,7 +371,8 @@ def list_sessions():
         sessions = [
             {
                 "id": sid,
-                "target": s.get("target") if isinstance(s, dict) else None,
+                "browser": s.get("browser") if isinstance(s, dict) else None,
+                "node": s.get("node") if isinstance(s, dict) else None,
             }
             for sid, s in _pw_sessions.items()
         ]
@@ -374,7 +383,7 @@ def list_sessions():
 def open_session(body: OpenRequest):
     try:
         worker = _PlaywrightWorker(
-            body.target,
+            body.browser,
             node=body.node,
             url=body.url,
             storage_state=body.storage_state,
@@ -391,8 +400,13 @@ def open_session(body: OpenRequest):
         return JSONResponse({"detail": str(worker.error)}, status_code=502)
     sid = uuid.uuid4().hex[:12]
     with _LOCK:
-        _pw_sessions[sid] = {"target": body.target, "worker": worker}
-    return {"id": sid, "target": body.target, "url": body.url}
+        _pw_sessions[sid] = {"browser": body.browser, "node": body.node, "worker": worker}
+    return {
+        "id": sid,
+        "browser": body.browser,
+        "node": body.node,
+        "url": body.url,
+    }
 
 
 @app.post("/api/playwright/sessions/{sid}/save")

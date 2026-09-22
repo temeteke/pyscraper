@@ -1,0 +1,80 @@
+# Gateway endpoint registry.
+#
+# Each entry wires one browser into the gateway: the session-manager API it
+# belongs to, and the noVNC upstream that serves its display. Replace this
+# file (or mount your own at GATEWAY_ENDPOINTS_FILE) to add, remove, or
+# rename endpoints; the gateway renders its nginx config and UI data from it
+# at container start.
+#
+# Fields:
+#   id             URL/UI key. Unique, ^[a-z0-9-]+$, at most 63 characters.
+#   label          Human-readable name shown in the UI.
+#   framework      playwright | selenium (selects the session manager and the
+#                  /api/<framework>/ namespace).
+#   browser        Browser target passed to that session manager (validated
+#                  by the manager, not the gateway).
+#   node           Optional node stereotype (e.g. a Selenium profile node).
+#                  Omit or null for the default node.
+#   storage_state  true to offer storage-state load/save in the UI
+#                  (Playwright only; default false).
+#   novnc.host     Hostname of the noVNC upstream (without the FQDN suffix).
+#   novnc.port     Port of the noVNC upstream (default 7900).
+#
+# Public URLs are role-based:
+#   <base>/view/<id>   full-size view
+#   <base>/vnc/<id>/   raw noVNC page
+#
+# The default entries assume the compose service names. Selenium profile
+# nodes are not enabled by default; to route to them, add e.g.:
+#
+#   - id: selenium-chrome-profile
+#     label: Chrome (profile)
+#     framework: selenium
+#     browser: selenium-chrome
+#     node: chromium-profile
+#     novnc: { host: selenium-chrome-node, port: 7900 }
+endpoints:
+  - id: playwright-chromium
+    label: Chromium (Playwright)
+    framework: playwright
+    browser: playwright-chromium
+    storage_state: true
+    novnc:
+      host: playwright-chromium
+      port: 7900
+
+  - id: playwright-firefox
+    label: Firefox (Playwright)
+    framework: playwright
+    browser: playwright-firefox
+    storage_state: true
+    novnc:
+      host: playwright-firefox
+      port: 7900
+
+  - id: playwright-webkit
+    label: WebKit (Playwright)
+    framework: playwright
+    browser: playwright-webkit
+    storage_state: true
+    novnc:
+      host: playwright-webkit
+      port: 7900
+
+  - id: selenium-chrome
+    label: Chrome (Selenium)
+    framework: selenium
+    browser: selenium-chrome
+    storage_state: false
+    novnc:
+      host: selenium-chrome-node
+      port: 7900
+
+  - id: selenium-firefox
+    label: Firefox (Selenium)
+    framework: selenium
+    browser: selenium-firefox
+    storage_state: false
+    novnc:
+      host: selenium-firefox-node
+      port: 7900

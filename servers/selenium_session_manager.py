@@ -10,11 +10,13 @@ and close deletes the Grid session.
 
 Endpoints (all JSON):
 
-* ``POST /api/selenium/sessions`` {target, node?, url?}
+* ``POST /api/selenium/sessions`` {browser, node?, url?}
 * ``GET /api/selenium/sessions`` / ``DELETE /api/selenium/sessions/{id}``
 * ``GET /openapi.json`` / ``GET /docs`` (auto-generated API reference)
 
-Targets are fixed names: ``selenium-chrome`` / ``selenium-firefox``.
+Browsers are fixed names: ``selenium-chrome`` / ``selenium-firefox``. The
+request field is ``browser`` (renamed from ``target`` in v2.0.0; ``target``
+is no longer accepted).
 
 Validation errors are ``422`` with Starlette's default ``{"detail": ...}``
 shape; unknown sessions are ``404``; Grid failures are ``502``
@@ -88,13 +90,13 @@ SELENIUM_HUB_URL = os.environ.get("SELENIUM_HUB_URL", "http://selenium-hub:4444/
 REQUEST_TIMEOUT = _int_env("SELENIUM_REQUEST_TIMEOUT", 30)
 
 
-SELENIUM_TARGETS = {
+SELENIUM_BROWSERS = {
     "selenium-chrome": "chrome",
     "selenium-firefox": "firefox",
 }
 
 
-_se_sessions = {}  # id -> {"target", "session_id"}
+_se_sessions = {}  # id -> {"browser", "node", "session_id"}
 _LOCK = threading.Lock()
 
 # Cap on Grid response reads: a rogue endpoint must not OOM us.
@@ -118,7 +120,7 @@ def _nonempty_str(value, field_name):
 class OpenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    target: Literal["selenium-chrome", "selenium-firefox"]
+    browser: Literal["selenium-chrome", "selenium-firefox"]
     node: Optional[str] = None
     url: Optional[str] = None
 
@@ -156,8 +158,8 @@ class _SeleniumBackend:
             return json.loads(resp.read(GRID_READ_CAP) or b"{}")
 
     @classmethod
-    def open(cls, target, node=None, url=None):
-        browser_name = SELENIUM_TARGETS[target]
+    def open(cls, browser, node=None, url=None):
+        browser_name = SELENIUM_BROWSERS[browser]
         capabilities = {"browserName": browser_name}
         if node:
             capabilities["pyscraper:node"] = node
@@ -188,7 +190,7 @@ class _SeleniumBackend:
                     flush=True,
                 )
             raise
-        return {"target": target, "session_id": session_id}
+        return {"browser": browser, "node": node, "session_id": session_id}
 
     @classmethod
     def close(cls, session):
@@ -220,7 +222,8 @@ def list_sessions():
         sessions = [
             {
                 "id": sid,
-                "target": s.get("target") if isinstance(s, dict) else None,
+                "browser": s.get("browser") if isinstance(s, dict) else None,
+                "node": s.get("node") if isinstance(s, dict) else None,
             }
             for sid, s in _se_sessions.items()
         ]
@@ -230,14 +233,19 @@ def list_sessions():
 @app.post("/api/selenium/sessions")
 def open_session(body: OpenRequest):
     try:
-        session = _SeleniumBackend.open(body.target, node=body.node, url=body.url)
+        session = _SeleniumBackend.open(body.browser, node=body.node, url=body.url)
     except Exception as exc:
         print(f"[selenium-session-manager] open failed: {exc!r}", file=sys.stderr, flush=True)
         return JSONResponse({"detail": str(exc)}, status_code=502)
     sid = uuid.uuid4().hex[:12]
     with _LOCK:
         _se_sessions[sid] = session
-    return {"id": sid, "target": body.target, "url": body.url}
+    return {
+        "id": sid,
+        "browser": body.browser,
+        "node": body.node,
+        "url": body.url,
+    }
 
 
 @app.delete("/api/selenium/sessions/{sid}")

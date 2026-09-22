@@ -124,8 +124,16 @@ Examples: `v1.0.0`, `v1.1.0`, `v2.0.0`
 
 Resolved automatically by setuptools-scm from Git tags.
 Not written to files; obtained at runtime via `pyscraper.__version__`.
+Images that only `COPY` the sources cannot see `.git`: the release images
+pass the CI-derived tag version via
+`SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYSCRAPER`, and the devcontainer image
+passes a placeholder (`0.0`) that its `postCreateCommand` later replaces with
+the real version (the mounted workspace includes `.git`).
 
 ### Release Procedure
+
+Keep `CHANGELOG.md` (the human-facing source of truth for breaking changes
+and migration notes) up to date before cutting a release.
 
 ```bash
 # Create a GitHub Release (creates tag + release notes + triggers Docker build)
@@ -135,6 +143,15 @@ gh release create v1.1.0 --generate-notes
 # For hotfixes targeting a specific commit:
 gh release create v1.1.0 --generate-notes --target <commit-hash>
 ```
+
+### Changelog
+
+`CHANGELOG.md` is the human-facing record of changes. Sections are numbered
+by version without dates; the release date lives in the Git tag / GitHub
+Release. The version itself is derived from the tag by setuptools-scm, so a
+release needs no version/date commit: cut the tag with `gh release create`
+(see Release Procedure). When starting a new cycle, add a `## [Unreleased]`
+section at the top.
 
 ---
 

@@ -13,48 +13,119 @@ h2 { margin: 0.75em 0 0.25em; font-size: 1em; }
 .tile iframe { width: 100%; aspect-ratio: 4 / 3; border: 1px solid #999; background: #000; display: block; }
 .badge { font-size: 0.8em; padding: 0.1em 0.5em; border-radius: 1em; background: #eee; display: inline-block; min-width: 20ch; text-align: center; }
 .badge.open { background: #cfc; }
+.error { color: #a00; }
 </style>
 </head>
 <body>
 <h1>PyScraper Gateway</h1>
-<h2>Selenium</h2>
-<div class="grid" id="selenium-tiles"></div>
-<h2>Playwright</h2>
-<div class="grid" id="playwright-tiles"></div>
+<div id="groups"></div>
+<p id="error" class="error" hidden></p>
 <script>
-const TARGETS = [
-  {target: "selenium-chrome", family: "selenium", label: "Chrome (Selenium)", sub: "selenium-chrome"},
-  {target: "selenium-firefox", family: "selenium", label: "Firefox (Selenium)", sub: "selenium-firefox"},
-  {target: "playwright-chromium", family: "playwright", label: "Chromium (Playwright)", sub: "playwright-chromium"},
-  {target: "playwright-firefox", family: "playwright", label: "Firefox (Playwright)", sub: "playwright-firefox"},
-  {target: "playwright-webkit", family: "playwright", label: "WebKit (Playwright)", sub: "playwright-webkit"},
-];
-const state = {}; // target -> {id} | {error: number} | null
+"use strict";
 
-function vncUrl(t) {
-  return `/${t.sub}/vnc.html?path=/${t.sub}/websockify&autoconnect=true&resize=scale`;
+// Static UI: derive the base path from the current location so the same file
+// works at "/" or under GATEWAY_BASE_PATH (e.g. "/gateway/").
+function deriveBase() {
+  let p = location.pathname;
+  if (p.endsWith("/index.html")) p = p.slice(0, -"index.html".length);
+  return p.replace(/\/+$/, "");
 }
-function apiBase(t) {
-  return `/api/${t.family}/sessions`;
+const BASE = deriveBase();
+
+const state = {}; // endpoint id -> {id} | {error: number} | null
+const PREFERRED = ["selenium", "playwright"];
+
+function vncUrl(e) {
+  return `${BASE}/vnc/${e.id}/?path=${BASE}/vnc/${e.id}/websockify&autoconnect=true&resize=scale`;
 }
-async function refreshSessions() {
-  for (const t of TARGETS) {
-    try {
-      const res = await fetch(apiBase(t));
-      const data = (await res.json().catch(() => ({}))) ?? {};
-      if (!res.ok) { state[t.target] = {error: res.status}; continue; }
-      const sessions = (data && typeof data === "object" && Array.isArray(data.sessions)) ? data.sessions : [];
-      const mine = sessions.filter(s => s && s.target === t.target);
-      const last = mine.length ? mine[mine.length - 1] : null;
-      state[t.target] = (last && typeof last.id === "string") ? last : null;
-    } catch (e) { state[t.target] = {error: 0}; }
+
+function frameworkLabel(fw) {
+  return fw.charAt(0).toUpperCase() + fw.slice(1);
+}
+
+function orderedFrameworks(endpoints) {
+  return [...new Set(endpoints.map(e => e.framework))].sort((a, b) => {
+    const ia = PREFERRED.indexOf(a), ib = PREFERRED.indexOf(b);
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    return a.localeCompare(b);
+  });
+}
+
+function buildTile(e) {
+  const div = document.createElement("div");
+  div.className = "tile";
+  const h3 = document.createElement("h3");
+  const a = document.createElement("a");
+  a.href = `${BASE}/view/${e.id}`;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.title = "Open full-size view";
+  a.textContent = e.label;
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.id = `badge-${e.id}`;
+  badge.textContent = "?";
+  h3.append(a, badge);
+  const iframe = document.createElement("iframe");
+  iframe.id = `frame-${e.id}`;
+  iframe.src = vncUrl(e);
+  iframe.title = e.label;
+  div.append(h3, iframe);
+  return div;
+}
+
+function render(endpoints) {
+  const groups = document.getElementById("groups");
+  groups.replaceChildren();
+  for (const fw of orderedFrameworks(endpoints)) {
+    const h2 = document.createElement("h2");
+    h2.textContent = frameworkLabel(fw);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const e of endpoints.filter(x => x.framework === fw)) grid.appendChild(buildTile(e));
+    groups.append(h2, grid);
   }
-  renderBadges();
 }
-function renderBadges() {
-  for (const t of TARGETS) {
-    const badge = document.getElementById(`badge-${t.target}`);
-    const s = state[t.target];
+
+function matches(s, e) {
+  return s && s.browser === e.browser && (s.node ?? null) === (e.node ?? null);
+}
+
+async function loadEndpoints() {
+  const res = await fetch(`${BASE}/api/endpoints`, {cache: "no-store"});
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return (data && Array.isArray(data.endpoints)) ? data.endpoints : [];
+}
+
+async function refreshSessions(endpoints) {
+  const byFw = {};
+  for (const e of endpoints) (byFw[e.framework] ||= []).push(e);
+  for (const [fw, list] of Object.entries(byFw)) {
+    let sessions;
+    try {
+      const res = await fetch(`${BASE}/api/${fw}/sessions`, {cache: "no-store"});
+      if (!res.ok) { for (const e of list) state[e.id] = {error: res.status}; continue; }
+      const data = await res.json();
+      sessions = (data && Array.isArray(data.sessions)) ? data.sessions : [];
+    } catch (err) {
+      for (const e of list) state[e.id] = {error: 0};
+      continue;
+    }
+    for (const e of list) {
+      const mine = sessions.filter(s => matches(s, e));
+      const last = mine.length ? mine[mine.length - 1] : null;
+      state[e.id] = (last && typeof last.id === "string") ? last : null;
+    }
+  }
+  renderBadges(endpoints);
+}
+
+function renderBadges(endpoints) {
+  for (const e of endpoints) {
+    const badge = document.getElementById(`badge-${e.id}`);
+    if (!badge) continue;
+    const s = state[e.id];
     if (s && s.error !== undefined) {
       badge.textContent = `error (${s.error})`;
       badge.classList.remove("open");
@@ -64,24 +135,23 @@ function renderBadges() {
     }
   }
 }
-function buildTiles() {
-  const groups = {
-    selenium: document.getElementById("selenium-tiles"),
-    playwright: document.getElementById("playwright-tiles"),
-  };
-  for (const t of TARGETS) {
-    const div = document.createElement("div");
-    div.className = "tile";
-    div.innerHTML = `
-      <h3><a href="/view.html?browser=${t.target}" target="_blank" title="Open full-size view">${t.label}</a>
-        <span class="badge" id="badge-${t.target}">?</span></h3>
-      <iframe id="frame-${t.target}" src="${vncUrl(t)}" title="${t.label}"></iframe>`;
-    groups[t.family].appendChild(div);
+
+async function main() {
+  let endpoints;
+  try {
+    endpoints = await loadEndpoints();
+  } catch (e) {
+    const el = document.getElementById("error");
+    el.hidden = false;
+    el.textContent = `Could not load ${BASE}/api/endpoints: ${e.message}`;
+    return;
   }
+  render(endpoints);
+  await refreshSessions(endpoints);
+  setInterval(() => refreshSessions(endpoints), 10000);
 }
-buildTiles();
-refreshSessions();
-setInterval(refreshSessions, 10000);
+
+main();
 </script>
 </body>
 </html>

@@ -7,7 +7,7 @@
 body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
 header { display: flex; gap: 0.5em; padding: 0.5em 1em; align-items: center; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
 header h1 { font-size: 1em; margin: 0 1em 0 0; }
-header input[type=text] { flex: 1 1 16em; min-width: 8em; }
+header input[type=text] { flex: 1 1 12em; min-width: 8em; }
 iframe { flex: 1; border: 0; background: #000; }
 .badge { font-size: 0.8em; padding: 0.1em 0.5em; border-radius: 1em; background: #eee; display: inline-block; min-width: 20ch; text-align: center; }
 #badge { order: 99; margin-left: auto; }
@@ -23,94 +23,162 @@ a { font-size: 0.85em; }
 <h1 id="title">Browser</h1>
 <span class="badge" id="badge">?</span>
 <input type="text" id="url" placeholder="https://example.com">
+<select id="state" title="storage state" hidden></select>
+<input type="text" id="savename" placeholder="state name" hidden>
+<button id="save" hidden>Save state</button>
 <button id="open">Open</button>
 <button id="close">Close</button>
 </header>
 <iframe id="frame" src="about:blank" title="browser"></iframe>
 <div id="toast" role="alert"></div>
 <script>
-const TARGETS = {
-  "selenium-chrome": {family: "selenium", label: "Chrome (Selenium)", sub: "selenium-chrome"},
-  "selenium-firefox": {family: "selenium", label: "Firefox (Selenium)", sub: "selenium-firefox"},
-  "playwright-chromium": {family: "playwright", label: "Chromium (Playwright)", sub: "playwright-chromium"},
-  "playwright-firefox": {family: "playwright", label: "Firefox (Playwright)", sub: "playwright-firefox"},
-  "playwright-webkit": {family: "playwright", label: "WebKit (Playwright)", sub: "playwright-webkit"},
-};
-const params = new URLSearchParams(location.search);
-const target = params.get("browser");
-const t = TARGETS[target];
+"use strict";
+
+// Static UI: the URL is <base>/view/<id>; derive both from the path so the
+// same file works at "/view/<id>" or under GATEWAY_BASE_PATH.
+function deriveBaseAndId() {
+  const m = location.pathname.match(/^(.*)\/view\/([^/]+)\/?$/);
+  return m ? {base: m[1], id: m[2]} : null;
+}
+const route = deriveBaseAndId();
+const BASE = route ? route.base : "";
+const ID = route ? route.id : null;
 const $ = id => document.getElementById(id);
-if (!t) {
-  document.body.innerHTML = "<p>Unknown browser. <a href='/'>Back to tiles</a></p>";
-} else {
-  document.title = `PyScraper Gateway - ${t.label}`;
-  $("title").textContent = t.label;
-  const apiBase = `/api/${t.family}/sessions`;
+
+function vncUrl(e) {
+  return `${BASE}/vnc/${e.id}/?path=${BASE}/vnc/${e.id}/websockify&autoconnect=true`;
+}
+
+function matches(s, e) {
+  return s && s.browser === e.browser && (s.node ?? null) === (e.node ?? null);
+}
+
+function formatDetail(data, status) {
+  const detail = (data && typeof data === "object") ? data.detail : undefined;
+  if (detail == null) return String(status);
+  if (typeof detail === "string") return detail;
+  return JSON.stringify(detail);
+}
+
+function showToast(msg) {
+  const el = $("toast");
+  el.textContent = msg.length > 300 ? msg.slice(0, 300) + "\u2026" : msg;
+  el.title = msg.slice(0, 2000);
+  el.style.display = "block";
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => { el.style.display = "none"; }, 8000);
+}
+
+async function loadEndpoints() {
+  const res = await fetch(`${BASE}/api/endpoints`, {cache: "no-store"});
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return (data && Array.isArray(data.endpoints)) ? data.endpoints : [];
+}
+
+function unknownBrowser() {
+  const p = document.createElement("p");
+  const a = document.createElement("a");
+  a.href = `${BASE}/`;
+  a.textContent = "Back to tiles";
+  p.append("Unknown browser. ", a);
+  document.body.replaceChildren(p);
+}
+
+async function setup(e) {
+  document.title = `PyScraper Gateway - ${e.label}`;
+  $("title").textContent = e.label;
+  const apiBase = `${BASE}/api/${e.framework}/sessions`;
+  const supportsState = e.storage_state === true && e.framework === "playwright";
   let sessionId = null;
-  const vncUrl = `/${t.sub}/vnc.html?path=/${t.sub}/websockify&autoconnect=true`;
-  $("frame").src = vncUrl;
-  function showToast(msg) {
-    // Failure-only notification: auto-dismisses, never shifts layout.
-    // Truncate the visible text; the full message stays in title.
-    const el = document.getElementById('toast');
-    el.textContent = msg.length > 300 ? msg.slice(0, 300) + "…" : msg;
-    el.title = msg.slice(0, 2000);
-    el.style.display = 'block';
-    clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => { el.style.display = 'none'; }, 8000);
+
+  $("frame").src = vncUrl(e);
+  if (supportsState) {
+    $("state").hidden = false;
+    $("savename").hidden = false;
+    $("save").hidden = false;
   }
-  async function refreshSession() {
+
+  async function loadStateFiles() {
     try {
-      const res = await fetch(apiBase);
-      const data = (await res.json().catch(() => ({}))) ?? {};
+      const res = await fetch(`${BASE}/api/playwright/state-files`, {cache: "no-store"});
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data && Array.isArray(data.state_files)) ? data.state_files : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function fillStates(files) {
+    const sel = $("state");
+    const current = sel.value;
+    sel.replaceChildren();
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "(no state)";
+    sel.appendChild(none);
+    for (const f of files) {
+      const o = document.createElement("option");
+      o.value = f;
+      o.textContent = f;
+      sel.appendChild(o);
+    }
+    if ([...sel.options].some(o => o.value === current)) sel.value = current;
+  }
+
+  async function refreshSession() {
+    let sessions;
+    try {
+      const res = await fetch(apiBase, {cache: "no-store"});
       if (!res.ok) {
         sessionId = null;
         $("badge").textContent = `error (${res.status})`;
         $("badge").classList.remove("open");
-        // Keep Open enabled: the error may be transient (manager
-        // restart) and the poller retries anyway; manual retry stays
-        // available. Close is meaningless without a session id.
+        // Keep Open enabled: the error may be transient (manager restart)
+        // and the poller retries; manual retry stays available.
         $("open").disabled = false;
         $("close").disabled = true;
+        $("save").disabled = true;
         return;
       }
-      const sessions = (data && typeof data === "object" && Array.isArray(data.sessions)) ? data.sessions : [];
-      const mine = sessions.filter(s => s && s.target === target);
-      const last = mine.length ? mine[mine.length - 1] : null;
-      sessionId = (last && typeof last.id === "string") ? last.id : null;
-    } catch (e) {
-      // Network failure: same error state as !res.ok (Open stays
-      // enabled for manual retry; the poller retries anyway).
+      const data = await res.json();
+      sessions = (data && Array.isArray(data.sessions)) ? data.sessions : [];
+    } catch (err) {
       sessionId = null;
       $("badge").textContent = "error (0)";
       $("badge").classList.remove("open");
       $("open").disabled = false;
       $("close").disabled = true;
+      $("save").disabled = true;
       return;
     }
+    const mine = sessions.filter(s => matches(s, e));
+    const last = mine.length ? mine[mine.length - 1] : null;
+    sessionId = (last && typeof last.id === "string") ? last.id : null;
     $("badge").textContent = sessionId ? `open (${sessionId})` : "closed";
     $("badge").classList.toggle("open", !!sessionId);
     $("open").disabled = !!sessionId;
     $("close").disabled = !sessionId;
+    $("save").disabled = !sessionId;
   }
-  // detail may be a string (self errors) or an array (422 validation).
-  function formatDetail(data, status) {
-    const detail = (data && typeof data === "object") ? data.detail : undefined;
-    if (detail == null) return String(status);
-    if (typeof detail === "string") return detail;
-    return JSON.stringify(detail);
-  }
+
   $("open").onclick = async () => {
-    const payload = {target};
+    const payload = {browser: e.browser};
+    if (e.node) payload.node = e.node;
     const url = $("url").value.trim();
     if (url) payload.url = url;
+    if (supportsState && $("state").value) payload.storage_state = $("state").value;
     try {
       const res = await fetch(apiBase, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
       const data = (await res.json().catch(() => ({}))) ?? {};
       if (!res.ok) throw new Error(formatDetail(data, res.status));
       await refreshSession();
-    } catch (e) { showToast(`Open failed: ${e.message}`); }
+    } catch (err) {
+      showToast(`Open failed: ${err.message}`);
+    }
   };
+
   $("close").onclick = async () => {
     if (!sessionId) return;
     try {
@@ -118,11 +186,46 @@ if (!t) {
       const data = (await res.json().catch(() => ({}))) ?? {};
       if (!res.ok) throw new Error(formatDetail(data, res.status));
       await refreshSession();
-    } catch (e) { showToast(`Close failed: ${e.message}`); }
+    } catch (err) {
+      showToast(`Close failed: ${err.message}`);
+    }
   };
-  refreshSession();
+
+  $("save").onclick = async () => {
+    if (!sessionId) return;
+    const stateName = $("savename").value.trim();
+    if (!stateName) { showToast("Save failed: state name is required"); return; }
+    try {
+      const res = await fetch(`${apiBase}/${sessionId}/save`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({path: stateName})});
+      const data = (await res.json().catch(() => ({}))) ?? {};
+      if (!res.ok) throw new Error(formatDetail(data, res.status));
+      fillStates(await loadStateFiles());
+      showToast(`Saved ${stateName}`);
+    } catch (err) {
+      showToast(`Save failed: ${err.message}`);
+    }
+  };
+
+  if (supportsState) fillStates(await loadStateFiles());
+  await refreshSession();
   setInterval(refreshSession, 10000);
 }
+
+async function main() {
+  if (!route) { unknownBrowser(); return; }
+  let endpoints;
+  try {
+    endpoints = await loadEndpoints();
+  } catch (err) {
+    unknownBrowser();
+    return;
+  }
+  const e = endpoints.find(x => x.id === ID);
+  if (!e) { unknownBrowser(); return; }
+  await setup(e);
+}
+
+main();
 </script>
 </body>
 </html>

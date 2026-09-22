@@ -93,15 +93,22 @@ offline capability, and reproducibility.
 
 ### Gateway and session managers
 
-`gateway` (plain `nginx:alpine` + `gateway/` mounts) is the single
-browser entry point: tile overview, single-browser views, raw noVNC
-subpaths, and `/api/` proxies to the session managers.
+`gateway` (dedicated `Dockerfile.gateway` image) is the single browser
+entry point: tile overview, single-browser views (`/view/<id>`), raw noVNC
+(`/vnc/<id>/`), and `/api/` proxies to the session managers. It is
+registry-driven: at start `gateway/entrypoint.sh` validates
+`gateway/endpoints.yaml` with `gateway/generate.jq` (jq) and renders the
+nginx config (`/etc/nginx/conf.d/gateway.conf`) and the UI's endpoint list
+(`/run/gateway/endpoints.json`, served at `/api/endpoints`);
+`/etc/resolv.conf` supplies the resolver.
 `servers/playwright_session_manager.py` (open/close/save via the Hub
 relay, one owner thread per session, `storage_state` load/save, plus the
 `state-files` listing) and `servers/selenium_session_manager.py`
 (open/close via the Grid REST API, no state restore) are
 both FastAPI apps (Pydantic validation, `422` on invalid bodies,
-auto-generated `/openapi.json` + `/docs`), local build only. The Hub
+auto-generated `/openapi.json` + `/docs`), published alongside the
+gateway. The browser target field is `browser` (renamed from `target` in
+v2.0.0). The Hub
 registry and the node's Python wrapper stay stdlib-only (the node image
 also ships Playwright). State files live in the
 `session-states` compose volume shared with the host. No auth (closed
