@@ -179,7 +179,7 @@ services:
 
   gateway:
     # Single entry point: noVNC reverse proxy + UI + session-manager relay
-    # (/api/playwright/* (incl. state-files) to playwright-session-manager,
+    # (/api/playwright/* (incl. states) to playwright-session-manager,
     # /api/selenium/* to selenium-session-manager).
     # Dedicated image (config + UI baked in, rendered at start from
     # /etc/resolv.conf); the same image runs on any Docker network.
@@ -228,7 +228,7 @@ services:
       - "8081"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8081/api/playwright/state-files', timeout=2))"]
+      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8081/api/playwright/states', timeout=2))"]
       interval: 10s
       timeout: 3s
       retries: 6

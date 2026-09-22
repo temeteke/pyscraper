@@ -41,7 +41,7 @@ SAMPLE_REGISTRY = {
             "label": "Chromium (Playwright)",
             "framework": "playwright",
             "browser": "playwright-chromium",
-            "storage_state": True,
+            "storage_state": {"ids": ["chromium"]},
             "novnc": {"host": "playwright-chromium", "port": 7900},
         },
         {
@@ -331,6 +331,48 @@ class TestGenerateValidation:
         assert proc.returncode != 0
         assert "duplicate endpoint id" in proc.stderr
 
+    def test_rejects_endpoint_id_trailing_newline(self, tmp_path):
+        # jq's ``$`` matches before a trailing newline; the id anchor must
+        # reject it so no newline can reach the nginx config.
+        _require("jq")
+        entry = {
+            "id": "evil\n",
+            "label": "x",
+            "framework": "playwright",
+            "browser": "b",
+            "novnc": {"host": "h"},
+        }
+        proc = _jq_generate(tmp_path, {"endpoints": [entry]})
+        assert proc.returncode != 0
+        assert "invalid id" in proc.stderr
+
+    def test_rejects_node_trailing_newline(self, tmp_path):
+        _require("jq")
+        entry = {
+            "id": "x",
+            "label": "x",
+            "framework": "playwright",
+            "browser": "b",
+            "node": "n\n",
+            "novnc": {"host": "h"},
+        }
+        proc = _jq_generate(tmp_path, {"endpoints": [entry]})
+        assert proc.returncode != 0
+        assert "node must be null" in proc.stderr
+
+    def test_rejects_novnc_host_trailing_newline(self, tmp_path):
+        _require("jq")
+        entry = {
+            "id": "x",
+            "label": "x",
+            "framework": "playwright",
+            "browser": "b",
+            "novnc": {"host": "h\n"},
+        }
+        proc = _jq_generate(tmp_path, {"endpoints": [entry]})
+        assert proc.returncode != 0
+        assert "novnc.host must match" in proc.stderr
+
     def test_rejects_duplicate_framework_browser_node(self, tmp_path):
         _require("jq")
         entry = SAMPLE_REGISTRY["endpoints"][1]
@@ -338,6 +380,119 @@ class TestGenerateValidation:
         proc = _jq_generate(tmp_path, reg)
         assert proc.returncode != 0
         assert "duplicate (framework, browser, node)" in proc.stderr
+
+
+class TestGenerateStorageState:
+    def _entry(self, **over):
+        entry = {
+            "id": "pw",
+            "label": "pw",
+            "framework": "playwright",
+            "browser": "b",
+            "novnc": {"host": "h"},
+        }
+        entry.update(over)
+        return entry
+
+    def _ss(self, tmp_path, endpoint):
+        _require("jq")
+        out = _jq_ok(tmp_path, {"endpoints": [endpoint]})
+        return out["endpoints"]["endpoints"][0]["storage_state"]
+
+    def test_bool_true_normalizes(self, tmp_path):
+        assert self._ss(tmp_path, self._entry(storage_state=True)) == {
+            "enabled": True,
+            "ids": [],
+        }
+
+    def test_bool_false_normalizes(self, tmp_path):
+        assert self._ss(tmp_path, self._entry(storage_state=False)) == {
+            "enabled": False,
+            "ids": [],
+        }
+
+    def test_omitted_normalizes(self, tmp_path):
+        assert self._ss(tmp_path, self._entry()) == {"enabled": False, "ids": []}
+
+    def test_mapping_defaults_enabled_true(self, tmp_path):
+        assert self._ss(tmp_path, self._entry(storage_state={"ids": ["a"]})) == {
+            "enabled": True,
+            "ids": ["a"],
+        }
+
+    def test_mapping_enabled_false(self, tmp_path):
+        assert self._ss(tmp_path, self._entry(storage_state={"enabled": False})) == {
+            "enabled": False,
+            "ids": [],
+        }
+
+    def test_selenium_disabled_mapping_accepted(self, tmp_path):
+        entry = self._entry(
+            framework="selenium",
+            browser="selenium-chrome",
+            storage_state={"enabled": False},
+        )
+        assert self._ss(tmp_path, entry) == {"enabled": False, "ids": []}
+
+    def test_accepts_max_length_state_id(self, tmp_path):
+        state_id = "a" * 63
+        assert self._ss(tmp_path, self._entry(storage_state={"ids": [state_id]})) == {
+            "enabled": True,
+            "ids": [state_id],
+        }
+
+    def test_endpoints_always_exposes_object(self, tmp_path):
+        # v2.0.0 boolean form is normalized to the {enabled, ids} shape.
+        _require("jq")
+        out = _jq_ok(tmp_path, SAMPLE_REGISTRY)
+        for entry in out["endpoints"]["endpoints"]:
+            assert isinstance(entry["storage_state"], dict)
+            assert set(entry["storage_state"]) == {"enabled", "ids"}
+
+    @pytest.mark.parametrize(
+        "storage_state, message",
+        [
+            ("x", "must be a boolean or mapping"),
+            ({"enabled": "yes"}, "enabled must be a boolean"),
+            ({"ids": "a"}, "ids must be an array"),
+            ({"ids": [1]}, "ids must be strings"),
+            ({"ids": ["A"]}, "invalid storage_state id"),
+            ({"ids": ["a\n"]}, "invalid storage_state id"),
+            ({"ids": ["a" * 64]}, "storage_state id too long"),
+            ({"ids": ["a", "a"]}, "duplicate storage_state id"),
+            ({"enabled": False, "ids": ["a"]}, "enabled is false but ids is not empty"),
+            ({"bogus": 1}, "unknown storage_state keys"),
+            (None, "must be a boolean or mapping"),
+        ],
+    )
+    def test_rejects_bad_storage_state(self, tmp_path, storage_state, message):
+        _require("jq")
+        proc = _jq_generate(tmp_path, {"endpoints": [self._entry(storage_state=storage_state)]})
+        assert proc.returncode != 0
+        assert message in proc.stderr
+
+    def test_rejects_enabled_for_selenium(self, tmp_path):
+        _require("jq")
+        entry = self._entry(
+            framework="selenium",
+            browser="selenium-chrome",
+            storage_state={"enabled": True},
+        )
+        proc = _jq_generate(tmp_path, {"endpoints": [entry]})
+        assert proc.returncode != 0
+        assert "only supported for playwright" in proc.stderr
+
+    def test_rejects_duplicate_state_id_across_endpoints(self, tmp_path):
+        _require("jq")
+        reg = {
+            "endpoints": [
+                self._entry(id="a", browser="b1", storage_state={"ids": ["s"]}),
+                self._entry(id="b", browser="b2", storage_state={"ids": ["s"]}),
+            ]
+        }
+        proc = _jq_generate(tmp_path, reg)
+        assert proc.returncode != 0
+        assert "duplicate storage_state id across endpoints" in proc.stderr
 
 
 class TestGenerateArgs:
@@ -357,6 +512,7 @@ class TestGenerateArgs:
             ({"pw": "a\nb"}, "invalid playwright session upstream"),
             ({"se": "a;b"}, "invalid selenium session upstream"),
             ({"rundir": "relative"}, "invalid run dir"),
+            ({"rundir": "/run/gateway\n"}, "invalid run dir"),
             ({"rundir": "/run/gateway; evil"}, "invalid run dir"),
             ({"rundir": "/run gateway"}, "invalid run dir"),
         ],
@@ -430,6 +586,7 @@ class TestGenerateNginx:
                 "storage_state",
             }
             assert "host" not in entry and "port" not in entry
+        assert endpoints[0]["storage_state"] == {"enabled": True, "ids": ["chromium"]}
         assert endpoints[1]["node"] == "chromium-profile"
 
     def test_explicit_upstreams(self, tmp_path):
@@ -508,9 +665,16 @@ class TestEntrypoint:
         ]
         by_id = {e["id"]: e for e in entries}
         assert by_id["playwright-chromium"]["framework"] == "playwright"
-        assert by_id["playwright-chromium"]["storage_state"] is True
+        assert by_id["playwright-chromium"]["storage_state"] == {
+            "enabled": True,
+            "ids": ["chromium"],
+        }
+        assert by_id["playwright-firefox"]["storage_state"] == {
+            "enabled": True,
+            "ids": ["firefox"],
+        }
         assert by_id["selenium-chrome"]["framework"] == "selenium"
-        assert by_id["selenium-chrome"]["storage_state"] is False
+        assert by_id["selenium-chrome"]["storage_state"] == {"enabled": False, "ids": []}
         assert all(e["node"] is None for e in entries)
 
     def test_search_domain_is_not_applied_implicitly(self, tmp_path):
@@ -605,10 +769,63 @@ class TestUI:
     def test_view_derives_base_and_id_from_path(self):
         text = VIEW.read_text()
         assert "/api/endpoints" in text
-        assert "/api/playwright/state-files" in text
+        assert "/api/playwright/states" in text
+        assert "e.storage_state.ids" in text
+        assert 'method: "PUT"' in text
         assert "/view/" in text
         assert "/vnc/${e.id}/" in text
         assert "innerHTML" not in text
+
+    def test_view_has_single_state_selector(self):
+        # One selector serves both load and save; there is no separate
+        # save-state control and no free-text file name.
+        text = VIEW.read_text()
+        assert text.count('id="state"') == 1
+        assert 'id="savestate"' not in text
+        assert 'title="Save session state to the selected state"' in text
+        assert ">Save</button>" in text
+        assert "Save state</button>" not in text
+
+    def test_view_uses_id_resources_not_paths(self):
+        # The UI must not fall back to the deprecated path-based API.
+        text = VIEW.read_text()
+        assert "/api/playwright/state-files" not in text
+        assert "/save" not in text
+        assert "savename" not in text
+
+    def test_view_locks_state_selector_during_session(self):
+        # The single selector is fixed from Open until Close, and the id
+        # captured at Open (not the live DOM value) drives the session.
+        text = VIEW.read_text()
+        assert "setStateLocked" in text
+        assert "opening" in text
+        assert "const chosenStateId" in text
+        assert '$("state").disabled = locked' in text
+        # A curated id with no file opens fresh; Save can create it.
+        assert "existingIds.includes(chosenStateId)" in text
+        assert "opened fresh" in text
+
+    def test_view_is_single_flight_and_ignores_stale_refreshes(self):
+        text = VIEW.read_text()
+        # Re-entrant Open is blocked and Open is disabled while in flight.
+        assert "if (opening || sessionId) return" in text
+        # A generation counter drops out-of-order session list responses,
+        # and Open invalidates in-flight polls.
+        assert "refreshSeq" in text
+        # The POST response id is trusted so the lock survives a failed
+        # follow-up list call; a 2xx without a usable id fails closed.
+        assert "sessionKnown = true" in text
+        assert "sessionKnown = false" in text
+        assert "!data.id" in text
+        # Start and ambiguous outcomes fail closed; confirmed outcomes apply
+        # immediately without waiting for the next list GET.
+        assert "applyUnknownSession()" in text
+        assert "applySession()" in text
+        assert "res.status >= 400 && res.status < 500" in text
+        # Close is single-flight and multiple matching sessions stay
+        # fail-closed instead of picking one arbitrarily.
+        assert "if (closing || !sessionId) return" in text
+        assert "multiple (" in text
 
 
 class TestDockerfile:

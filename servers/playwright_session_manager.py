@@ -11,12 +11,21 @@ the node-side browser.
 
 Endpoints (all JSON):
 
-* ``GET /api/playwright/state-files`` -> ``{"state_files": [...]}``
-  (server-side ``SESSION_STATE_DIR`` listing for UI dropdowns)
-* ``POST /api/playwright/sessions`` {browser, node?, url?, storage_state?}
-* ``POST /api/playwright/sessions/{id}/save`` {path}
+* ``GET /api/playwright/states`` -> ``{"states": [{"id": ...}]}``
+  (``id`` is the stem of a ``SESSION_STATE_DIR/{id}.json`` file)
+* ``PUT /api/playwright/states/{id}`` {session_id} -> create/overwrite
+  ``SESSION_STATE_DIR/{id}.json`` from that session
+* ``DELETE /api/playwright/states/{id}`` -> remove the state file
+* ``POST /api/playwright/sessions`` {browser, node?, url?, storage_state?,
+  state_id?} (``state_id`` and ``storage_state`` are mutually exclusive)
 * ``GET /api/playwright/sessions`` / ``DELETE /api/playwright/sessions/{id}``
 * ``GET /openapi.json`` / ``GET /docs`` (auto-generated API reference)
+
+Deprecated (kept for compatibility, removal planned):
+
+* ``GET /api/playwright/state-files`` -> ``{"state_files": [...]}``
+* ``POST /api/playwright/sessions/{id}/save`` {path}
+* the path/dict form of the ``storage_state`` open field; use ``state_id``
 
 Browsers are fixed names: ``playwright-chromium`` / ``playwright-firefox`` /
 ``playwright-webkit``. The request field is ``browser`` (renamed from
@@ -48,6 +57,8 @@ No authentication (closed compose network, local dev use only).
 import json
 import os
 import queue
+import re
+import stat
 import sys
 import threading
 import uuid
@@ -56,7 +67,7 @@ from typing import Literal, Optional, Union
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def _int_env(name, default):
@@ -94,7 +105,15 @@ if not 1 <= PORT <= 65535:
     )
     PORT = 8081
 PLAYWRIGHT_HUB_WS = os.environ.get("PLAYWRIGHT_HUB_WS", "ws://playwright-hub:4000/ws")
-STATE_DIR = Path(os.environ.get("SESSION_STATE_DIR", "/data/sessions"))
+# Absolute so an id resolves to the same file regardless of the process
+# cwd; a relative SESSION_STATE_DIR would otherwise be re-applied by the
+# backend resolver (STATE_DIR/<id>.json joined to STATE_DIR again).
+STATE_DIR = Path(os.environ.get("SESSION_STATE_DIR", "/data/sessions")).absolute()
+
+# State ids are resource names, not file names: they map to
+# ``SESSION_STATE_DIR/{id}.json``. The pattern structurally prevents path
+# traversal (no separators, no dots), so resolution stays inside STATE_DIR.
+STATE_ID_RE = re.compile(r"^[a-z0-9-]+$")
 
 
 PLAYWRIGHT_BROWSERS = {
@@ -106,6 +125,10 @@ PLAYWRIGHT_BROWSERS = {
 
 _pw_sessions = {}  # id -> {"browser", "node", "worker"}
 _LOCK = threading.Lock()
+
+# Cached fd for STATE_DIR (see _state_dir_fd); None until first use.
+_STATE_DIR_FD = None
+_STATE_DIR_FD_LOCK = threading.Lock()
 
 
 # Maximum wait for worker replies: open covers slow browser startup
@@ -191,8 +214,8 @@ class _PlaywrightWorker(threading.Thread):
             raise result
         return result
 
-    def save(self, path):
-        return self.call(_PlaywrightBackend.save, self.session, path)
+    def save(self):
+        return self.call(_PlaywrightBackend.save, self.session)
 
     def close(self):
         # Sentinel is sent only on success: a failed close must leave the
@@ -205,6 +228,205 @@ def _state_files():
     if not STATE_DIR.is_dir():
         return []
     return sorted(p.name for p in STATE_DIR.iterdir() if p.is_file())
+
+
+def _state_dir_fd():
+    """Open (once) and cache a file descriptor for STATE_DIR.
+
+    Pinning the directory inode means every later ID operation uses
+    ``dir_fd``: a rename/symlink swap of STATE_DIR itself cannot redirect
+    a read, write, or unlink to another directory.
+    """
+    global _STATE_DIR_FD
+    with _STATE_DIR_FD_LOCK:
+        if _STATE_DIR_FD is None:
+            _STATE_DIR_FD = os.open(STATE_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        return _STATE_DIR_FD
+
+
+def _state_ids():
+    """List manageable state ids (``.json`` stems matching STATE_ID_RE).
+
+    Only canonical ids are advertised: a legacy file with an
+    unmanageable name (spaces, uppercase) or a symlink cannot be
+    addressed through the id API, so it must not appear in the listing.
+    """
+    if not STATE_DIR.is_dir():
+        return []
+    return sorted(
+        p.stem
+        for p in STATE_DIR.iterdir()
+        if p.is_file()
+        and not p.is_symlink()
+        and p.suffix == ".json"
+        and len(p.stem) <= 63
+        and STATE_ID_RE.fullmatch(p.stem)
+    )
+
+
+def _resolve_state_id(value):
+    """Resolve a state id to its absolute ``SESSION_STATE_DIR/{id}.json``.
+
+    The id is validated verbatim (no whitespace normalization): a padded
+    or newline-bearing value is a malformed id. Raises ``ValueError`` for
+    anything that is not a canonical id, and for a symlink: the id API
+    only manages regular files, so a link can never redirect a read or a
+    write outside the state dir (a symlink swap is then a hard error, not
+    a boundary escape).
+    """
+    if not isinstance(value, str) or not STATE_ID_RE.fullmatch(value):
+        raise ValueError(f"invalid state id: {value!r} (want ^[a-z0-9-]+$)")
+    if len(value) > 63:
+        raise ValueError(f"state id too long: {value!r} (max 63)")
+    path = STATE_DIR / f"{value}.json"
+    if path.is_symlink():
+        raise ValueError(f"state id is a symlink: {value!r}")
+    return path
+
+
+def _read_state_id(path):
+    """Read a state file as a JSON object, pinned to the state dir.
+
+    The name is opened relative to the cached dir fd with ``O_NOFOLLOW``
+    and the descriptor is ``fstat``-checked to be a regular file, so a
+    symlink swap or a FIFO cannot redirect or block the read. The result
+    must be a JSON object (dict); anything else is rejected so the caller
+    never silently opens a context without the requested state.
+    """
+    fd = os.open(
+        path.name,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+        dir_fd=_state_dir_fd(),
+    )
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f"state is not a regular file: {path.name!r}")
+    except BaseException:
+        os.close(fd)
+        raise
+    with os.fdopen(fd, "r", encoding="utf-8") as handle:
+        state = json.load(handle)
+    if not isinstance(state, dict):
+        raise ValueError(f"state must be a JSON object: {path.name!r}")
+    return state
+
+
+def _write_state_id(path, state):
+    """Atomically write ``state`` to ``path`` under the pinned state dir.
+
+    A sibling temp file is created with the target's existing mode (or the
+    umask default for a new file) and ``os.replace``d into place, so the
+    write is atomic, never follows a symlink, and preserves permissions.
+    """
+    dir_fd = _state_dir_fd()
+    name = path.name
+    mode = 0o666
+    try:
+        existing = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
+        if stat.S_ISREG(existing.st_mode):
+            mode = stat.S_IMODE(existing.st_mode)
+    tmp = f".state-{uuid.uuid4().hex}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode, dir_fd=dir_fd)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(state, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        try:
+            os.unlink(tmp, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+    try:
+        os.fsync(dir_fd)
+    except OSError:
+        pass
+
+
+def _delete_state_id(path):
+    """Remove a regular state file under the pinned state dir.
+
+    A symlink or other non-regular entry is rejected (``ValueError``); a
+    missing file raises ``FileNotFoundError``.
+    """
+    dir_fd = _state_dir_fd()
+    existing = os.stat(path.name, dir_fd=dir_fd, follow_symlinks=False)
+    if not stat.S_ISREG(existing.st_mode):
+        raise ValueError(f"state is not a regular file: {path.name!r}")
+    os.unlink(path.name, dir_fd=dir_fd)
+
+
+def _atomic_write_json(path, state):
+    """Path-based atomic JSON write used by the deprecated save API.
+
+    The parent directory is opened once with ``O_DIRECTORY`` and the write
+    goes through a sibling temp file plus ``os.replace``, matching the ID
+    API's atomicity and permission behavior.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        name = path.name
+        mode = 0o666
+        try:
+            existing = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            if stat.S_ISREG(existing.st_mode):
+                mode = stat.S_IMODE(existing.st_mode)
+        tmp = f".state-{uuid.uuid4().hex}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode, dir_fd=parent_fd)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(state, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        except BaseException:
+            try:
+                os.unlink(tmp, dir_fd=parent_fd)
+            except OSError:
+                pass
+            raise
+    finally:
+        os.close(parent_fd)
+
+
+def _collect_state(sid):
+    """Return session ``sid``'s storage state dict, or a ``JSONResponse``.
+
+    The dict is produced on the session's owner thread; the caller writes
+    it, so the filesystem operation is not tied to that thread.
+    """
+    with _LOCK:
+        entry = _pw_sessions.get(sid)
+    if entry is None:
+        return JSONResponse({"detail": "unknown session"}, status_code=404)
+    # Pre-validate the entry shape instead of catching KeyError: a
+    # malformed entry is a bug (500, not retryable), while worker
+    # internals raising KeyError must stay 502. Duck-type the worker so
+    # truthy non-workers (str, ...) and non-callables (dict values, ...)
+    # land here instead of AttributeError/TypeError.
+    worker = entry.get("worker") if isinstance(entry, dict) else None
+    if not callable(getattr(worker, "save", None)):
+        print(f"[playwright-session-manager] malformed entry {sid!r}", file=sys.stderr, flush=True)
+        return JSONResponse({"detail": "malformed session entry"}, status_code=500)
+    try:
+        return worker.save()
+    except Exception as exc:
+        print(
+            f"[playwright-session-manager] save {sid!r} failed: {exc!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return JSONResponse({"detail": str(exc)}, status_code=502)
 
 
 def _resolve_state_path(value):
@@ -289,10 +511,10 @@ class _PlaywrightBackend:
         }
 
     @staticmethod
-    def save(session, path):
-        resolved = _resolve_state_path(path)
-        Path(resolved).parent.mkdir(parents=True, exist_ok=True)
-        return session["context"].storage_state(path=resolved)
+    def save(session):
+        # Collect the state dict on the owner thread; the caller persists it
+        # (atomic, symlink-safe write), so no path is opened here.
+        return session["context"].storage_state()
 
     @staticmethod
     def close(session):
@@ -325,6 +547,9 @@ class OpenRequest(BaseModel):
     node: Optional[str] = None
     url: Optional[str] = None
     storage_state: Optional[Union[str, dict]] = None
+    # Field constraints mirror _resolve_state_id and surface in the
+    # OpenAPI schema (pattern + maxLength) so generated docs match runtime.
+    state_id: Optional[str] = Field(default=None, pattern=r"^[a-z0-9-]+$", max_length=63)
 
     @field_validator("node", "url")
     @classmethod
@@ -343,6 +568,23 @@ class OpenRequest(BaseModel):
         _resolve_state_path(value)
         return value.strip() if isinstance(value, str) else value
 
+    @field_validator("state_id")
+    @classmethod
+    def _check_state_id(cls, value):
+        if value is None:
+            return None
+        # Validate verbatim: unlike the legacy path fields, an id is not
+        # whitespace-normalized, so " a" / "a\n" are malformed (422).
+        if not isinstance(value, str) or not STATE_ID_RE.fullmatch(value) or len(value) > 63:
+            raise ValueError("invalid state_id (want ^[a-z0-9-]+$, max 63)")
+        return value
+
+    @model_validator(mode="after")
+    def _state_id_exclusive(self):
+        if self.state_id is not None and self.storage_state is not None:
+            raise ValueError("state_id and storage_state are mutually exclusive")
+        return self
+
 
 class SaveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -357,12 +599,73 @@ class SaveRequest(BaseModel):
         return value.strip()
 
 
+class SaveStateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+
+    @field_validator("session_id")
+    @classmethod
+    def _strip_session_id(cls, value):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("session_id is required")
+        return value.strip()
+
+
 app = FastAPI(title="Playwright session manager")
 
 
 @app.get("/api/playwright/state-files")
 def state_files():
     return {"state_files": _state_files()}
+
+
+@app.get("/api/playwright/states")
+def list_states():
+    return {"states": [{"id": state_id} for state_id in _state_ids()]}
+
+
+@app.put("/api/playwright/states/{state_id:path}")
+def put_state(state_id: str, body: SaveStateRequest):
+    try:
+        path = _resolve_state_id(state_id)
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+    state = _collect_state(body.session_id)
+    if isinstance(state, JSONResponse):
+        return state
+    try:
+        _write_state_id(path, state)
+    except OSError as exc:
+        print(
+            f"[playwright-session-manager] write state {state_id!r} failed: {exc!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return JSONResponse({"detail": str(exc)}, status_code=502)
+    return {"id": state_id, "session_id": body.session_id}
+
+
+@app.delete("/api/playwright/states/{state_id:path}")
+def delete_state(state_id: str):
+    try:
+        path = _resolve_state_id(state_id)
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+    try:
+        _delete_state_id(path)
+    except FileNotFoundError:
+        return JSONResponse({"detail": "unknown state"}, status_code=404)
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+    except OSError as exc:
+        print(
+            f"[playwright-session-manager] delete state {state_id!r} failed: {exc!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return JSONResponse({"detail": str(exc)}, status_code=502)
+    return {"status": "ok"}
 
 
 @app.get("/api/playwright/sessions")
@@ -381,12 +684,31 @@ def list_sessions():
 
 @app.post("/api/playwright/sessions")
 def open_session(body: OpenRequest):
+    if body.state_id is not None:
+        # Resolve the id and read the state ourselves (pinned dir fd,
+        # O_NOFOLLOW, fstat-checked) and hand Playwright a dict: the path
+        # is never re-opened later, so a concurrent symlink swap cannot
+        # redirect the read and a non-object file is rejected.
+        try:
+            path = _resolve_state_id(body.state_id)
+        except ValueError as exc:
+            # The field validator already enforces this; keep the 422
+            # contract even if the two definitions ever drift.
+            return JSONResponse({"detail": str(exc)}, status_code=422)
+        try:
+            storage_state = _read_state_id(path)
+        except FileNotFoundError:
+            return JSONResponse({"detail": "unknown state"}, status_code=404)
+        except (OSError, ValueError) as exc:
+            return JSONResponse({"detail": f"invalid state file: {exc}"}, status_code=422)
+    else:
+        storage_state = body.storage_state
     try:
         worker = _PlaywrightWorker(
             body.browser,
             node=body.node,
             url=body.url,
-            storage_state=body.storage_state,
+            storage_state=storage_state,
         )
     except Exception as exc:
         print(f"[playwright-session-manager] open failed: {exc!r}", file=sys.stderr, flush=True)
@@ -411,26 +733,22 @@ def open_session(body: OpenRequest):
 
 @app.post("/api/playwright/sessions/{sid}/save")
 def save_session(sid: str, body: SaveRequest):
+    # Keep the v2.0.0 precedence: an unknown session is 404 even when the
+    # path is also invalid.
     with _LOCK:
-        entry = _pw_sessions.get(sid)
-    if entry is None:
+        exists = sid in _pw_sessions
+    if not exists:
         return JSONResponse({"detail": "unknown session"}, status_code=404)
     try:
         resolved = _resolve_state_path(body.path)
     except ValueError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=422)
-    # Pre-validate the entry shape instead of catching KeyError: a
-    # malformed entry is a bug (500, not retryable), while worker
-    # internals raising KeyError must stay 502. Duck-type the worker so
-    # truthy non-workers (str, ...) and non-callables (dict values, ...)
-    # land here instead of AttributeError/TypeError.
-    worker = entry.get("worker") if isinstance(entry, dict) else None
-    if not callable(getattr(worker, "save", None)):
-        print(f"[playwright-session-manager] malformed entry {sid!r}", file=sys.stderr, flush=True)
-        return JSONResponse({"detail": "malformed session entry"}, status_code=500)
+    state = _collect_state(sid)
+    if isinstance(state, JSONResponse):
+        return state
     try:
-        state = worker.save(resolved)
-    except Exception as exc:
+        _atomic_write_json(resolved, state)
+    except OSError as exc:
         print(
             f"[playwright-session-manager] save {sid!r} failed: {exc!r}",
             file=sys.stderr,

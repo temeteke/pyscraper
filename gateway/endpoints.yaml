@@ -15,8 +15,15 @@
 #                  by the manager, not the gateway).
 #   node           Optional node stereotype (e.g. a Selenium profile node).
 #                  Omit or null for the default node.
-#   storage_state  true to offer storage-state load/save in the UI
-#                  (Playwright only; default false).
+#   storage_state  Storage-state load/save for the UI (Playwright only).
+#                  true|false (v2.0.0 form) or a mapping:
+#                    enabled: true       # default true
+#                    ids: [id-a, id-b]   # UI select candidates (no extension)
+#                  ids must be ^[a-z0-9-]+$, <=63 chars, and unique across
+#                  all endpoints (SESSION_STATE_DIR is shared). With no ids
+#                  the UI cannot load or save states for the entry. The
+#                  file form <id>.json is never shown; ids are opaque.
+#                  enabled: false with a non-empty ids list is an error.
 #   novnc.host     Hostname of the noVNC upstream (without the FQDN suffix).
 #   novnc.port     Port of the noVNC upstream (default 7900).
 #
@@ -38,7 +45,8 @@ endpoints:
     label: Chromium (Playwright)
     framework: playwright
     browser: playwright-chromium
-    storage_state: true
+    storage_state:
+      ids: [chromium]
     novnc:
       host: playwright-chromium
       port: 7900
@@ -47,7 +55,8 @@ endpoints:
     label: Firefox (Playwright)
     framework: playwright
     browser: playwright-firefox
-    storage_state: true
+    storage_state:
+      ids: [firefox]
     novnc:
       host: playwright-firefox
       port: 7900
@@ -56,7 +65,8 @@ endpoints:
     label: WebKit (Playwright)
     framework: playwright
     browser: playwright-webkit
-    storage_state: true
+    storage_state:
+      ids: [webkit]
     novnc:
       host: playwright-webkit
       port: 7900

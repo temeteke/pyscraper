@@ -7,9 +7,11 @@ gateway UI via the Hub relay, with storage_state load/save
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 SM_PATH = Path(__file__).resolve().parent.parent / "servers" / "playwright_session_manager.py"
@@ -84,6 +86,350 @@ class TestStateFiles:
         r = _client(sm).get("/api/playwright/state-files")
         assert r.status_code == 200
         assert r.json() == {"state_files": ["s.json"]}
+
+
+class TestStateResources:
+    """The id-based state resource API (v2.1.0)."""
+
+    def _mock_worker(self):
+        worker = MagicMock()
+        worker.error = None
+        worker.save.return_value = {"cookies": []}
+        return worker
+
+    def _open(self, sm, worker, browser="playwright-firefox"):
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker):
+            r = _client(sm).post("/api/playwright/sessions", json={"browser": browser})
+        assert r.status_code == 200
+        return r.json()["id"]
+
+    def test_list_states_endpoint(self, monkeypatch, tmp_path):
+        (tmp_path / "a.json").write_text("{}")
+        (tmp_path / "b.json").write_text("{}")
+        (tmp_path / "not-json.txt").write_text("{}")
+        (tmp_path / "Bad.json").write_text("{}")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "c.json").write_text("{}")
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).get("/api/playwright/states")
+        assert r.status_code == 200
+        assert r.json() == {"states": [{"id": "a"}, {"id": "b"}]}
+
+    def test_list_states_empty(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).get("/api/playwright/states")
+        assert r.status_code == 200
+        assert r.json() == {"states": []}
+
+    def test_list_states_excludes_overlong_stem(self, monkeypatch, tmp_path):
+        (tmp_path / ("a" * 64 + ".json")).write_text("{}")
+        (tmp_path / ("b" * 63 + ".json")).write_text("{}")
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).get("/api/playwright/states")
+        assert r.json() == {"states": [{"id": "b" * 63}]}
+
+    def test_resolve_state_id_rejects_whitespace(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        for bad in [" a", "a ", "a\n", "a\t", "A", "a_b", "a.b", "a" * 64]:
+            with pytest.raises(ValueError):
+                sm._resolve_state_id(bad)
+
+    def test_relative_state_dir_round_trip(self, monkeypatch, tmp_path):
+        # A relative SESSION_STATE_DIR must resolve to one absolute file,
+        # not STATE_DIR/states/<id>.json (double application).
+        monkeypatch.chdir(tmp_path)
+        sm = _load_sm(monkeypatch, tmp_path, env={"SESSION_STATE_DIR": "states"})
+        assert sm.STATE_DIR == tmp_path / "states"
+        (tmp_path / "states").mkdir()
+        client = _client(sm)
+        worker = self._mock_worker()
+        sid = self._open(sm, worker)
+        r = client.put("/api/playwright/states/rel", json={"session_id": sid})
+        assert r.status_code == 200
+        assert (tmp_path / "states" / "rel.json").exists()
+        assert not (tmp_path / "states" / "states").exists()
+        assert client.get("/api/playwright/states").json() == {"states": [{"id": "rel"}]}
+
+    def test_backend_save_returns_dict(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        context = MagicMock()
+        context.storage_state.return_value = {"cookies": [{"name": "x"}]}
+        assert sm._PlaywrightBackend.save({"context": context}) == {"cookies": [{"name": "x"}]}
+        context.storage_state.assert_called_once_with()
+
+    def test_write_state_id_preserves_existing_mode(self, monkeypatch, tmp_path):
+        target = tmp_path / "m.json"
+        target.write_text("{}")
+        os.chmod(target, 0o640)
+        sm = _load_sm(monkeypatch, tmp_path)
+        sm._write_state_id(target, {"cookies": []})
+        assert json.loads(target.read_text()) == {"cookies": []}
+        assert (target.stat().st_mode & 0o777) == 0o640
+
+    def test_write_state_id_new_file_uses_umask(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        path = tmp_path / "fresh.json"
+        current = os.umask(0o022)
+        os.umask(current)
+        sm._write_state_id(path, {"cookies": []})
+        assert (path.stat().st_mode & 0o777) == (0o666 & ~current)
+
+    def test_read_state_id_requires_json_object(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        for payload in ("null", '"x"', "[1, 2]"):
+            target = tmp_path / "value.json"
+            target.write_text(payload)
+            with pytest.raises(ValueError):
+                sm._read_state_id(target)
+
+    def test_read_state_id_rejects_non_regular(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        fifo = tmp_path / "fifo.json"
+        os.mkfifo(fifo)
+        with pytest.raises(ValueError):
+            sm._read_state_id(fifo)
+
+    def test_delete_state_id_rejects_non_regular(self, monkeypatch, tmp_path):
+        (tmp_path / "target.json").write_text("{}")
+        (tmp_path / "link.json").symlink_to(tmp_path / "target.json")
+        sm = _load_sm(monkeypatch, tmp_path)
+        with pytest.raises(ValueError):
+            sm._delete_state_id(tmp_path / "link.json")
+        assert (tmp_path / "link.json").is_symlink()
+        assert (tmp_path / "target.json").exists()
+
+    def test_external_symlink_excluded_and_rejected(self, monkeypatch, tmp_path):
+        outside = tmp_path.parent / f"{tmp_path.name}-outside.json"
+        outside.write_text("{}")
+        (tmp_path / "evil.json").symlink_to(outside)
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        assert client.get("/api/playwright/states").json() == {"states": []}
+        assert client.delete("/api/playwright/states/evil").status_code == 422
+        assert (
+            client.put("/api/playwright/states/evil", json={"session_id": "x"}).status_code == 422
+        )
+        r = client.post(
+            "/api/playwright/sessions",
+            json={"browser": "playwright-firefox", "state_id": "evil"},
+        )
+        assert r.status_code == 422
+
+    def test_internal_symlink_excluded_and_rejected(self, monkeypatch, tmp_path):
+        real = tmp_path / "real.json"
+        real.write_text("{}")
+        (tmp_path / "link.json").symlink_to(real)
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        ids = {s["id"] for s in client.get("/api/playwright/states").json()["states"]}
+        assert ids == {"real"}
+        assert client.delete("/api/playwright/states/link").status_code == 422
+        r = client.post(
+            "/api/playwright/sessions",
+            json={"browser": "playwright-firefox", "state_id": "link"},
+        )
+        assert r.status_code == 422
+        # The link is left untouched, and so is its target.
+        assert (tmp_path / "link.json").is_symlink()
+        assert real.exists()
+
+    def test_dangling_symlink_excluded_and_rejected(self, monkeypatch, tmp_path):
+        (tmp_path / "dangling.json").symlink_to(tmp_path / "missing.json")
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        assert client.get("/api/playwright/states").json() == {"states": []}
+        r = client.post(
+            "/api/playwright/sessions",
+            json={"browser": "playwright-firefox", "state_id": "dangling"},
+        )
+        assert r.status_code == 422
+
+    @pytest.mark.parametrize("method", ["put", "delete"])
+    def test_state_id_with_slash_422(self, monkeypatch, tmp_path, method):
+        # ``{state_id:path}`` routes the raw value to the handler so the id
+        # validator (not a route miss) decides the status.
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        if method == "put":
+            r = client.put("/api/playwright/states/a/b", json={"session_id": "x"})
+        else:
+            r = client.delete("/api/playwright/states/a/b")
+        assert r.status_code == 422
+
+    def test_delete_race_missing_file_404(self, monkeypatch, tmp_path):
+        (tmp_path / "gone.json").write_text("{}")
+        sm = _load_sm(monkeypatch, tmp_path)
+        with patch.object(os, "unlink", side_effect=FileNotFoundError):
+            r = _client(sm).delete("/api/playwright/states/gone")
+        assert r.status_code == 404
+
+    def test_put_state_accepts_max_length_id(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        worker = self._mock_worker()
+        sid = self._open(sm, worker)
+        state_id = "a" * 63
+        r = client.put(f"/api/playwright/states/{state_id}", json={"session_id": sid})
+        assert r.status_code == 200
+        worker.save.assert_called_once_with()
+        assert json.loads((tmp_path / f"{state_id}.json").read_text()) == {"cookies": []}
+
+    def test_put_state_overwrites_existing(self, monkeypatch, tmp_path):
+        target = tmp_path / "existing.json"
+        target.write_text("old")
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        worker = self._mock_worker()
+        worker.save.return_value = {"cookies": [{"name": "new"}]}
+        sid = self._open(sm, worker)
+        r = client.put("/api/playwright/states/existing", json={"session_id": sid})
+        assert r.status_code == 200
+        assert json.loads(target.read_text()) == {"cookies": [{"name": "new"}]}
+
+    def test_put_state_saves_via_worker(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        worker = self._mock_worker()
+        sid = self._open(sm, worker)
+        r = client.put("/api/playwright/states/mystate", json={"session_id": sid})
+        assert r.status_code == 200
+        assert r.json() == {"id": "mystate", "session_id": sid}
+        worker.save.assert_called_once_with()
+        assert json.loads((tmp_path / "mystate.json").read_text()) == {"cookies": []}
+
+    def test_put_then_list_round_trip(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        worker = self._mock_worker()
+        sid = self._open(sm, worker)
+        r = client.put("/api/playwright/states/round", json={"session_id": sid})
+        assert r.status_code == 200
+        assert client.get("/api/playwright/states").json() == {"states": [{"id": "round"}]}
+
+    def test_delete_then_list_round_trip(self, monkeypatch, tmp_path):
+        (tmp_path / "temp.json").write_text("{}")
+        sm = _load_sm(monkeypatch, tmp_path)
+        client = _client(sm)
+        assert client.delete("/api/playwright/states/temp").status_code == 200
+        assert client.get("/api/playwright/states").json() == {"states": []}
+
+    def test_put_state_unknown_session_404(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).put("/api/playwright/states/mystate", json={"session_id": "nope"})
+        assert r.status_code == 404
+        assert "detail" in r.json()
+
+    @pytest.mark.parametrize("bad", ["Upper", "a_b", "a.b", "a" * 64])
+    def test_put_state_invalid_id_422(self, monkeypatch, tmp_path, bad):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).put(f"/api/playwright/states/{bad}", json={"session_id": "x"})
+        assert r.status_code == 422
+
+    def test_put_state_requires_session_id_422(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).put("/api/playwright/states/mystate", json={})
+        assert r.status_code == 422
+
+    def test_delete_state_removes_file(self, monkeypatch, tmp_path):
+        (tmp_path / "gone.json").write_text("{}")
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).delete("/api/playwright/states/gone")
+        assert r.status_code == 200
+        assert r.json() == {"status": "ok"}
+        assert not (tmp_path / "gone.json").exists()
+
+    def test_delete_unknown_state_404(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).delete("/api/playwright/states/missing")
+        assert r.status_code == 404
+        assert "detail" in r.json()
+
+    @pytest.mark.parametrize("bad", ["Upper", "a_b", "a" * 64])
+    def test_delete_invalid_id_422(self, monkeypatch, tmp_path, bad):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).delete(f"/api/playwright/states/{bad}")
+        assert r.status_code == 422
+
+    def test_open_with_state_id(self, monkeypatch, tmp_path):
+        (tmp_path / "s.json").write_text(json.dumps({"cookies": [{"name": "x"}]}))
+        sm = _load_sm(monkeypatch, tmp_path)
+        worker = self._mock_worker()
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions",
+                json={"browser": "playwright-firefox", "state_id": "s"},
+            )
+        assert r.status_code == 200
+        # The API reads the state and passes a dict: Playwright never
+        # re-opens the path (no symlink swap window).
+        m.assert_called_once_with(
+            "playwright-firefox",
+            node=None,
+            url=None,
+            storage_state={"cookies": [{"name": "x"}]},
+        )
+
+    @pytest.mark.parametrize("payload", ["not json", "null", '"x"', "[1, 2]"])
+    def test_open_state_id_malformed_file_422(self, monkeypatch, tmp_path, payload):
+        (tmp_path / "bad.json").write_text(payload)
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post(
+            "/api/playwright/sessions",
+            json={"browser": "playwright-firefox", "state_id": "bad"},
+        )
+        assert r.status_code == 422
+
+    def test_open_state_id_missing_404(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post(
+            "/api/playwright/sessions",
+            json={"browser": "playwright-firefox", "state_id": "missing"},
+        )
+        assert r.status_code == 404
+
+    def test_open_state_id_and_storage_state_422(self, monkeypatch, tmp_path):
+        (tmp_path / "s.json").write_text("{}")
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post(
+            "/api/playwright/sessions",
+            json={
+                "browser": "playwright-firefox",
+                "state_id": "s",
+                "storage_state": "s.json",
+            },
+        )
+        assert r.status_code == 422
+
+    def test_open_state_id_and_dict_storage_state_422(self, monkeypatch, tmp_path):
+        (tmp_path / "s.json").write_text("{}")
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post(
+            "/api/playwright/sessions",
+            json={
+                "browser": "playwright-firefox",
+                "state_id": "s",
+                "storage_state": {"cookies": []},
+            },
+        )
+        assert r.status_code == 422
+
+    @pytest.mark.parametrize("bad", ["..", "a/b", "a.b", "a\nb"])
+    def test_open_traversal_like_state_id_422(self, monkeypatch, tmp_path, bad):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post(
+            "/api/playwright/sessions",
+            json={"browser": "playwright-firefox", "state_id": bad},
+        )
+        assert r.status_code == 422
+
+    @pytest.mark.parametrize("bad", ["Upper", "a_b", "a" * 64, " a", "a ", "a\n", "a\t"])
+    def test_open_invalid_state_id_422(self, monkeypatch, tmp_path, bad):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post(
+            "/api/playwright/sessions",
+            json={"browser": "playwright-firefox", "state_id": bad},
+        )
+        assert r.status_code == 422
 
 
 class TestPlaywrightSessions:
@@ -260,7 +606,8 @@ class TestPlaywrightSessions:
         r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "  s.json  "})
         assert r.status_code == 200
         assert r.json()["path"] == str(tmp_path / "s.json")
-        worker.save.assert_called_once_with(str(tmp_path / "s.json"))
+        worker.save.assert_called_once_with()
+        assert json.loads((tmp_path / "s.json").read_text()) == {"cookies": []}
 
     def test_open_backend_failure_502(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)
@@ -332,7 +679,8 @@ class TestPlaywrightSessions:
         assert r.status_code == 200
         assert r.json()["path"] == str(tmp_path / "s.json")
         assert r.json()["state"] == {"cookies": []}
-        worker.save.assert_called_once_with(str(tmp_path / "s.json"))
+        worker.save.assert_called_once_with()
+        assert json.loads((tmp_path / "s.json").read_text()) == {"cookies": []}
 
     def test_save_failure_502(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)
@@ -459,6 +807,13 @@ class TestPlaywrightSessions:
         r = _client(sm).post("/api/playwright/sessions/xxx/save", json={"path": "s.json"})
         assert r.status_code == 404
         assert "detail" in r.json()
+
+    def test_save_unknown_session_beats_bad_path(self, monkeypatch, tmp_path):
+        # v2.0.0 precedence: unknown session is 404 even if the path also
+        # escapes the state dir.
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post("/api/playwright/sessions/xxx/save", json={"path": "/etc/evil.json"})
+        assert r.status_code == 404
 
     def test_save_requires_path_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
@@ -656,3 +1011,14 @@ class TestOpenAPI:
         client = _client(sm)
         assert client.get("/openapi.json").status_code == 200
         assert client.get("/docs").status_code == 200
+
+    def test_openapi_state_id_constraints(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        spec = _client(sm).get("/openapi.json").json()
+        schema = spec["components"]["schemas"]["OpenRequest"]["properties"]["state_id"]
+        string_type = next(
+            (part for part in schema["anyOf"] if part.get("type") == "string"), None
+        )
+        assert string_type is not None
+        assert string_type["pattern"] == "^[a-z0-9-]+$"
+        assert string_type["maxLength"] == 63

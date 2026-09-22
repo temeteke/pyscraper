@@ -190,7 +190,7 @@ the UI's endpoint list from it, resolving the DNS resolver from
   its assets relative to the page URL); `/vnc/<id>` without it is
   `301`-redirected to `/vnc/<id>/` by nginx. `/view` is not a route.
 - `/api/playwright/*` -- proxied to the `playwright-session-manager`
-  service (including `/api/playwright/state-files`); `/api/selenium/*` --
+  service (including `/api/playwright/states`); `/api/selenium/*` --
   to the `selenium-session-manager` service; `/api/endpoints` -- the
   registry-derived list the UI reads (see below).
 
@@ -202,12 +202,18 @@ challenges manually in the tile or full-size view, then persist:
 If no URL is given, the session opens on a blank page (Chrome shows
 `data:,`): navigate manually inside noVNC afterwards.
 
-- Playwright: the view offers a storage-state dropdown (load) and a
-  "Save state" control (save) when the entry sets `storage_state: true`.
-  Saving writes `storage_state` JSON into the shared state dir via the
-  API (`POST /api/playwright/sessions/{id}/save`); reload it via
-  `storage_state=` in client code or a later session. Client-side
-  equivalent:
+- Playwright: the view offers a single state selector plus a **Save**
+  button when the entry enables storage state. The selector lists the
+  entry's curated `storage_state.ids` (plus `(no state)`; the file form
+  `<id>.json` is never shown). Open loads the selected id when its file
+  exists and opens fresh otherwise (a curated id with no file yet can be
+  created by Save; the view notes the fresh open). Save writes the current
+  session to the selected id via
+  `PUT /api/playwright/states/{id}`, and the selector is locked while a
+  session is open so the load source and save target stay the same id.
+  With no configured ids the Save button is disabled. Reload a saved
+  state via `state_id=` in the API or `storage_state=` in client code.
+  Client-side equivalent:
 
   ```python
   with WebPagePlaywrightChromium("https://example.com", node="chromium") as wp:
@@ -234,8 +240,15 @@ pyscraper client code:
   is bound to its creating thread; close/save are dispatched to that
   thread), and are kept server-side with `{browser, node, worker}` (the
   worker owns `{browser, node, playwright_browser, context, page, pw}`);
-  close releases the node-side browser. Also serves `GET
-  /api/playwright/state-files` and `POST .../save`.
+  close releases the node-side browser. States are exposed as an id
+  resource: `GET /api/playwright/states` lists
+  `{"states": [{"id": ...}]}` (the `.json` stems in `SESSION_STATE_DIR`
+  matching `^[a-z0-9-]+$`), `PUT /api/playwright/states/{id}`
+  `{session_id}` creates/overwrites `SESSION_STATE_DIR/{id}.json` from
+  that session, and `DELETE /api/playwright/states/{id}` removes it. A
+  session loads a state with `POST /api/playwright/sessions
+  {"state_id": "<id>"}`; an unknown id is `404`, a malformed id `422`,
+  and `state_id` together with `storage_state` is `422`.
 - `servers/selenium_session_manager.py` (service
   `selenium-session-manager`, via
   `Dockerfile.selenium-session-manager`): sessions open via
@@ -278,21 +291,58 @@ pyscraper client code:
   the message wording. (The Hub registry is stdlib and keeps its own
   `{"error": ...}` shape; out of scope here.) Undefined method/path
   combinations are `404` (unknown path) or `405` (known path, wrong
-  method). A direct `GET /api/playwright/state-files/` `307`-redirects to
-  the canonical path. Both managers serve auto-generated
-  `/openapi.json` + `/docs`.
+  method). Both managers serve auto-generated `/openapi.json` + `/docs`.
 - State files live in `SESSION_STATE_DIR` (`/data/sessions`, backed by
-  the `session-states` compose volume shared with the host), listed via
-  `GET /api/playwright/state-files` as `{"state_files": [...]}`. Paths are
-  confined to the state dir (absolute
-  paths escaping it are rejected with `422`). Playwright accepts either
-  a bare file name (resolved under the state dir, subdirectories
-  allowed but only top-level files are listed), a confined absolute server-side path, or an inline dict for
-  `storage_state` open; `save` accepts paths only (a dict path is `422`).
+  the `session-states` compose volume shared with the host). The id
+  resource is the supported interface: `GET /api/playwright/states`
+  lists `{"states": [{"id": ...}]}` (only regular `.json` stems matching
+  `^[a-z0-9-]+$`, at most 63 chars), `PUT
+  /api/playwright/states/{id}` `{"session_id": ...}`
+  creates/overwrites `{id}.json`, and `DELETE
+  /api/playwright/states/{id}` removes it. Ids are resource names, not
+  file names: the pattern excludes separators, and the id API manages
+  regular files only -- a symlink is rejected (`422`) and excluded from
+  the listing, so a link can never redirect a read or write outside the
+  state dir. Operations are pinned to a directory FD opened once
+  (`O_DIRECTORY | O_NOFOLLOW`), reads use `O_NOFOLLOW` plus an
+  `fstat`-based regular-file check, and writes are atomic (sibling temp
+  file + `os.replace`) while preserving the existing file mode. A path
+  swapped after validation is therefore a hard error, not an escape. Ids
+  are validated verbatim (no whitespace trimming): a padded or
+  newline-bearing id is `422`. Loading a missing id is `404`; a state
+  file whose JSON top level is not an object is `422`; supplying both
+  `state_id` and `storage_state` on open is `422`.
+- **Curated selection is a UI property, not an API one.** The UI can
+  only load/save the ids listed in the entry's `storage_state.ids`. The
+  API accepts any canonical id: `state_id` on open and
+  `PUT /api/playwright/states/{id}` are not registry-restricted. This
+  compatibility allowance is intentionally narrower than the UI, and
+  adding ids that are not in the registry (or using the path-based API
+  below) is **discouraged and planned for removal** alongside the
+  deprecated endpoints.
+- Deprecated (kept for compatibility, removal planned): the path-based
+  `GET /api/playwright/state-files` (`{"state_files": [...]}`), `POST
+  /api/playwright/sessions/{id}/save` (`{path}`), and the path/dict form
+  of the open field `storage_state`. They still work (paths are confined
+  to the state dir; absolute paths escaping it are rejected with `422`;
+  a dict path on `save` is `422`), but new integrations should use the
+  id resource. `GET /api/playwright/state-files/` (trailing slash)
+  `307`-redirects to the canonical path.
+- `storage_state.ids` must be unique across endpoints because they share
+  `SESSION_STATE_DIR`; this only prevents duplicate configuration
+  entries. It is **not** an exclusivity or single-writer guarantee:
+  different sessions can still PUT the same id.
 - The gateway UI exposes Open/Close + URL, and (for Playwright entries
-  with `storage_state: true`) a storage-state load dropdown and a save
-  control; all of it goes through the same API (`curl` against
-  `/api/...` above also works).
+  with `storage_state.enabled`) a single state selector plus Save driven
+  by `storage_state.ids`; the selector is locked while a session is open
+  (the id chosen at Open is both the load source and the save target),
+  and all of it goes through the same API (`curl` against `/api/...`
+  above also works). The view starts fail-closed (Open disabled until the
+  first session list succeeds), Open and Close are single-flight, a stale
+  list response cannot unlock the UI, an Open result that is ambiguous
+  (network error, 5xx, or a 2xx without an id) stays fail-closed until a
+  list succeeds, and if more than one matching session exists the view
+  stays fail-closed rather than guessing which one to act on.
 - Timeouts: `PLAYWRIGHT_OPEN_TIMEOUT` (default `60`s, bounds each open
   phase -- Hub `connect` and `page.goto` separately; the opener waits up
   to `2 * OPEN_TIMEOUT + 10`s) / `PLAYWRIGHT_WORKER_TIMEOUT` (default
@@ -348,6 +398,17 @@ endpoints:
     novnc:
       host: selenium-chrome-node     # noVNC upstream (without the suffix)
       port: 7900                     # default 7900
+
+  - id: playwright-chromium
+    label: Chromium (Playwright)
+    framework: playwright
+    browser: playwright-chromium
+    storage_state:                   # bool (v2.0.0) or mapping
+      enabled: true                  # default true
+      ids: [chromium]                # UI load/save candidates (no extension)
+    novnc:
+      host: playwright-chromium
+      port: 7900
 ```
 
 The gateway validates the registry at start (unique ids, known framework,
@@ -359,6 +420,17 @@ is validated by the manager (not the gateway), so a typo surfaces as a
 compose browsers; Selenium profile nodes are not enabled by default (see
 the example in `gateway/endpoints.yaml`).
 
+`storage_state` accepts the v2.0.0 boolean (`true`/`false`) or a mapping
+`{enabled?, ids?}`; it is normalized to `{enabled, ids}` in
+`/api/endpoints`. Rules: `enabled` defaults to `true`, must be a boolean,
+and may only be `true` for `playwright`; `ids` defaults to `[]`, each id
+must match `^[a-z0-9-]+$` with at most 63 chars, and ids must be unique
+across **all** endpoints (the state dir is shared); `enabled: false` with a
+non-empty `ids` list is a contradiction and rejected at start. Omitting
+`storage_state` disables it, but an explicit `storage_state: null` is a
+type error (use `false` to disable). With no
+configured ids the UI cannot load or save states for that entry.
+
 Environment variables:
 
 | Variable | Default | Purpose |
@@ -367,7 +439,7 @@ Environment variables:
 | `GATEWAY_BASE_PATH` | empty (root) | serve the gateway under a path prefix (e.g. `/gateway`); `/` then `308`-redirects to it |
 | `GATEWAY_RESOLVER` | first `nameserver` in `/etc/resolv.conf` | nginx `resolver` |
 | `GATEWAY_UPSTREAM_SUFFIX` | empty (short service names) | FQDN suffix appended to the registry noVNC hosts and the session-manager names |
-| `GATEWAY_PW_SESSION` | `playwright-session-manager` | `/api/playwright/*` (incl. `state-files`) |
+| `GATEWAY_PW_SESSION` | `playwright-session-manager` | `/api/playwright/*` (incl. `states`) |
 | `GATEWAY_SE_SESSION` | `selenium-session-manager` | `/api/selenium/*` |
 
 An explicit `GATEWAY_UPSTREAM_SUFFIX` is applied verbatim (for example

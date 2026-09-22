@@ -25,6 +25,33 @@ def has_newline: test("[\\n\\r]");
 
 def frameworks: ["playwright", "selenium"];
 
+# Normalize storage_state to {enabled, ids}. Accepts the v2.0.0 boolean
+# form (true|false) or a mapping {enabled?, ids?}; ids are the curated
+# state ids the UI may load/save (no extension). Fail-closed on any
+# problem. Omitted storage_state means disabled, but an explicit null is
+# a type error (has() distinguishes the two). ``enabled`` defaults to true
+# but must be read with has() -- ``//`` would turn an explicit false into
+# the default.
+def norm_ss($i; $id; $framework):
+  (if has("storage_state") then .storage_state else false end) as $raw
+  | if ($raw | type) == "boolean" then {enabled: $raw, ids: []}
+    elif ($raw | type) == "object" then
+      ($raw | keys_unsorted - ["enabled", "ids"]) as $unk
+      | if ($unk | length) > 0 then fail("endpoints[\($i)] (\($id)): unknown storage_state keys: \($unk | join(", "))") else . end
+      | (if ($raw | has("enabled")) then $raw.enabled else true end) as $en
+      | if ($en | type) != "boolean" then fail("endpoints[\($i)] (\($id)): storage_state.enabled must be a boolean") else . end
+      | (if ($raw | has("ids")) then $raw.ids else [] end) as $ids
+      | if ($ids | type) != "array" then fail("endpoints[\($i)] (\($id)): storage_state.ids must be an array") else . end
+      | if ($ids | map(type != "string") | any) then fail("endpoints[\($i)] (\($id)): storage_state.ids must be strings") else . end
+      | if ($ids | map(test("\\A[a-z0-9-]+\\z") | not) | any) then fail("endpoints[\($i)] (\($id)): invalid storage_state id (want ^[a-z0-9-]+$)") else . end
+      | if ($ids | map(length > 63) | any) then fail("endpoints[\($i)] (\($id)): storage_state id too long (max 63)") else . end
+      | if ($ids | length) != ($ids | unique | length) then fail("endpoints[\($i)] (\($id)): duplicate storage_state id") else . end
+      | {enabled: $en, ids: $ids}
+    else fail("endpoints[\($i)] (\($id)): storage_state must be a boolean or mapping") end
+  | if (.enabled == false) and ((.ids | length) > 0) then fail("endpoints[\($i)] (\($id)): storage_state.enabled is false but ids is not empty")
+    elif (.enabled == true) and ($framework != "playwright") then fail("endpoints[\($i)] (\($id)): storage_state is only supported for playwright")
+    else . end;
+
 # Validate the env-derived arguments. Rejects nginx metacharacters before any
 # value reaches a directive. The base path is also checked in the entrypoint
 # for an early message; this keeps a direct jq invocation fail-closed too.
@@ -39,7 +66,7 @@ def validate_args($resolver; $b; $sfx; $pw; $se; $rundir):
   elif ($pw | test("^[A-Za-z0-9._-]+$") | not) then fail("invalid playwright session upstream: \($pw)")
   elif ($se | has_newline) then fail("invalid selenium session upstream: \($se)")
   elif ($se | test("^[A-Za-z0-9._-]+$") | not) then fail("invalid selenium session upstream: \($se)")
-  elif ($rundir | test("^/[A-Za-z0-9._/-]+$") | not) then fail("invalid run dir: \($rundir)")
+  elif ($rundir | test("\\A/[A-Za-z0-9._/-]+\\z") | not) then fail("invalid run dir: \($rundir)")
   else . end;
 
 def header:
@@ -79,7 +106,7 @@ def norm($i):
   | if ($unk | length) > 0 then fail("endpoints[\($i)]: unknown keys: \($unk | join(", "))") else . end
   | (.id) as $id
   | if ($id | type) != "string" then fail("endpoints[\($i)]: id must be a string")
-    elif ($id | test("^[a-z0-9-]+$") | not) then fail("endpoints[\($i)]: invalid id \($id) (want ^[a-z0-9-]+$)")
+    elif ($id | test("\\A[a-z0-9-]+\\z") | not) then fail("endpoints[\($i)]: invalid id \($id) (want ^[a-z0-9-]+$)")
     elif ($id | length) > 63 then fail("endpoints[\($i)]: id too long (max 63)")
     else . end
   | (.label) as $label
@@ -95,7 +122,7 @@ def norm($i):
   | if ($browser | type) != "string" or ($browser | length) == 0 then fail("endpoints[\($i)] (\($id)): browser must be a non-empty string")
     else . end
   | (.node) as $node
-  | if ($node != null) and (($node | type) != "string" or ($node | test("^[A-Za-z0-9._-]+$") | not)) then fail("endpoints[\($i)] (\($id)): node must be null or match ^[A-Za-z0-9._-]+$")
+  | if ($node != null) and (($node | type) != "string" or ($node | test("\\A[A-Za-z0-9._-]+\\z") | not)) then fail("endpoints[\($i)] (\($id)): node must be null or match ^[A-Za-z0-9._-]+$")
     else . end
   | (.novnc) as $n
   | if ($n | type) != "object" then fail("endpoints[\($i)] (\($id)): novnc is required and must be a mapping") else . end
@@ -103,16 +130,13 @@ def norm($i):
   | if ($nunk | length) > 0 then fail("endpoints[\($i)] (\($id)): unknown novnc keys: \($nunk | join(", "))") else . end
   | ($n.host) as $host
   | if ($host | type) != "string" then fail("endpoints[\($i)] (\($id)): novnc.host must be a string")
-    elif ($host | test("^[A-Za-z0-9._-]+$") | not) then fail("endpoints[\($i)] (\($id)): novnc.host must match ^[A-Za-z0-9._-]+$")
+    elif ($host | test("\\A[A-Za-z0-9._-]+\\z") | not) then fail("endpoints[\($i)] (\($id)): novnc.host must match ^[A-Za-z0-9._-]+$")
     else . end
   | ($n.port // 7900) as $port
   | if ($port | type) != "number" then fail("endpoints[\($i)] (\($id)): novnc.port must be an integer 1-65535")
     elif (($port | floor) != $port) or ($port < 1) or ($port > 65535) then fail("endpoints[\($i)] (\($id)): novnc.port must be an integer 1-65535")
     else . end
-  | (.storage_state // false) as $ss
-  | if ($ss | type) != "boolean" then fail("endpoints[\($i)] (\($id)): storage_state must be a boolean")
-    elif ($ss == true) and ($framework != "playwright") then fail("endpoints[\($i)] (\($id)): storage_state is only supported for playwright")
-    else . end
+  | norm_ss($i; $id; $framework) as $ss
   | {id: $id, label: $label, framework: $framework, browser: $browser, node: $node, host: $host, port: $port, storage_state: $ss};
 
 . as $root
@@ -129,6 +153,8 @@ def norm($i):
 | if ($ids | length) != ($ids | unique | length) then fail("registry: duplicate endpoint id") else . end
 | ($E | map([.framework, .browser, .node])) as $uniq
 | if ($uniq | length) != ($uniq | unique | length) then fail("registry: duplicate (framework, browser, node)") else . end
+| ($E | map(.storage_state.ids) | add) as $state_ids
+| if ($state_ids | length) != ($state_ids | unique | length) then fail("registry: duplicate storage_state id across endpoints") else . end
 | {
     nginx: (
       header

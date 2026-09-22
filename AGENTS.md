@@ -57,7 +57,7 @@ docker compose config --quiet    # validate compose files
   image, published as `temeteke/pyscraper-gateway`): `/` tile overview
   plus `/view/<id>` single views and `/vnc/<id>/` raw noVNC per registry
   entry, and `/api/` proxied to the session managers
-  (`playwright-session-manager` on :8081 for sessions/save/state-files,
+  (`playwright-session-manager` on :8081 for sessions/states,
   `selenium-session-manager` on :8082 for sessions; both published). The
   gateway is registry-driven: `gateway/entrypoint.sh` validates
   `gateway/endpoints.yaml` with `gateway/generate.jq` (jq; YAML via

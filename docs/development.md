@@ -87,7 +87,7 @@ pyscraper/
 │   ├── playwright_hub.py               # Hub relay + node registry
 │   ├── playwright_node.py              # launch-server node
 │   ├── playwright-entrypoint-node.sh   # Xvfb/x11vnc/noVNC chain
-│   ├── playwright_session_manager.py   # Playwright sessions + save + state-files
+│   ├── playwright_session_manager.py   # Playwright sessions + state resources
 │   └── selenium_session_manager.py     # Selenium sessions (Grid REST)
 │
 └── pyproject.toml      # Project configuration
