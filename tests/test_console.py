@@ -1100,7 +1100,15 @@ class TestNginxSyntax:
     def _nginx_t(self, tmp_path, base):
         _require("jq", "nginx")
         conf = tmp_path / "console.conf"
-        conf.write_text(_jq_ok(tmp_path, SAMPLE_CONFIG, base=base)["nginx"])
+        text = _jq_ok(tmp_path, SAMPLE_CONFIG, base=base)["nginx"]
+        # nginx -t binds the listen sockets: rewrite the privileged ports
+        # so the check runs as non-root (CI runners). Syntax coverage is
+        # unchanged; the shipped port 80 stays pinned by
+        # TestGenerateNginx::test_base_empty_locations.
+        text = text.replace("listen 80;", "listen 18080;").replace(
+            "listen [::]:80;", "listen [::]:18080;"
+        )
+        conf.write_text(text)
         wrapper = tmp_path / "nginx.conf"
         wrapper.write_text(
             "worker_processes 1;\n"
