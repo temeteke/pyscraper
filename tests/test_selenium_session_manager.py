@@ -1,7 +1,7 @@
 """Unit tests for servers/selenium_session_manager.py.
 
 The Selenium session manager opens/closes browser sessions for the
-gateway UI via the Grid REST API (FastAPI + TestClient).
+console UI via the Grid REST API (FastAPI + TestClient).
 """
 
 import importlib.util
@@ -72,6 +72,15 @@ class TestSeleniumSessions:
         )
         assert r.status_code == 422
 
+    def test_open_context_options_422(self, monkeypatch, tmp_path):
+        # context_options is playwright-only; the selenium manager rejects it.
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post(
+            "/api/selenium/sessions",
+            json={"browser": "selenium-chrome", "context_options": {"locale": "ja-JP"}},
+        )
+        assert r.status_code == 422
+
     def test_open_non_string_node_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
@@ -108,10 +117,57 @@ class TestSeleniumSessions:
         with patch.object(sm._SeleniumBackend, "_request", return_value=created) as m:
             r = client.post("/api/selenium/sessions", json={"browser": "selenium-firefox"})
             assert r.status_code == 200
-            assert m.call_count == 1  # no url follow-up without url
+            # create + maximize; no url follow-up without url
+            assert m.call_count == 2
+            assert m.call_args_list[1] == (
+                ("POST", "/session/w3c-id/window/maximize", {}),
+                {},
+            )
         r = client.get("/api/selenium/sessions")
         assert r.status_code == 200
         assert r.json()["sessions"][0]["browser"] == "selenium-firefox"
+
+    def test_open_maximizes_before_navigate(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-chrome", "url": "https://example.com"},
+            )
+            assert r.status_code == 200
+        assert calls == [
+            ("POST", "/session", {"capabilities": {"alwaysMatch": {"browserName": "chrome"}}}),
+            ("POST", "/session/abc/window/maximize", {}),
+            ("POST", "/session/abc/url", {"url": "https://example.com"}),
+        ]
+
+    def test_open_maximize_failure_continues(self, monkeypatch, tmp_path, capsys):
+        # Maximize is best effort: a rejecting driver must not destroy the
+        # session. Navigation still runs and no compensating close happens.
+        sm = _load_sm(monkeypatch, tmp_path)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path))
+            if path.endswith("/window/maximize"):
+                raise RuntimeError("maximize failed")
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-chrome", "url": "https://example.com"},
+            )
+            assert r.status_code == 200
+            assert "maximize failed" in capsys.readouterr().err
+        assert ("POST", "/session/abc/url") in calls
+        assert not any(method == "DELETE" for method, _ in calls)
 
     def test_open_backend_failure_502(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)

@@ -46,7 +46,7 @@ with WebPagePlaywrightChromium("https://example.com") as web_page:
 ```
 
 For Grid/Hub routing (`node=`), profiles vs `storage_state`, and the browser
-gateway, see [Operations Guide](docs/operations.md).
+console, see [Operations Guide](docs/operations.md).
 
 ### Downloading files
 
@@ -74,11 +74,11 @@ intentionally not hardcoded in docs).
 Prebuilt images are published to Docker Hub and GHCR on `vX.Y.Z` tag
 pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags),
 on a weekly schedule, or manually via `workflow_dispatch`. This includes
-the browser gateway and both session managers, so
+the browser console and both session managers, so
 `docker compose pull && docker compose up -d` runs the whole stack from
 published images.
 See [Operations Guide](docs/operations.md) for the image table, tag
-semantics, `docker compose` usage, and gateway configuration.
+semantics, `docker compose` usage, and console configuration.
 
 ## Documentation
 

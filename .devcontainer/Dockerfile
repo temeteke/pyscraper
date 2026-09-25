@@ -7,6 +7,6 @@ COPY pyscraper pyscraper/
 # the editable install. postCreateCommand reinstalls from the mounted
 # workspace (which includes .git) with the real version.
 RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYSCRAPER=0.0 \
-    pip install -e ".[gateway]"
+    pip install -e ".[console]"
 
 RUN pip install pytest pytest-cov pytest-mock pre-commit

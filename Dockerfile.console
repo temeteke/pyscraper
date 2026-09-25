@@ -1,0 +1,35 @@
+# Console image: nginx reverse proxy + UI + session-manager relay.
+#
+# The nginx config and the UI's target list are rendered at container start
+# from console/config.yaml by console/entrypoint.sh, so the same image adapts
+# to its runtime environment. jq and yq-go come from the signed Alpine package
+# index (no downloaded binaries).
+FROM nginx:alpine
+
+RUN apk add --no-cache jq yq-go
+
+# The generated config replaces the stock default server.
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+# User-facing registry. Replace it or mount your own at CONSOLE_CONFIG_FILE
+# (/etc/console/ contains only this file, so a directory mount is safe).
+COPY console/config.yaml /etc/console/config.yaml
+
+# Image-owned generator.
+COPY console/generate.jq /usr/share/console/generate.jq
+
+# Static UI (the base path and id are derived client-side).
+COPY console/index.html /usr/share/nginx/html/index.html
+COPY console/view.html /usr/share/nginx/html/view.html
+
+COPY console/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Generated files land in /run/console and /etc/nginx/conf.d; mount these
+# writable (plus /var/cache/nginx and /var/run) when running with a
+# read-only root filesystem.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost/healthz >/dev/null || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]
+EXPOSE 80

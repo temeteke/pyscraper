@@ -39,13 +39,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[gateway]"
+          pip install -e ".[console]"
           pip install pytest pytest-cov pytest-mock
 
-      - name: Install gateway render tools (yq, jq)
-        # The gateway tests exercise the real entrypoint: yq (YAML->JSON) and
-        # jq (generate.jq). jq ships with the runner; yq is pinned and
-        # checksum-verified.
+      - name: Install console render tools (yq, jq, nginx)
+        # The console tests exercise the real entrypoint: yq (YAML->JSON),
+        # jq (generate.jq), and nginx -t (rendered config syntax). jq ships
+        # with the runner; yq is pinned and checksum-verified.
         run: |
           YQ_VERSION=v4.53.3
           YQ_SHA256=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
@@ -56,6 +56,7 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/yq" --version
           command -v jq >/dev/null || sudo apt-get install -y -qq jq
+          command -v nginx >/dev/null || sudo apt-get install -y -qq nginx
 
       - name: Run unit tests
         run: |

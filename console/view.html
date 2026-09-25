@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>PyScraper Gateway - Browser View</title>
+<title>Console</title>
 <style>
 body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
 header { display: flex; gap: 0.5em; padding: 0.5em 1em; align-items: center; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
@@ -25,7 +25,6 @@ a { font-size: 0.85em; }
 <input type="text" id="url" placeholder="https://example.com">
 <select id="state" title="State to load on open and save to" hidden></select>
 <button id="save" hidden title="Save session state to the selected state">Save</button>
-<span id="savehint" hidden></span>
 <button id="open">Open</button>
 <button id="close">Close</button>
 </header>
@@ -35,7 +34,7 @@ a { font-size: 0.85em; }
 "use strict";
 
 // Static UI: the URL is <base>/view/<id>; derive both from the path so the
-// same file works at "/view/<id>" or under GATEWAY_BASE_PATH.
+// same file works at "/view/<id>" or under CONSOLE_BASE_PATH.
 function deriveBaseAndId() {
   const m = location.pathname.match(/^(.*)\/view\/([^/]+)\/?$/);
   return m ? {base: m[1], id: m[2]} : null;
@@ -43,6 +42,7 @@ function deriveBaseAndId() {
 const route = deriveBaseAndId();
 const BASE = route ? route.base : "";
 const ID = route ? route.id : null;
+const REQUESTED_STATE = new URLSearchParams(location.search).get("state") || "";
 const $ = id => document.getElementById(id);
 
 function vncUrl(e) {
@@ -69,91 +69,94 @@ function showToast(msg) {
   showToast._t = setTimeout(() => { el.style.display = "none"; }, 8000);
 }
 
-async function loadEndpoints() {
-  const res = await fetch(`${BASE}/api/endpoints`, {cache: "no-store"});
+async function loadConfig() {
+  const res = await fetch(`${BASE}/config.json`, {cache: "no-store"});
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return (data && Array.isArray(data.endpoints)) ? data.endpoints : [];
+  return (data && typeof data === "object") ? data : {};
 }
 
-function unknownBrowser() {
+function unknownBrowser(message) {
   const p = document.createElement("p");
   const a = document.createElement("a");
   a.href = `${BASE}/`;
   a.textContent = "Back to tiles";
-  p.append("Unknown browser. ", a);
+  p.append(message ? `${message} ` : "Unknown browser. ", a);
   document.body.replaceChildren(p);
 }
 
 async function setup(e) {
-  document.title = `PyScraper Gateway - ${e.label}`;
+  document.title = e.label;
   $("title").textContent = e.label;
   const apiBase = `${BASE}/api/${e.framework}/sessions`;
-  const supportsState = !!e.storage_state && e.storage_state.enabled === true
-    && e.framework === "playwright";
-  // Curated state ids from storage_state.ids: the only values the UI may
-  // load from / save to. File names (and the .json extension) are never
-  // shown; ids are opaque resource names.
-  const configuredIds = (e.storage_state && Array.isArray(e.storage_state.ids))
-    ? e.storage_state.ids : [];
+  const supportsState = !!e.storage_state && e.framework === "playwright";
+  // Configured states: the only ids the UI may load from / save to. The
+  // file form (<id>.json) is never shown; labels are display-only.
+  const states = (supportsState && Array.isArray(e.storage_state.states))
+    ? e.storage_state.states.filter(s => s && typeof s.id === "string")
+    : [];
+  const stateById = new Map(states.map(s => [s.id, s]));
   let sessionId = null;
   let sessionKnown = false;  // a successful session list has been seen
+  let listUnknown = false;   // the latest session list fetch failed
   let opening = false;       // an Open request is in flight
   let closing = false;       // a Close request is in flight
+  let saving = false;        // a Save request is in flight
+  let savedFor = null;       // session id saved since it opened (null: none)
+  let sessionStateId = "";   // state chosen when this page opened the session
+  let ownedSessionId = null; // session opened by THIS page (Close/cleanup)
   let refreshSeq = 0;        // drops stale/out-of-order list responses
-  let existingIds = [];      // state ids that exist server-side right now
+  let existingIds = null;    // state ids server-side; null = unknown
 
   $("frame").src = vncUrl(e);
   if (supportsState) {
     $("state").hidden = false;
     $("save").hidden = false;
-    if (!configuredIds.length) {
-      $("save").disabled = true;
-      $("savehint").hidden = false;
-      $("savehint").textContent = "Set storage_state.ids to enable saving";
-    }
+    fillStateSelect();
   }
   // Start fail closed: until the first session list succeeds we must not
   // allow Open (an unseen session could already exist).
   applyUnknownSession();
 
+  // Returns the existing state ids, or null when the list could not be
+  // fetched (the caller keeps the last known list instead of assuming none).
   async function loadStateIds() {
     try {
       const res = await fetch(`${BASE}/api/playwright/states`, {cache: "no-store"});
-      if (!res.ok) return [];
+      if (!res.ok) return null;
       const data = await res.json();
       return (data && Array.isArray(data.states))
         ? data.states.map(s => s && s.id).filter(x => typeof x === "string")
-        : [];
+        : null;
     } catch (err) {
-      return [];
+      return null;
     }
   }
 
-  function fillSelect(sel, options, noneLabel) {
-    const current = sel.value;
+  function fillStateSelect() {
+    const sel = $("state");
     sel.replaceChildren();
-    if (noneLabel !== undefined) {
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = noneLabel;
-      sel.appendChild(none);
-    }
-    for (const value of options) {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "(no state)";
+    sel.appendChild(none);
+    for (const s of states) {
       const o = document.createElement("option");
-      o.value = value;
-      o.textContent = value;
+      o.value = s.id;
+      o.textContent = s.label || s.id;
       sel.appendChild(o);
     }
-    if ([...sel.options].some(o => o.value === current)) sel.value = current;
+    // Default to the first state; an unknown ?state= id is ignored.
+    const wanted = stateById.has(REQUESTED_STATE)
+      ? REQUESTED_STATE
+      : (states[0] ? states[0].id : "");
+    sel.value = wanted;
   }
 
-  async function refreshStateOptions() {
-    existingIds = await loadStateIds();
-    // One selector serves both directions: every curated id is offered so a
-    // new one can be created by saving to it. Existence only matters at Open
-    // (a missing id opens fresh instead of loading).
-    fillSelect($("state"), configuredIds, "(no state)");
+  // The selected state prefills the URL field (empty when it has no url).
+  function prefillUrl() {
+    const s = stateById.get($("state").value);
+    $("url").value = (s && typeof s.url === "string") ? s.url : "";
   }
 
   function setStateLocked(locked) {
@@ -161,29 +164,37 @@ async function setup(e) {
   }
 
   // Fail closed: while the session list is unknown, keep the last known
-  // lock and block Open so a duplicate session cannot be created.
+  // lock and block Open so a duplicate session cannot be created. Close
+  // stays available for the session this page opened (ownedSessionId): that
+  // handle came from our own Open response, not from a guess.
   function applyUnknownSession() {
     $("badge").textContent = "error (?)";
     $("badge").classList.remove("open");
     $("open").disabled = true;
-    $("close").disabled = true;
+    $("close").disabled = !ownedSessionId;
     $("save").disabled = true;
     setStateLocked(true);
   }
 
-  // Reflect the known session (id or none) in the controls and the Load
+  // Reflect the known session (id or none) in the controls and the state
   // lock. Safe to call after a failed refresh: the last confirmed state is
-  // preserved rather than being downgraded to "no session".
+  // preserved rather than being downgraded to "no session". When the latest
+  // list fetch failed, Open stays disabled so a session created elsewhere
+  // cannot be duplicated.
   function applySession() {
-    $("badge").textContent = sessionId ? `open (${sessionId})` : "closed";
+    const unknown = listUnknown;
+    $("badge").textContent = sessionId
+      ? (unknown ? `open (${sessionId}) ?` : `open (${sessionId})`)
+      : (unknown ? "error (?)" : "closed");
     $("badge").classList.toggle("open", !!sessionId);
-    $("open").disabled = opening || closing || !!sessionId;
-    $("close").disabled = closing || !sessionId;
-    $("save").disabled = closing || !sessionId || !configuredIds.length;
+    $("open").disabled = opening || closing || saving || !!sessionId || unknown;
+    $("close").disabled = closing || saving || !sessionId;
+    const stateSelected = supportsState && !!$("state").value;
+    $("save").disabled = saving || closing || !sessionId || !stateSelected;
     // The selected state is fixed for the lifetime of the session: lock the
     // selector from the moment Open is pressed until Close succeeds, so the
     // session's load source and save target stay the same id.
-    setStateLocked(opening || closing || !!sessionId);
+    setStateLocked(opening || closing || saving || !!sessionId);
   }
 
   async function refreshSession() {
@@ -193,11 +204,17 @@ async function setup(e) {
       const res = await fetch(apiBase, {cache: "no-store"});
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      sessions = (data && Array.isArray(data.sessions)) ? data.sessions : [];
+      if (!(data && Array.isArray(data.sessions))) throw new Error("malformed session list");
+      if (!data.sessions.every(s => s && typeof s.id === "string")) {
+        throw new Error("malformed session entry");
+      }
+      sessions = data.sessions;
     } catch (err) {
       if (seq !== refreshSeq) return;  // a newer refresh already answered
       // Unknown state: only fail closed when no successful list has ever
-      // been seen; otherwise keep the last confirmed session and lock.
+      // been seen; otherwise keep the last confirmed session and lock, but
+      // keep Open disabled (another client may have opened one meanwhile).
+      listUnknown = true;
       if (sessionKnown) applySession();
       else applyUnknownSession();
       return;
@@ -205,8 +222,10 @@ async function setup(e) {
     if (seq !== refreshSeq) return;  // a newer refresh already answered
     const mine = sessions.filter(s => matches(s, e));
     if (mine.length > 1) {
-      // Ambiguous: more than one session matches this endpoint. Do not
+      // Ambiguous: more than one session matches this target. Do not
       // guess which one to close or save; stay fail-closed until resolved.
+      // The session this page opened is still ours, so keep its handle for
+      // cleanup (applyUnknownSession leaves Close enabled for it).
       sessionId = null;
       sessionKnown = false;
       applyUnknownSession();
@@ -214,24 +233,40 @@ async function setup(e) {
       return;
     }
     const last = mine.length ? mine[0] : null;
-    sessionId = (last && typeof last.id === "string") ? last.id : null;
+    const nextId = (last && typeof last.id === "string") ? last.id : null;
+    if (nextId !== ownedSessionId) {
+      // The view is no longer on the session it opened (it was closed, or
+      // another client replaced it): drop the saved-for/state association so
+      // a later Close cannot skip the unsaved confirmation.
+      ownedSessionId = null;
+      sessionStateId = "";
+      savedFor = null;
+    }
+    sessionId = nextId;
     sessionKnown = true;
+    listUnknown = false;
     applySession();
   }
 
+  $("state").onchange = prefillUrl;
+
   $("open").onclick = async () => {
-    // Single-flight: ignore clicks while a session exists or is opening.
-    if (opening || sessionId) return;
+    // Single-flight: ignore clicks while a session exists or is in flight.
+    if (opening || closing || saving || sessionId) return;
     // Capture the choice now: the selector is locked below, so this is the
     // state this session loads and the id Save writes back to.
     const chosenStateId = supportsState ? $("state").value : "";
+    // The state list may be unknown (GET /states failed): open fresh and
+    // say so rather than silently skipping the load.
+    const stateUnknown = !!chosenStateId && existingIds === null;
     const payload = {browser: e.browser};
     if (e.node) payload.node = e.node;
     const url = $("url").value.trim();
     if (url) payload.url = url;
-    // Load only when the selected id actually exists; a curated id that has
-    // no file yet opens fresh and can be created by Save.
-    if (chosenStateId && existingIds.includes(chosenStateId)) {
+    if (e.context_options) payload.context_options = e.context_options;
+    // Load only when the selected id is known to exist; a configured id that
+    // has no file yet opens fresh and can be created by Save.
+    if (chosenStateId && existingIds !== null && existingIds.includes(chosenStateId)) {
       payload.state_id = chosenStateId;
     }
     opening = true;
@@ -268,8 +303,14 @@ async function setup(e) {
       // follow-up list call only reconciles with the server.
       sessionId = data.id;
       sessionKnown = true;
+      listUnknown = false;
+      ownedSessionId = data.id;
+      sessionStateId = chosenStateId;
+      savedFor = null;
       applySession();
-      if (chosenStateId && !existingIds.includes(chosenStateId)) {
+      if (stateUnknown) {
+        showToast(`Could not check saved state '${chosenStateId}'; opened fresh`);
+      } else if (chosenStateId && !existingIds.includes(chosenStateId)) {
         showToast(`No saved state for '${chosenStateId}'; opened fresh`);
       }
     } catch (err) {
@@ -284,19 +325,27 @@ async function setup(e) {
   };
 
   $("close").onclick = async () => {
-    if (closing || !sessionId) return;
-    // Capture the id: a concurrent Open/refresh must not change which
-    // session this request closes.
-    const targetSessionId = sessionId;
+    // The owned session stays closable even when the list is ambiguous or
+    // unknown: the id came from our own Open response, not from a guess.
+    const target = sessionId || ownedSessionId;
+    if (closing || saving || !target) return;
+    // Unsaved-session guard: only when this page opened the session with a
+    // selected state, and that session was not saved since.
+    if (supportsState && sessionStateId && savedFor !== target) {
+      if (!confirm("State has not been saved. Close anyway?")) return;
+    }
     closing = true;
     applySession();
     try {
-      const res = await fetch(`${apiBase}/${targetSessionId}`, {method: "DELETE"});
+      const res = await fetch(`${apiBase}/${target}`, {method: "DELETE"});
       const data = (await res.json().catch(() => ({}))) ?? {};
       if (!res.ok) throw new Error(formatDetail(data, res.status));
       // Close is confirmed: reflect it now, then reconcile with the server.
       sessionId = null;
       sessionKnown = true;
+      ownedSessionId = null;
+      sessionStateId = "";
+      savedFor = null;
       applySession();
     } catch (err) {
       showToast(`Close failed: ${err.message}`);
@@ -307,40 +356,55 @@ async function setup(e) {
   };
 
   $("save").onclick = async () => {
-    if (closing || !sessionId) return;
+    if (saving || closing || !sessionId) return;
+    // Capture the target up front: a 10s refresh may switch sessionId while
+    // the request is in flight, and the saved-for flag must not follow it.
+    const targetSessionId = sessionId;
     const stateId = $("state").value;
     if (!stateId) { showToast("Save failed: select a state id"); return; }
+    saving = true;
+    applySession();
     try {
       const res = await fetch(`${BASE}/api/playwright/states/${encodeURIComponent(stateId)}`, {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({session_id: sessionId}),
+        body: JSON.stringify({session_id: targetSessionId}),
       });
       const data = (await res.json().catch(() => ({}))) ?? {};
       if (!res.ok) throw new Error(formatDetail(data, res.status));
       // The file may be new; refresh the existence set for later Opens.
-      await refreshStateOptions();
+      // A failed refresh keeps the last known list (never assume empty).
+      const ids = await loadStateIds();
+      if (ids !== null) existingIds = ids;
+      if (sessionId === targetSessionId) savedFor = targetSessionId;
       showToast(`Saved ${stateId}`);
     } catch (err) {
       showToast(`Save failed: ${err.message}`);
+    } finally {
+      saving = false;
+      applySession();
     }
   };
 
-  if (supportsState) await refreshStateOptions();
+  if (supportsState) {
+    existingIds = await loadStateIds();
+    prefillUrl();
+  }
   await refreshSession();
   setInterval(refreshSession, 10000);
 }
 
 async function main() {
   if (!route) { unknownBrowser(); return; }
-  let endpoints;
+  let config;
   try {
-    endpoints = await loadEndpoints();
+    config = await loadConfig();
   } catch (err) {
-    unknownBrowser();
+    unknownBrowser(`Could not load ${BASE}/config.json: ${err.message}.`);
     return;
   }
-  const e = endpoints.find(x => x.id === ID);
+  const targets = Array.isArray(config.targets) ? config.targets : [];
+  const e = targets.find(x => x.id === ID);
   if (!e) { unknownBrowser(); return; }
   await setup(e);
 }

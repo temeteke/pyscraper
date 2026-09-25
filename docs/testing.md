@@ -69,6 +69,30 @@ Covered components (exact counts vary over time; see above):
 - Utils (CachedGenerator, LazyList)
 - WebPage / WebPageRequests / WebPagePlaywright (HTML, XPath, encoding, proxy)
 
+### Tool-dependent tests
+
+The console image tests (`tests/test_console.py`) exercise the real
+render pipeline. They are skipped when the tool is missing, so a local
+run without them is expected to show a few skips:
+
+- `yq` (YAML -> JSON) and `jq` (`console/generate.jq`) for the
+  entrypoint/rendering tests. `.github/workflows/tests.yml` installs the
+  pinned `yq` and `jq`.
+- `nginx` for the generated-config syntax check
+  (`TestNginxSyntax`). CI installs nginx; without it those syntax checks
+  are skipped locally.
+
+### UI tests and their limits
+
+The console UI tests (`TestUI`) assert static wiring: document titles, the
+`<base>/config.json` fetch, role-based URLs, `ui` options handling, lazy
+iframe loading, the state selector, saved-state flags, fail-closed guards,
+and single-flight conditions. They do not execute the JavaScript: no DOM
+runner (jsdom and friends) is used, so dead code and condition ordering are
+not covered by tests. State transitions in the view (stale response
+handling, list/session reconciliation, unsaved-close confirmation) are
+guarded by the real-image smoke checks and code review instead.
+
 ---
 
 ## Integration Tests

@@ -1,8 +1,8 @@
-# Selenium session manager for the gateway UI (published as
+# Selenium session manager for the console UI (published as
 # temeteke/pyscraper-selenium-session-manager + GHCR).
 # FastAPI + uvicorn (Grid access itself is plain urllib).
 # Keep FASTAPI_VERSION / UVICORN_VERSION in sync with setup.cfg
-# (gateway extra) and Dockerfile.playwright-session-manager
+# (console extra) and Dockerfile.playwright-session-manager
 # (no pin test exists).
 ARG FASTAPI_VERSION=0.119.0
 ARG UVICORN_VERSION=0.37.0

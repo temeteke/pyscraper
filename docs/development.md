@@ -11,8 +11,8 @@ Development guide for the pyscraper project.
 git clone https://github.com/temeteke/pyscraper.git
 cd pyscraper
 
-# Install dependencies (gateway extra covers the base install)
-pip install -e ".[gateway]"
+# Install dependencies (console extra covers the base install)
+pip install -e ".[console]"
 pip install pytest pytest-cov pytest-mock
 
 # Run tests
@@ -71,10 +71,11 @@ pyscraper/
 │   ├── test_webpage_playwright.py  # Playwright tests
 │   ├── test_webfile.py # WebFile tests (unit & integration)
 │   ├── test_hlsfile.py # HLSFile tests
-│   ├── test_playwright_hub.py             # Gateway Playwright Hub relay/registry
-│   ├── test_playwright_node.py            # Gateway Playwright node wrapper
-│   ├── test_playwright_session_manager.py # Gateway Playwright session manager API
-│   ├── test_selenium_session_manager.py   # Gateway Selenium session manager API
+│   ├── test_console.py                    # Console registry/nginx/UI image
+│   ├── test_playwright_hub.py             # Console Playwright Hub relay/registry
+│   ├── test_playwright_node.py            # Console Playwright node wrapper
+│   ├── test_playwright_session_manager.py # Console Playwright session manager API
+│   ├── test_selenium_session_manager.py   # Console Selenium session manager API
 │   └── test_utils.py   # Utility tests
 │
 ├── docs/               # Documentation

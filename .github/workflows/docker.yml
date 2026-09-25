@@ -134,7 +134,7 @@ jobs:
             VERSION=${{ steps.version.outputs.tag }}
 
   push_playwright_images:
-    name: Push browser and gateway images to Docker Hub and GHCR
+    name: Push browser and console images to Docker Hub and GHCR
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # actions/cache (type=gha) needs write for cache save; scoped to this
@@ -176,9 +176,9 @@ jobs:
             image: temeteke/pyscraper-selenium-session-manager
             suffix: selenium-session-manager
             platforms: linux/amd64,linux/arm64
-          - dockerfile: ./Dockerfile.gateway
-            image: temeteke/pyscraper-gateway
-            suffix: gateway
+          - dockerfile: ./Dockerfile.console
+            image: temeteke/pyscraper-console
+            suffix: console
             platforms: linux/amd64,linux/arm64
     steps:
       - name: Check out the repo

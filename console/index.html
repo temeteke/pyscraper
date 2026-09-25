@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Console</title>
+<style>
+body { font-family: sans-serif; margin: 0; padding: 0.5em 0.75em; }
+h2 { margin: 0.75em 0 0.25em; font-size: 1em; }
+.grid { display: grid; gap: 0.5em; }
+.tile { border: 1px solid #ccc; border-radius: 4px; padding: 0.4em; }
+.tile h3 { margin: 0 0 0.25em; font-size: 0.9em; display: flex; justify-content: space-between; align-items: center; gap: 0.5em; }
+.tile iframe { width: 100%; aspect-ratio: 16 / 9; border: 1px solid #999; background: #000; display: block; }
+.badge { font-size: 0.8em; padding: 0.1em 0.5em; border-radius: 1em; background: #eee; display: inline-block; min-width: 20ch; text-align: center; }
+.badge.open { background: #cfc; }
+.error { color: #a00; }
+</style>
+</head>
+<body>
+<div id="groups"></div>
+<p id="error" class="error" hidden></p>
+<script>
+"use strict";
+
+// Static UI: derive the base path from the current location so the same file
+// works at "/" or under CONSOLE_BASE_PATH (e.g. "/console/").
+function deriveBase() {
+  let p = location.pathname;
+  if (p.endsWith("/index.html")) p = p.slice(0, -"index.html".length);
+  return p.replace(/\/+$/, "");
+}
+const BASE = deriveBase();
+
+const state = {}; // target id -> {id} | {error: number} | null
+
+function vncUrl(e) {
+  return `${BASE}/vnc/${e.id}/?path=${BASE}/vnc/${e.id}/websockify&autoconnect=true&resize=scale`;
+}
+
+function frameworkLabel(fw) {
+  return fw.charAt(0).toUpperCase() + fw.slice(1);
+}
+
+// "group" falls back to the framework for targets without a group.
+function groupKey(e, groupBy) {
+  if (groupBy === "framework") return e.framework;
+  if (groupBy === "group") return e.group || e.framework;
+  return "";
+}
+
+function groupLabel(key, groupBy) {
+  if (groupBy === "framework") return frameworkLabel(key);
+  if (groupBy === "group") return key;
+  return key;
+}
+
+function gridTemplate(ui) {
+  const columns = ui.columns;
+  if (columns === "auto" || columns == null) {
+    const minWidth = (typeof ui.tile_min_width === "number" && ui.tile_min_width > 0)
+      ? Math.floor(ui.tile_min_width)
+      : 560;
+    return `repeat(auto-fill, minmax(${minWidth}px, 1fr))`;
+  }
+  return `repeat(${columns}, 1fr)`;
+}
+
+// The aspect comes validated from config.json ("W:H"); fall back to the CSS
+// default on anything unexpected (e.g. a hand-edited config.json).
+function tileAspect(ui) {
+  const m = (ui && typeof ui.tile_aspect === "string")
+    ? ui.tile_aspect.match(/^(\d+):(\d+)$/)
+    : null;
+  if (!m || m[1] === "0" || m[2] === "0") return "16 / 9";
+  return `${m[1]} / ${m[2]}`;
+}
+
+function buildTile(e, ui) {
+  const div = document.createElement("div");
+  div.className = "tile";
+  const h3 = document.createElement("h3");
+  const a = document.createElement("a");
+  a.href = `${BASE}/view/${e.id}`;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.title = "Open full-size view";
+  a.textContent = e.label;
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.id = `badge-${e.id}`;
+  badge.textContent = "?";
+  h3.append(a, badge);
+  const iframe = document.createElement("iframe");
+  iframe.id = `frame-${e.id}`;
+  iframe.title = e.label;
+  iframe.style.aspectRatio = tileAspect(ui);
+  iframe.dataset.src = vncUrl(e);
+  div.append(h3, iframe);
+  return div;
+}
+
+// Connect a tile's noVNC iframe only once it becomes visible. Browsers
+// without IntersectionObserver load every frame up front.
+function lazyLoad(iframe) {
+  const load = () => { iframe.src = iframe.dataset.src; };
+  if (typeof IntersectionObserver === "undefined") { load(); return; }
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      load();
+      observer.disconnect();
+    }
+  }, { rootMargin: "200px" });
+  observer.observe(iframe);
+}
+
+function render(config) {
+  const groups = document.getElementById("groups");
+  groups.replaceChildren();
+  const targets = Array.isArray(config.targets) ? config.targets : [];
+  const ui = config.ui || {};
+  const groupBy = ui.group_by || "none";
+  const template = gridTemplate(ui);
+  const keys = [];
+  for (const e of targets) {
+    const key = groupKey(e, groupBy);
+    if (!keys.includes(key)) keys.push(key);
+  }
+  for (const key of keys) {
+    if (groupBy !== "none") {
+      const h2 = document.createElement("h2");
+      h2.textContent = groupLabel(key, groupBy);
+      groups.appendChild(h2);
+    }
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    grid.style.gridTemplateColumns = template;
+    for (const e of targets.filter(x => groupKey(x, groupBy) === key)) {
+      const tile = buildTile(e, ui);
+      grid.appendChild(tile);
+      lazyLoad(tile.querySelector("iframe"));
+    }
+    groups.appendChild(grid);
+  }
+}
+
+function matches(s, e) {
+  return s && s.browser === e.browser && (s.node ?? null) === (e.node ?? null);
+}
+
+async function loadConfig() {
+  const res = await fetch(`${BASE}/config.json`, {cache: "no-store"});
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return (data && typeof data === "object") ? data : {};
+}
+
+async function refreshSessions(targets) {
+  const byFw = {};
+  for (const e of targets) (byFw[e.framework] ||= []).push(e);
+  for (const [fw, list] of Object.entries(byFw)) {
+    let sessions;
+    try {
+      const res = await fetch(`${BASE}/api/${fw}/sessions`, {cache: "no-store"});
+      if (!res.ok) { for (const e of list) state[e.id] = {error: res.status}; continue; }
+      const data = await res.json();
+      if (!(data && Array.isArray(data.sessions))) throw new Error("malformed session list");
+      if (!data.sessions.every(s => s && typeof s.id === "string")) {
+        throw new Error("malformed session entry");
+      }
+      sessions = data.sessions;
+    } catch (err) {
+      for (const e of list) state[e.id] = {error: 0};
+      continue;
+    }
+    for (const e of list) {
+      const mine = sessions.filter(s => matches(s, e));
+      const last = mine.length ? mine[mine.length - 1] : null;
+      state[e.id] = (last && typeof last.id === "string") ? last : null;
+    }
+  }
+  renderBadges(targets);
+}
+
+function renderBadges(targets) {
+  for (const e of targets) {
+    const badge = document.getElementById(`badge-${e.id}`);
+    if (!badge) continue;
+    const s = state[e.id];
+    if (s && s.error !== undefined) {
+      badge.textContent = `error (${s.error})`;
+      badge.classList.remove("open");
+    } else {
+      badge.textContent = s ? `open (${s.id})` : "closed";
+      badge.classList.toggle("open", !!s);
+    }
+  }
+}
+
+async function main() {
+  let config;
+  try {
+    config = await loadConfig();
+  } catch (e) {
+    const el = document.getElementById("error");
+    el.hidden = false;
+    el.textContent = `Could not load ${BASE}/config.json: ${e.message}`;
+    return;
+  }
+  const targets = Array.isArray(config.targets) ? config.targets : [];
+  render(config);
+  await refreshSessions(targets);
+  setInterval(() => refreshSessions(targets), 10000);
+}
+
+main();
+</script>
+</body>
+</html>

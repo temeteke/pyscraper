@@ -6,6 +6,126 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Sections are numbered by version without dates; the release date is the Git
 tag.
 
+## [3.0.0]
+
+This is a breaking release; see **Migration** for the changes to apply.
+The `temeteke/pyscraper-gateway` image is not updated past 2.x; use
+`temeteke/pyscraper-console` instead.
+
+### Breaking changes
+
+#### Gateway renamed to console
+
+- The `gateway/` directory, `Dockerfile.gateway`, the
+  `temeteke/pyscraper-gateway` image, and every `GATEWAY_*` environment
+  variable are renamed to their `console` equivalents.
+- The UI data moved from `GET /api/endpoints` to the static
+  `<base>/config.json` (`{"ui", "targets"}`, `Cache-Control: no-store`).
+  The endpoint is removed.
+- The UI title is `Console`; the tile overview no longer renders an
+  `<h1>`.
+
+#### Registry schema (`console/config.yaml`)
+
+- The root key `endpoints:` is renamed to `targets:`; the file is now
+  `console/config.yaml` (`CONSOLE_CONFIG_FILE`).
+- `ui` (`columns`, `group_by`) and root `context_options` were added.
+- `storage_state` is a mapping `{states: [...]}` only; the boolean form
+  and the `enabled` key are rejected. Presence enables the state
+  selector. The legacy `ids` list is still accepted (temporarily) and
+  normalized to states.
+- `label` and `novnc` are optional (`label` defaults to the id, `novnc`
+  to `{host: id, port: 7900}`).
+- `browser` is a closed enum
+  (`playwright-chromium|playwright-firefox|playwright-webkit|selenium-chrome|selenium-firefox`)
+  and must match `framework`.
+- `node` is supported for both frameworks (Hub node name for Playwright,
+  `pyscraper:node` for Selenium); `group` was added for
+  `ui.group_by: group`.
+- `context_options` is Playwright-only and validated against an
+  allowlist; `storage_state` and `proxy` are rejected.
+
+#### Session manager API
+
+- The deprecated path-based state APIs were removed:
+  `GET /api/playwright/state-files`,
+  `POST /api/playwright/sessions/{id}/save`, and the path/dict form of
+  the `storage_state` open field. States are loaded with `state_id` and
+  saved with `PUT /api/playwright/states/{id}`.
+- `POST /api/playwright/sessions` accepts `context_options` (allowlist,
+  passed to `new_context`).
+
+#### Development environment
+
+- The `setup.cfg` extra is renamed from `gateway` to `console`
+  (`pip install -e ".[console]"`).
+
+### Added
+
+- `ui.columns` (responsive `auto` or 1-12 fixed columns) and
+  `ui.group_by` (`none`/`framework`/`group`) for the tile overview.
+- `ui.tile_min_width` (tile minimum width in px, 160-1920) and
+  `ui.tile_aspect` (`4:3`/`16:9`/`16:10`/`5:4`) so tile geometry is
+  configurable instead of hardcoded.
+- Configurable noVNC desktop size: `PLAYWRIGHT_SCREEN_WIDTH` /
+  `PLAYWRIGHT_SCREEN_HEIGHT` for Playwright nodes (Xvfb, default
+  `1280`/`720`) and upstream `SCREEN_WIDTH` / `SCREEN_HEIGHT` for
+  Selenium nodes (`1280`/`720` in `compose.yaml`). Browser windows follow
+  the desktop (Chromium/Firefox open with the native window size;
+  WebKit sizes its window from the session viewport, so a viewport-less
+  WebKit session shows the 720p default window).
+  Sessions opened without a viewport use the native window size instead
+  of Playwright's 720p default, so a headed browser fills the VNC
+  desktop. Selenium sessions are maximized via the WebDriver maximize
+  command before navigation.
+- Root and per-target `context_options` (locale, timezone, viewport,
+  user agent, color scheme, device scale factor, touch/mobile,
+  extra HTTP headers), merged key by key (nested values are replaced as a
+  whole) and applied to Playwright `new_context`.
+- Storage-state metadata: `states[].label` and `states[].url`. The view
+  prefills the URL from the selected state, supports `?state=<id>`
+  deep links, loads noVNC iframes only when a tile becomes visible, and
+  asks for confirmation when closing a Playwright session whose selected
+  state was never saved.
+- `CONSOLE_BASE_PATH` keeps working for any path prefix (e.g.
+  `/console`); `/healthz` stays at the root regardless.
+
+### Removed
+
+- `GET /api/endpoints` and the generated `/run/gateway/endpoints.json`.
+- The deprecated path-based Playwright state APIs (see above).
+- The `storage_state` boolean/`enabled` registry forms.
+
+### Fixed
+
+- Playwright node (firefox): ignore the `-foreground` launch default so
+  the numeric `-width` argument is not opened as `http://0.0.5.0/`.
+- Playwright session manager: compute the Firefox/WebKit default
+  viewports from `PLAYWRIGHT_SCREEN_WIDTH/HEIGHT` (same names as the
+  nodes) so viewport-less sessions fill the desktop at any configured
+  size (Firefox/WebKit outer windows land exactly on the desktop);
+  keep the manager value in sync with the nodes.
+
+### Migration
+
+| v2.1.0 | v3.0.0 |
+|--------|--------|
+| `gateway/` directory | `console/` |
+| `Dockerfile.gateway` | `Dockerfile.console` |
+| `temeteke/pyscraper-gateway` | `temeteke/pyscraper-console` |
+| `GATEWAY_*` env vars | `CONSOLE_*` (see operations.md) |
+| public path `/` (empty base) | `/` by default; `CONSOLE_BASE_PATH=/console` serves under `/console/` (`/` then `308`-redirects) |
+| `GET /api/endpoints` -> `{endpoints: [...]}` | static `<base>/config.json` -> `{ui, targets: [...]}` |
+| registry `endpoints:` | `targets:` |
+| registry file `gateway/endpoints.yaml` | `console/config.yaml` |
+| `storage_state: true\|false` / `{enabled, ids}` | `storage_state: {states: [...]}` (presence = enabled; `enabled`/boolean removed, `ids` accepted temporarily) |
+| `novnc` required | optional (default `{host: id, port: 7900}`) |
+| `label` required | optional (default `id`) |
+| UI heading `PyScraper Gateway` | title `Console`, no `<h1>` |
+| UI buttons Save / Close | Save / Close (Close now confirms unsaved state) |
+| `GET /api/playwright/state-files`, `POST .../save` | `GET /api/playwright/states`, `PUT /api/playwright/states/{id}` |
+| `pip install -e ".[gateway]"` | `pip install -e ".[console]"` |
+
 ## [2.1.0]
 
 Backward-compatible release: storage states are addressed as id resources,

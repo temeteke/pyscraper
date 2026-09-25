@@ -3,11 +3,19 @@
 The node is stateless: launch-server config for any browser, headed for
 noVNC, with proxy env reflected and endpoints rewritten to the advertised
 host.
+
+The entrypoint tests execute the real shell script with stubbed binaries,
+and ``subprocess.run`` is mocked by an autouse conftest fixture, so the
+module opts out with ``no_mock_ffmpeg``.
 """
 
 import importlib.util
 import os
 from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.no_mock_ffmpeg
 
 SERVER_PATH = Path(__file__).resolve().parent.parent / "servers" / "playwright_node.py"
 
@@ -19,6 +27,8 @@ def _load_server(monkeypatch, env=None):
         "PLAYWRIGHT_NODE_NAME",
         "PLAYWRIGHT_ADVERTISE_HOST",
         "PLAYWRIGHT_HUB_URL",
+        "PLAYWRIGHT_SCREEN_WIDTH",
+        "PLAYWRIGHT_SCREEN_HEIGHT",
         "HTTPS_PROXY",
         "https_proxy",
         "HTTP_PROXY",
@@ -48,11 +58,51 @@ class TestLaunchConfig:
     def test_chromium_automation_flags(self, monkeypatch):
         server = _load_server(monkeypatch, {"PLAYWRIGHT_BROWSER": "chromium"})
         config = server._launch_config()
-        assert config["args"] == ["--disable-blink-features=AutomationControlled"]
+        assert config["args"] == [
+            "--disable-blink-features=AutomationControlled",
+            "--window-size=1280,720",
+            "--window-position=0,0",
+        ]
         assert config["ignoreDefaultArgs"] == ["--enable-automation"]
+        assert "--start-maximized" not in config["args"]
+
+    def test_chromium_window_follows_screen_env(self, monkeypatch):
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_BROWSER": "chromium",
+                "PLAYWRIGHT_SCREEN_WIDTH": "1920",
+                "PLAYWRIGHT_SCREEN_HEIGHT": "1080",
+            },
+        )
+        config = server._launch_config()
+        assert "--window-size=1920,1080" in config["args"]
+        assert "--window-position=0,0" in config["args"]
 
     def test_firefox_has_no_chromium_flags(self, monkeypatch):
         server = _load_server(monkeypatch, {"PLAYWRIGHT_BROWSER": "firefox"})
+        config = server._launch_config()
+        assert config["args"] == ["-width", "1280", "-height", "720"]
+        assert config["ignoreDefaultArgs"] == ["-foreground"]
+
+    def test_firefox_window_follows_screen_env(self, monkeypatch):
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_BROWSER": "firefox",
+                "PLAYWRIGHT_SCREEN_WIDTH": "1920",
+                "PLAYWRIGHT_SCREEN_HEIGHT": "1080",
+            },
+        )
+        config = server._launch_config()
+        assert config["args"] == ["-width", "1920", "-height", "1080"]
+
+    def test_webkit_has_no_window_flags(self, monkeypatch):
+        # MiniBrowser has no window-size flag and --full-screen only applies
+        # to a startup window, which never exists (Playwright launches with
+        # --no-startup-window). The WebKit window follows the session
+        # viewport instead, so no launch flags are set here.
+        server = _load_server(monkeypatch, {"PLAYWRIGHT_BROWSER": "webkit"})
         config = server._launch_config()
         assert "args" not in config
         assert "ignoreDefaultArgs" not in config
@@ -125,6 +175,138 @@ class TestRewriteEndpoint:
     def test_launch_config_without_proxy(self, monkeypatch):
         server = _load_server(monkeypatch)
         assert "proxy" not in server._launch_config()
+
+
+class TestScreenSize:
+    @pytest.mark.parametrize(
+        "env, expected",
+        [
+            (None, (1280, 720)),
+            (
+                {"PLAYWRIGHT_SCREEN_WIDTH": "1920", "PLAYWRIGHT_SCREEN_HEIGHT": "1080"},
+                (1920, 1080),
+            ),
+        ],
+    )
+    def test_screen_size_from_env(self, monkeypatch, env, expected):
+        server = _load_server(monkeypatch, env)
+        assert server._screen_size() == expected
+
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {"PLAYWRIGHT_SCREEN_WIDTH": "bogus"},
+            {"PLAYWRIGHT_SCREEN_HEIGHT": "bogus"},
+            {"PLAYWRIGHT_SCREEN_WIDTH": "0"},
+            {"PLAYWRIGHT_SCREEN_HEIGHT": "-1"},
+            {"PLAYWRIGHT_SCREEN_WIDTH": ""},
+        ],
+    )
+    def test_invalid_screen_size_fails_fast(self, monkeypatch, env):
+        server = _load_server(monkeypatch, env)
+        with pytest.raises(SystemExit, match="PLAYWRIGHT_SCREEN"):
+            server._screen_size()
+
+
+class TestNodeEntrypointGeometry:
+    """Run the real entrypoint with stubbed X11/noVNC/python binaries.
+
+    The script ends with ``exec python``; a stub ``python`` on PATH records
+    its args and exits 0, while ``sh -x`` exposes the expanded Xvfb line.
+    """
+
+    ENTRYPOINT = (
+        Path(__file__).resolve().parent.parent / "servers" / "playwright-entrypoint-node.sh"
+    )
+
+    def _run(self, tmp_path, monkeypatch, env=None):
+        import os
+        import subprocess
+
+        bindir = tmp_path / "bin"
+        bindir.mkdir(exist_ok=True)
+        for name in ("Xvfb", "x11vnc", "sleep", "python"):
+            stub = bindir / name
+            stub.write_text(f'#!/bin/sh\necho "{name} $*" >> "{tmp_path}/calls.log"\n')
+            stub.chmod(0o755)
+        run_env = {k: v for k, v in os.environ.items() if k.startswith("PLAYWRIGHT_")}
+        run_env["PATH"] = str(bindir) + os.pathsep + "/usr/bin" + os.pathsep + "/bin"
+        run_env.update(env or {})
+        proc = subprocess.run(
+            ["sh", "-x", str(self.ENTRYPOINT)],
+            env=run_env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        calls = (tmp_path / "calls.log").read_text() if (tmp_path / "calls.log").exists() else ""
+        return proc, proc.stderr, calls
+
+    def test_default_geometry(self, tmp_path, monkeypatch):
+        proc, trace, calls = self._run(tmp_path, monkeypatch)
+        assert proc.returncode == 0, trace
+        assert "Xvfb :99 -screen 0 1280x720x24" in calls
+        assert "python /app/playwright_node.py" in calls
+
+    def test_custom_geometry(self, tmp_path, monkeypatch):
+        proc, trace, calls = self._run(
+            tmp_path,
+            monkeypatch,
+            {"PLAYWRIGHT_SCREEN_WIDTH": "1920", "PLAYWRIGHT_SCREEN_HEIGHT": "1080"},
+        )
+        assert proc.returncode == 0, trace
+        assert "Xvfb :99 -screen 0 1920x1080x24" in calls
+
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {"PLAYWRIGHT_SCREEN_WIDTH": "bogus"},
+            {"PLAYWRIGHT_SCREEN_HEIGHT": "0"},
+            {"PLAYWRIGHT_SCREEN_WIDTH": ""},
+        ],
+    )
+    def test_invalid_geometry_fails_fast(self, tmp_path, monkeypatch, env):
+        proc, trace, calls = self._run(tmp_path, monkeypatch, env)
+        assert proc.returncode != 0
+        assert "PLAYWRIGHT_SCREEN" in trace
+        assert "Xvfb " not in calls
+
+    def test_no_window_manager_started(self, tmp_path, monkeypatch):
+        # No WM is used for any browser: Chromium uses explicit size
+        # flags, Firefox sizes its startup window with -width/-height
+        # while per-page windows follow the session viewport, and WebKit
+        # follows the session viewport. openbox must never be launched
+        # by the entrypoint.
+        for browser in ("chromium", "firefox", "webkit"):
+            proc, trace, calls = self._run(tmp_path, monkeypatch, {"PLAYWRIGHT_BROWSER": browser})
+            assert proc.returncode == 0, trace
+            assert "openbox " not in calls
+
+    def test_stale_x11_lock_removed(self, tmp_path, monkeypatch):
+        # A restart reuses the container filesystem: a stale X11 lock from
+        # the previous Xvfb must be removed before the new one binds :99,
+        # or it exits with "Server is already active". /tmp paths are fixed
+        # by X11 convention, so skip when a real local :99 exists.
+        import os
+
+        lock, socket = "/tmp/.X99-lock", "/tmp/.X11-unix/X99"
+        if os.path.exists(lock) or os.path.exists(socket):
+            pytest.skip("local X display :99 in use")
+        os.makedirs("/tmp/.X11-unix", exist_ok=True)
+        Path(lock).write_text("stale")
+        Path(socket).write_text("stale")
+        try:
+            proc, trace, calls = self._run(tmp_path, monkeypatch)
+            assert proc.returncode == 0, trace
+            assert "Xvfb :99" in calls
+            assert not os.path.exists(lock)
+            assert not os.path.exists(socket)
+        finally:
+            for stale in (lock, socket):
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass
 
 
 class TestPlainNodeLaunchWait:

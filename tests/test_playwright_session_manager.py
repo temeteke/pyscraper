@@ -1,7 +1,7 @@
 """Unit tests for servers/playwright_session_manager.py.
 
 The Playwright session manager opens/closes browser sessions for the
-gateway UI via the Hub relay, with storage_state load/save
+console UI via the Hub relay, with storage_state load/save
 (FastAPI + TestClient).
 """
 
@@ -24,6 +24,8 @@ def _load_sm(monkeypatch, tmp_path, env=None):
         "SESSION_STATE_DIR",
         "PLAYWRIGHT_OPEN_TIMEOUT",
         "PLAYWRIGHT_WORKER_TIMEOUT",
+        "PLAYWRIGHT_SCREEN_WIDTH",
+        "PLAYWRIGHT_SCREEN_HEIGHT",
     ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("SESSION_STATE_DIR", str(tmp_path))
@@ -38,54 +40,6 @@ def _load_sm(monkeypatch, tmp_path, env=None):
 
 def _client(sm):
     return TestClient(sm.app)
-
-
-class TestResolveStatePath:
-    def test_none_and_dict_passthrough(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        assert sm._resolve_state_path(None) is None
-        d = {"cookies": []}
-        assert sm._resolve_state_path(d) is d
-
-    def test_relative_resolves_under_state_dir(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        assert sm._resolve_state_path("a.json") == str(tmp_path / "a.json")
-
-    def test_absolute_used_as_is(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        inside = tmp_path / "sub" / "y.json"
-        assert sm._resolve_state_path(str(inside)) == str(inside)
-
-    def test_absolute_escape_rejected(self, monkeypatch, tmp_path):
-        import pytest
-
-        sm = _load_sm(monkeypatch, tmp_path)
-        with pytest.raises(ValueError, match="escapes state dir"):
-            sm._resolve_state_path("/etc/passwd")
-        with pytest.raises(ValueError, match="escapes state dir"):
-            sm._resolve_state_path("../outside.json")
-        with pytest.raises(ValueError, match="escapes state dir"):
-            sm._resolve_state_path(str(tmp_path / ".." / "outside.json"))
-
-
-class TestStateFiles:
-    def test_empty_dir(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        assert sm._state_files() == []
-
-    def test_lists_files_sorted(self, monkeypatch, tmp_path):
-        (tmp_path / "b.json").write_text("{}")
-        (tmp_path / "a.json").write_text("{}")
-        (tmp_path / "subdir").mkdir()
-        sm = _load_sm(monkeypatch, tmp_path)
-        assert sm._state_files() == ["a.json", "b.json"]
-
-    def test_get_state_files_endpoint(self, monkeypatch, tmp_path):
-        (tmp_path / "s.json").write_text("{}")
-        sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).get("/api/playwright/state-files")
-        assert r.status_code == 200
-        assert r.json() == {"state_files": ["s.json"]}
 
 
 class TestStateResources:
@@ -367,6 +321,7 @@ class TestStateResources:
             node=None,
             url=None,
             storage_state={"cookies": [{"name": "x"}]},
+            context_options={"viewport": {"width": 1280, "height": 635}},
         )
 
     @pytest.mark.parametrize("payload", ["not json", "null", '"x"', "[1, 2]"])
@@ -387,29 +342,18 @@ class TestStateResources:
         )
         assert r.status_code == 404
 
-    def test_open_state_id_and_storage_state_422(self, monkeypatch, tmp_path):
+    @pytest.mark.parametrize(
+        "value",
+        ["s.json", {"cookies": []}, "/etc/evil.json", "", 123],
+    )
+    def test_open_storage_state_field_removed_422(self, monkeypatch, tmp_path, value):
+        # The path/dict storage_state open field was removed in v3.0.0;
+        # loading is id-only (state_id).
         (tmp_path / "s.json").write_text("{}")
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={
-                "browser": "playwright-firefox",
-                "state_id": "s",
-                "storage_state": "s.json",
-            },
-        )
-        assert r.status_code == 422
-
-    def test_open_state_id_and_dict_storage_state_422(self, monkeypatch, tmp_path):
-        (tmp_path / "s.json").write_text("{}")
-        sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post(
-            "/api/playwright/sessions",
-            json={
-                "browser": "playwright-firefox",
-                "state_id": "s",
-                "storage_state": {"cookies": []},
-            },
+            json={"browser": "playwright-firefox", "storage_state": value},
         )
         assert r.status_code == 422
 
@@ -469,6 +413,7 @@ class TestPlaywrightSessions:
                 node="chromium",
                 url="https://example.com",
                 storage_state=None,
+                context_options={"no_viewport": True},
             )
             sid = r.json()["id"]
         r = client.get("/api/playwright/sessions")
@@ -499,23 +444,280 @@ class TestPlaywrightSessions:
         )
         assert r.status_code == 422
 
-    def test_open_escape_storage_state_422(self, monkeypatch, tmp_path):
+    def test_open_with_context_options(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post(
-            "/api/playwright/sessions",
-            json={"browser": "playwright-chromium", "storage_state": "/etc/evil.json"},
+        options = {
+            "locale": "ja-JP",
+            "timezone_id": "Asia/Tokyo",
+            "viewport": {"width": 1440, "height": 900},
+            "user_agent": "pyscraper-test",
+            "color_scheme": "dark",
+            "device_scale_factor": 1.5,
+            "has_touch": True,
+            "is_mobile": False,
+            "extra_http_headers": {"X-Test": "1"},
+        }
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions",
+                json={"browser": "playwright-firefox", "context_options": options},
+            )
+        assert r.status_code == 200
+        # None-valued keys are dropped so Playwright keeps its defaults.
+        m.assert_called_once_with(
+            "playwright-firefox",
+            node=None,
+            url=None,
+            storage_state=None,
+            context_options=options,
         )
-        assert r.status_code == 422
-        assert "escapes state dir" in str(r.json()["detail"])
 
-    def test_open_padded_escape_storage_state_422(self, monkeypatch, tmp_path):
+    def test_open_context_options_drops_unset_keys(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions",
+                json={"browser": "playwright-firefox", "context_options": {"locale": "ja-JP"}},
+            )
+        assert r.status_code == 200
+        m.assert_called_once_with(
+            "playwright-firefox",
+            node=None,
+            url=None,
+            storage_state=None,
+            context_options={"locale": "ja-JP", "viewport": {"width": 1280, "height": 635}},
+        )
+
+    def test_open_native_window_by_default(self, monkeypatch, tmp_path):
+        # No viewport/device_scale_factor/is_mobile: the session opens with
+        # the native window size instead of Playwright's 720p default, so a
+        # headed browser fills the VNC desktop.
+        sm = _load_sm(monkeypatch, tmp_path)
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions", json={"browser": "playwright-chromium"}
+            )
+        assert r.status_code == 200
+        m.assert_called_once_with(
+            "playwright-chromium",
+            node=None,
+            url=None,
+            storage_state=None,
+            context_options={"no_viewport": True},
+        )
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"viewport": {"width": 800, "height": 600}},
+            {"device_scale_factor": 2.0},
+            {"is_mobile": True},
+        ],
+    )
+    def test_open_emulated_session_skips_native_flag(self, monkeypatch, tmp_path, options):
+        # device_scale_factor/is_mobile are rejected server-side together
+        # with no_viewport, and an explicit viewport resizes the window by
+        # design: none of them get the flag.
+        sm = _load_sm(monkeypatch, tmp_path)
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions",
+                json={"browser": "playwright-chromium", "context_options": options},
+            )
+        assert r.status_code == 200
+        assert "no_viewport" not in m.call_args.kwargs["context_options"]
+        assert m.call_args.kwargs["context_options"] == options
+
+    def test_open_firefox_gets_default_viewport(self, monkeypatch, tmp_path):
+        # Firefox/Juggler per-page windows ignore the launch -width/-height
+        # (those only size the startup window), and its no-viewport
+        # fallback is the small default window. Firefox therefore gets an
+        # explicit reduced-height viewport so the outer window lands on
+        # the 1280x720 desktop instead of leaving black padding.
+        sm = _load_sm(monkeypatch, tmp_path)
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions", json={"browser": "playwright-firefox"}
+            )
+        assert r.status_code == 200
+        m.assert_called_once_with(
+            "playwright-firefox",
+            node=None,
+            url=None,
+            storage_state=None,
+            context_options={"viewport": {"width": 1280, "height": 635}},
+        )
+        assert m.call_args.kwargs["context_options"]["viewport"] == sm._default_viewport(
+            "playwright-firefox"
+        )
+        assert "no_viewport" not in m.call_args.kwargs["context_options"]
+
+    def test_open_webkit_gets_default_viewport(self, monkeypatch, tmp_path):
+        # WebKit/MiniBrowser per-page windows likewise ignore launch flags
+        # (none exist) and follow the session viewport: the measured
+        # 1280x758 outer window for the legacy default overflows the
+        # 1280x720 desktop, so WebKit gets the same reduced-height
+        # treatment as Firefox.
+        sm = _load_sm(monkeypatch, tmp_path)
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post("/api/playwright/sessions", json={"browser": "playwright-webkit"})
+        assert r.status_code == 200
+        m.assert_called_once_with(
+            "playwright-webkit",
+            node=None,
+            url=None,
+            storage_state=None,
+            context_options={"viewport": {"width": 1280, "height": 682}},
+        )
+        assert "no_viewport" not in m.call_args.kwargs["context_options"]
+
+    @pytest.mark.parametrize(
+        "browser, expected",
+        [
+            ("playwright-firefox", {"width": 1920, "height": 995}),
+            ("playwright-webkit", {"width": 1920, "height": 1042}),
+        ],
+    )
+    def test_open_default_viewport_follows_screen_env(
+        self, monkeypatch, tmp_path, browser, expected
+    ):
+        # A custom desktop (mirrored on the manager) sizes every
+        # browser window; Chromium still uses the native size instead.
+        sm = _load_sm(
+            monkeypatch,
+            tmp_path,
+            env={"PLAYWRIGHT_SCREEN_WIDTH": "1920", "PLAYWRIGHT_SCREEN_HEIGHT": "1080"},
+        )
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post("/api/playwright/sessions", json={"browser": browser})
+        assert r.status_code == 200
+        assert m.call_args.kwargs["context_options"] == {"viewport": expected}
+
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {"PLAYWRIGHT_SCREEN_WIDTH": "bogus"},
+            {"PLAYWRIGHT_SCREEN_HEIGHT": "0"},
+        ],
+    )
+    def test_open_default_viewport_falls_back_on_invalid_screen_env(
+        self, monkeypatch, tmp_path, env
+    ):
+        # Invalid screen values fall back to 1280x720 with a warning
+        # (manager convention), so sessions still open filled.
+        sm = _load_sm(monkeypatch, tmp_path, env=env)
+        worker = self._mock_worker(sm, None)
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions", json={"browser": "playwright-firefox"}
+            )
+        assert r.status_code == 200
+        assert m.call_args.kwargs["context_options"] == {
+            "viewport": {"width": 1280, "height": 635}
+        }
+
+    def test_open_webkit_viewport_passes_through(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        worker = self._mock_worker(sm, None)
+        options = {"viewport": {"width": 1280, "height": 720}}
+        with patch.object(sm, "_PlaywrightWorker", return_value=worker) as m:
+            r = _client(sm).post(
+                "/api/playwright/sessions",
+                json={"browser": "playwright-webkit", "context_options": options},
+            )
+        assert r.status_code == 200
+        m.assert_called_once_with(
+            "playwright-webkit",
+            node=None,
+            url=None,
+            storage_state=None,
+            context_options=options,
+        )
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"storage_state": {"cookies": []}},
+            {"proxy": {"server": "http://x"}},
+            {"bogus": 1},
+            {"locale": 1},
+            {"color_scheme": "auto"},
+            {"device_scale_factor": 0},
+            {"device_scale_factor": "2"},
+            {"has_touch": "yes"},
+            {"is_mobile": "yes"},
+            {"viewport": {"width": 0, "height": 1}},
+            {"viewport": {"width": 1.5, "height": 1}},
+            {"viewport": {"width": 1}},
+            {"viewport": {"width": 1, "height": 1, "x": 1}},
+            {"extra_http_headers": {"X": 1}},
+        ],
+    )
+    def test_open_bad_context_options_422(self, monkeypatch, tmp_path, options):
         sm = _load_sm(monkeypatch, tmp_path)
         r = _client(sm).post(
             "/api/playwright/sessions",
-            json={"browser": "playwright-chromium", "storage_state": "  ../outside.json  "},
+            json={"browser": "playwright-chromium", "context_options": options},
         )
         assert r.status_code == 422
-        assert "escapes state dir" in str(r.json()["detail"])
+
+    def test_open_context_options_passed_to_new_context(self, monkeypatch, tmp_path):
+        import sys
+        import types
+
+        sm = _load_sm(monkeypatch, tmp_path)
+        browser = MagicMock()
+        browser_type = MagicMock()
+        browser_type.connect.return_value = browser
+        pw = MagicMock()
+        pw.chromium = browser_type
+        fake_factory = MagicMock()
+        fake_factory.return_value.start.return_value = pw
+        fake_api = types.ModuleType("playwright.sync_api")
+        fake_api.sync_playwright = fake_factory
+        monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_api)
+        options = {"locale": "ja-JP", "viewport": {"width": 800, "height": 600}}
+        sm._PlaywrightBackend.open(
+            "playwright-chromium",
+            storage_state={"cookies": []},
+            context_options=options,
+        )
+        browser.new_context.assert_called_once_with(
+            locale="ja-JP",
+            viewport={"width": 800, "height": 600},
+            storage_state={"cookies": []},
+        )
+
+    def test_open_native_flag_passed_to_new_context(self, monkeypatch, tmp_path):
+        import sys
+        import types
+
+        sm = _load_sm(monkeypatch, tmp_path)
+        browser = MagicMock()
+        browser_type = MagicMock()
+        browser_type.connect.return_value = browser
+        pw = MagicMock()
+        pw.chromium = browser_type
+        fake_factory = MagicMock()
+        fake_factory.return_value.start.return_value = pw
+        fake_api = types.ModuleType("playwright.sync_api")
+        fake_api.sync_playwright = fake_factory
+        monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_api)
+        sm._PlaywrightBackend.open(
+            "playwright-chromium",
+            context_options={"locale": "ja-JP", "no_viewport": True},
+        )
+        browser.new_context.assert_called_once_with(
+            locale="ja-JP",
+            no_viewport=True,
+        )
 
     def test_open_non_dict_json_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
@@ -529,34 +731,9 @@ class TestPlaywrightSessions:
             assert r.status_code == 422
             assert "detail" in r.json()
 
-    def test_open_empty_dict_storage_state_422(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post(
-            "/api/playwright/sessions",
-            json={"browser": "playwright-chromium", "storage_state": {}},
-        )
-        assert r.status_code == 422
-
     def test_open_port_out_of_range_falls_back(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path, env={"PLAYWRIGHT_SESSION_MANAGER_PORT": "99999"})
         assert sm.PORT == 8081
-
-    def test_open_non_string_storage_state_422(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        for bad in (123, ["a.json"]):
-            r = _client(sm).post(
-                "/api/playwright/sessions",
-                json={"browser": "playwright-chromium", "storage_state": bad},
-            )
-            assert r.status_code == 422
-
-    def test_open_empty_storage_state_422(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post(
-            "/api/playwright/sessions",
-            json={"browser": "playwright-chromium", "storage_state": ""},
-        )
-        assert r.status_code == 422
 
     def test_open_non_string_node_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
@@ -581,33 +758,9 @@ class TestPlaywrightSessions:
         for payload in (
             {"browser": "playwright-chromium", "node": "  "},
             {"browser": "playwright-chromium", "url": "  "},
-            {"browser": "playwright-chromium", "storage_state": "  "},
         ):
             r = _client(sm).post("/api/playwright/sessions", json=payload)
             assert r.status_code == 422
-
-    def test_save_blank_path_422(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        client = _client(sm)
-        worker = self._mock_worker(sm, None)
-        with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"browser": "playwright-webkit"})
-            sid = r.json()["id"]
-        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "  "})
-        assert r.status_code == 422
-
-    def test_save_strips_path(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        client = _client(sm)
-        worker = self._mock_worker(sm, None)
-        with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
-            sid = r.json()["id"]
-        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "  s.json  "})
-        assert r.status_code == 200
-        assert r.json()["path"] == str(tmp_path / "s.json")
-        worker.save.assert_called_once_with()
-        assert json.loads((tmp_path / "s.json").read_text()) == {"cookies": []}
 
     def test_open_backend_failure_502(self, monkeypatch, tmp_path, capsys):
         sm = _load_sm(monkeypatch, tmp_path)
@@ -667,33 +820,6 @@ class TestPlaywrightSessions:
                     other.join()
         assert len(opened_threads) == 1
         assert closed_threads == opened_threads
-
-    def test_save(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        client = _client(sm)
-        worker = self._mock_worker(sm, None)
-        with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
-            sid = r.json()["id"]
-        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "s.json"})
-        assert r.status_code == 200
-        assert r.json()["path"] == str(tmp_path / "s.json")
-        assert r.json()["state"] == {"cookies": []}
-        worker.save.assert_called_once_with()
-        assert json.loads((tmp_path / "s.json").read_text()) == {"cookies": []}
-
-    def test_save_failure_502(self, monkeypatch, tmp_path, capsys):
-        sm = _load_sm(monkeypatch, tmp_path)
-        client = _client(sm)
-        worker = self._mock_worker(sm, None)
-        worker.save.side_effect = RuntimeError("hub internal down")
-        with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
-            sid = r.json()["id"]
-        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "s.json"})
-        assert r.status_code == 502
-        assert "hub internal down" in str(r.json()["detail"])
-        assert "hub internal down" in capsys.readouterr().err
 
     def test_open_connect_uses_open_timeout(self, monkeypatch, tmp_path):
         import sys
@@ -758,29 +884,9 @@ class TestPlaywrightSessions:
                 node="chromium",
                 url="https://example.com",
                 storage_state=None,
+                context_options={"no_viewport": True},
             )
             assert r.json()["url"] == "https://example.com"
-
-    def test_save_escape_rejected_422(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        client = _client(sm)
-        session = self._mock_backend(sm, "playwright-firefox")
-        with patch.object(sm._PlaywrightBackend, "open", return_value=session):
-            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
-            sid = r.json()["id"]
-        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": "/etc/evil.json"})
-        assert r.status_code == 422
-        assert "escapes state dir" in str(r.json()["detail"])
-
-    def test_save_dict_path_rejected_422(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        client = _client(sm)
-        worker = self._mock_worker(sm, None)
-        with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"browser": "playwright-firefox"})
-            sid = r.json()["id"]
-        r = client.post(f"/api/playwright/sessions/{sid}/save", json={"path": {"a": 1}})
-        assert r.status_code == 422
 
     def test_call_timeout(self, monkeypatch, tmp_path):
         """A hung worker reply surfaces TimeoutError instead of blocking."""
@@ -801,30 +907,6 @@ class TestPlaywrightSessions:
             finally:
                 worker._requests.put((None, (), None))
                 worker.join(timeout=10)
-
-    def test_save_unknown_session(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post("/api/playwright/sessions/xxx/save", json={"path": "s.json"})
-        assert r.status_code == 404
-        assert "detail" in r.json()
-
-    def test_save_unknown_session_beats_bad_path(self, monkeypatch, tmp_path):
-        # v2.0.0 precedence: unknown session is 404 even if the path also
-        # escapes the state dir.
-        sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post("/api/playwright/sessions/xxx/save", json={"path": "/etc/evil.json"})
-        assert r.status_code == 404
-
-    def test_save_requires_path_422(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path)
-        client = _client(sm)
-        worker = self._mock_worker(sm, None)
-        with patch.object(sm, "_PlaywrightWorker", return_value=worker):
-            r = client.post("/api/playwright/sessions", json={"browser": "playwright-webkit"})
-            sid = r.json()["id"]
-        r = client.post(f"/api/playwright/sessions/{sid}/save", json={})
-        assert r.status_code == 422
-        assert "detail" in r.json()
 
     def test_close_unknown_session(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
@@ -881,7 +963,7 @@ class TestPlaywrightSessions:
 
     def test_known_path_wrong_method_405(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = _client(sm).post("/api/playwright/state-files", json={})
+        r = _client(sm).post("/api/playwright/states", json={})
         assert r.status_code == 405
         assert "detail" in r.json()
 
@@ -891,15 +973,15 @@ class TestPlaywrightSessions:
         assert r.status_code == 404
         assert "detail" in r.json()
 
-    def test_trailing_slash_state_files(self, monkeypatch, tmp_path):
-        # FastAPI redirects trailing-slash variants (307) to the
-        # canonical path. The gateway nginx alias absorbs this anyway.
-        from fastapi.testclient import TestClient as RawClient
-
+    def test_removed_state_files_path_404(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
-        r = RawClient(sm.app, follow_redirects=False).get("/api/playwright/state-files/")
-        assert r.status_code == 307
-        assert r.headers["location"].endswith("/api/playwright/state-files")
+        r = _client(sm).get("/api/playwright/state-files")
+        assert r.status_code == 404
+
+    def test_removed_save_path_404(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        r = _client(sm).post("/api/playwright/sessions/xxx/save", json={"path": "s.json"})
+        assert r.status_code == 404
 
     def test_close_failure_log_escapes_newline(self, monkeypatch, tmp_path, capsys):
         # Starlette strips raw newlines from path params, so call the
@@ -936,15 +1018,6 @@ class TestPlaywrightSessions:
         sm = _load_sm(monkeypatch, tmp_path)
         sm._pw_sessions["weird"] = ["oops"]
         assert sm.close_session("weird").status_code == 500
-        assert sm.save_session("weird", sm.SaveRequest(path="s.json")).status_code == 500
-
-    def test_save_malformed_entry_500(self, monkeypatch, tmp_path, capsys):
-        sm = _load_sm(monkeypatch, tmp_path)
-        sm._pw_sessions["broken"] = {"browser": "playwright-chromium"}
-        resp = sm.save_session("broken", sm.SaveRequest(path="s.json"))
-        assert resp.status_code == 500
-        assert "retryable" not in json.loads(resp.body)
-        assert "malformed entry 'broken'" in capsys.readouterr().err
 
     def test_list_tolerates_malformed_entry(self, monkeypatch, tmp_path):
         # One broken entry must not take down the whole listing.
@@ -992,7 +1065,13 @@ class TestBrowserField:
         with patch.object(sm, "_PlaywrightWorker", return_value=self._worker()) as m:
             r = _client(sm).post("/api/playwright/sessions", json={"browser": "playwright-webkit"})
         assert r.status_code == 200
-        m.assert_called_once_with("playwright-webkit", node=None, url=None, storage_state=None)
+        m.assert_called_once_with(
+            "playwright-webkit",
+            node=None,
+            url=None,
+            storage_state=None,
+            context_options={"viewport": {"width": 1280, "height": 682}},
+        )
         body = r.json()
         assert body["browser"] == "playwright-webkit"
         assert "target" not in body

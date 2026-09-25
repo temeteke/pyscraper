@@ -12,6 +12,9 @@ Environment:
 * ``PLAYWRIGHT_NODE_NAME`` (default ``<browser>-node``)
 * ``PLAYWRIGHT_ADVERTISE_HOST`` (default ``PLAYWRIGHT_NODE_NAME``)
 * ``PLAYWRIGHT_HUB_URL`` (registry base URL; empty disables registration)
+* ``PLAYWRIGHT_SCREEN_WIDTH`` / ``PLAYWRIGHT_SCREEN_HEIGHT`` (desktop size
+  for Xvfb/noVNC, default ``1280``/``720``; must match the entrypoint,
+  which fails fast on invalid values)
 """
 
 import json
@@ -51,6 +54,32 @@ PORT = _int_env("PLAYWRIGHT_PORT", 3000)
 NODE_NAME = os.environ.get("PLAYWRIGHT_NODE_NAME", f"{BROWSER}-node")
 ADVERTISE_HOST = os.environ.get("PLAYWRIGHT_ADVERTISE_HOST", NODE_NAME)
 HUB_URL = os.environ.get("PLAYWRIGHT_HUB_URL")
+
+
+def _screen_size():
+    """Read the desktop geometry shared with the entrypoint's Xvfb.
+
+    Positive integers, failing fast with an explicit error (same contract
+    as the entrypoint's shell validation, so direct invocation is safe
+    too). The Chromium launch window follows this size via explicit flags;
+    bare Xvfb has no window manager, so `--start-maximized` is
+    deliberately not used. Firefox per-page windows ignore launch flags
+    and follow the session viewport instead (see the session manager's
+    `_FIREFOX_DEFAULT_VIEWPORT`); WebKit has no usable size flag (see
+    `_launch_config`), so its window follows the session viewport instead.
+    """
+    try:
+        width = int(os.environ.get("PLAYWRIGHT_SCREEN_WIDTH", "1280"))
+        height = int(os.environ.get("PLAYWRIGHT_SCREEN_HEIGHT", "720"))
+    except ValueError:
+        raise SystemExit(
+            "[node] invalid PLAYWRIGHT_SCREEN_WIDTH/HEIGHT: must be positive integers"
+        ) from None
+    if width <= 0 or height <= 0:
+        raise SystemExit(
+            "[node] invalid PLAYWRIGHT_SCREEN_WIDTH/HEIGHT: must be positive integers"
+        )
+    return width, height
 
 
 def _get_env_anycase(name):
@@ -121,8 +150,35 @@ def _launch_config():
     """
     config = {"port": PORT, "host": "0.0.0.0", "headless": False}
     if BROWSER == "chromium":
-        config["args"] = ["--disable-blink-features=AutomationControlled"]
+        width, height = _screen_size()
+        config["args"] = [
+            "--disable-blink-features=AutomationControlled",
+            # Fill the Xvfb desktop so noVNC shows a full window instead of
+            # a small default-sized one on a large desktop. This must be an
+            # explicit size: bare Xvfb has no window manager, so
+            # --start-maximized is unreliable here (it can fall back to the
+            # default size and discard the explicit size with it).
+            f"--window-size={width},{height}",
+            "--window-position=0,0",
+        ]
         config["ignoreDefaultArgs"] = ["--enable-automation"]
+    elif BROWSER == "firefox":
+        width, height = _screen_size()
+        config["args"] = ["-width", str(width), "-height", str(height)]
+        # Firefox 1538 does not recognize Playwright's headed-mode
+        # `-foreground` default. With `-no-remote` and explicit geometry it
+        # leaves a numeric launch argument as the initial navigation URL
+        # (`1280` becomes http://0.0.5.0/). Firefox still creates client pages
+        # normally without this flag.
+        config["ignoreDefaultArgs"] = ["-foreground"]
+    # NOTE: no WebKit branch. MiniBrowser has no window-size flag
+    # (--geometry is unused) and --full-screen only applies to a startup
+    # window, which never exists (Playwright launches with
+    # --no-startup-window and creates windows per page via Juggler).
+    # WebKit windows therefore follow the session viewport; Firefox
+    # per-page windows likewise ignore these launch flags, so the
+    # session manager gives Firefox/WebKit an explicit default viewport
+    # computed from the desktop size (see _default_viewport there).
     server = _get_env_anycase("HTTPS_PROXY") or _get_env_anycase("HTTP_PROXY")
     bypass = _get_env_anycase("NO_PROXY")
     if server:

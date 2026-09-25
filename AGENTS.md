@@ -53,34 +53,37 @@ docker compose config --quiet    # validate compose files
   profile host); never mix the two ownership models.
 - Hub is fail-closed: missing/invalid/unknown launch headers are rejected
   (`1011 "no node available"`), never routed to another browser.
-- Gateway at `http://localhost:8080/` (dedicated `Dockerfile.gateway`
-  image, published as `temeteke/pyscraper-gateway`): `/` tile overview
+- Console at `http://localhost:8080/` (dedicated `Dockerfile.console`
+  image, published as `temeteke/pyscraper-console`): `/` tile overview
   plus `/view/<id>` single views and `/vnc/<id>/` raw noVNC per registry
   entry, and `/api/` proxied to the session managers
   (`playwright-session-manager` on :8081 for sessions/states,
   `selenium-session-manager` on :8082 for sessions; both published). The
-  gateway is registry-driven: `gateway/entrypoint.sh` validates
-  `gateway/endpoints.yaml` with `gateway/generate.jq` (jq; YAML via
-  `yq-go`) and renders the nginx config (`/etc/nginx/conf.d/gateway.conf`)
-  and the UI's endpoint list (`/run/gateway/endpoints.json`, served at
-  `/api/endpoints`). `GATEWAY_RESOLVER` comes from `/etc/resolv.conf`
-  (overridable) and `GATEWAY_UPSTREAM_SUFFIX` is explicit-only (empty by
-  default, i.e. short service names). Session-manager requests take
-  `browser` (renamed from `target` in v2.0.0, no alias); the `GATEWAY_*`
-  overrides are documented in [operations.md](docs/operations.md).
+  console is registry-driven: `console/entrypoint.sh` validates
+  `console/config.yaml` with `console/generate.jq` (jq; YAML via
+  `yq-go`) and renders the nginx config (`/etc/nginx/conf.d/console.conf`)
+  and the UI's target list (`/run/console/config.json`, served at
+  `<base>/config.json`). `CONSOLE_RESOLVER` comes from `/etc/resolv.conf`
+  (overridable) and `CONSOLE_UPSTREAM_SUFFIX` is explicit-only (empty by
+  default, i.e. short service names). The registry has `ui` (columns /
+  group_by / tile_min_width / tile_aspect), optional root `context_options`, and `targets`
+  (label/framework/browser/node/group/context_options/storage_state.states/
+  novnc). Session-manager requests take `browser` (renamed from `target`
+  in v2.0.0, no alias); the `CONSOLE_*` overrides are documented in
+  [operations.md](docs/operations.md).
 - `playwright` client/node protocol pinned in `setup.cfg`,
   `Dockerfile.playwright-node`, `Dockerfile.playwright-session-manager`,
   and `Dockerfile.standalone`; keep in sync. The Hub's
   `websockets>=12.0,<14.0` pin lives in
-  `Dockerfile.playwright-hub` and in the `setup.cfg` `gateway` extra
+  `Dockerfile.playwright-hub` and in the `setup.cfg` `console` extra
   (used by the Hub tests); keep the two in sync (legacy websockets API).
 - Both session managers are FastAPI apps (Pydantic validation, Starlette
   default `{"detail": ...}` errors, auto-generated `/openapi.json` + `/docs`).
-  Gateway pins live in `setup.cfg` (`gateway` extra) and both
+  Console pins live in `setup.cfg` (`console` extra) and both
   session-manager Dockerfiles (`ARG FASTAPI_VERSION` /
   `ARG UVICORN_VERSION`); keep them in sync (no pin test exists, so
   update all three together). `.github/workflows/tests.yml` installs
-  `.[gateway]`, so it picks the `setup.cfg` pins up without its own
+  `.[console]`, so it picks the `setup.cfg` pins up without its own
   literals. Note: `httpx` is test-only and lives in `setup.cfg` alone
   (not shipped in images).
 

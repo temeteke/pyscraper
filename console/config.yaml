@@ -1,0 +1,113 @@
+# Console target registry.
+#
+# Each entry wires one browser into the console: the session-manager API it
+# belongs to, its context options (Playwright), its storage-state resources,
+# and the noVNC upstream that serves its display. Replace this file (or mount
+# your own at CONSOLE_CONFIG_FILE) to add, remove, or rename targets; the
+# console renders its nginx config and its UI data from it at container start.
+#
+# UI layout:
+#   ui.columns    auto (responsive grid) or an integer 1-12 (fixed columns).
+#   ui.group_by   none (single grid) | framework | group.
+#   ui.tile_min_width  tile minimum width in px (integer 160-1920,
+#                      default 560).
+#   ui.tile_aspect     tile aspect ratio 4:3 | 16:9 | 16:10 | 5:4
+#                      (default 16:9). Remote desktops are 5:4/4:3, so 16:9
+#                      tiles show side letterbox bars.
+#
+# Context options (optional, Playwright only):
+#   Root-level context_options are the defaults for every Playwright target;
+#   a target's context_options override them key by key (nested values such
+#   as viewport or extra_http_headers are replaced as a whole, not merged).
+#   Allowed keys:
+#   locale, timezone_id, viewport, user_agent, color_scheme,
+#   device_scale_factor, has_touch, is_mobile, extra_http_headers.
+#   storage_state and proxy are rejected (persistence and proxy routing are
+#   not context options).
+#
+# Target fields:
+#   id             URL/UI key. Unique, ^[a-z0-9-]+$, at most 63 characters.
+#   label          Human-readable name shown in the UI (default: id).
+#   framework      playwright | selenium (selects the session manager and the
+#                  /api/<framework>/ namespace).
+#   browser        Browser target passed to that session manager
+#                  (playwright-chromium | playwright-firefox | playwright-webkit
+#                  | selenium-chrome | selenium-firefox).
+#   node           Optional node routing: the Hub node name (playwright) or
+#                  the pyscraper:node stereotype (selenium). Omit for the
+#                  default node.
+#   group          Optional group name for ui.group_by: group (defaults to
+#                  the framework).
+#   context_options  Optional Playwright context overrides (see above).
+#   storage_state  Optional (Playwright only). Presence enables the state
+#                  selector; states are the UI load/save candidates:
+#                    states:
+#                      - id: id-a        # ^[a-z0-9-]+$, <=63, unique overall
+#                        label: id-a     # default: id
+#                        url: https://example.com/?q=1   # optional prefill
+#                  Ids are unique across all targets (SESSION_STATE_DIR is
+#                  shared). The file form <id>.json is never shown; ids are
+#                  opaque.
+#   novnc.host     Hostname of the noVNC upstream (without the FQDN suffix;
+#                  default: id).
+#   novnc.port     Port of the noVNC upstream (default 7900).
+#
+# Public URLs are role-based:
+#   <base>/view/<id>   full-size view
+#   <base>/vnc/<id>/   raw noVNC page
+#
+# The default entries assume the compose service names. Selenium profile
+# nodes are not enabled by default; to route to them, add e.g.:
+#
+#   - id: selenium-chrome-profile
+#     label: Chrome (profile)
+#     framework: selenium
+#     browser: selenium-chrome
+#     node: chromium-profile
+#     novnc: { host: selenium-chrome-node, port: 7900 }
+ui:
+  columns: auto
+  group_by: none
+  tile_min_width: 560
+  tile_aspect: "16:9"
+
+targets:
+  - id: selenium-chrome
+    label: Chrome (Selenium)
+    framework: selenium
+    browser: selenium-chrome
+    novnc:
+      host: selenium-chrome-node
+      port: 7900
+
+  - id: selenium-firefox
+    label: Firefox (Selenium)
+    framework: selenium
+    browser: selenium-firefox
+    novnc:
+      host: selenium-firefox-node
+      port: 7900
+
+  - id: playwright-chromium
+    label: Chromium (Playwright)
+    framework: playwright
+    browser: playwright-chromium
+    storage_state:
+      states:
+        - id: chromium
+
+  - id: playwright-firefox
+    label: Firefox (Playwright)
+    framework: playwright
+    browser: playwright-firefox
+    storage_state:
+      states:
+        - id: firefox
+
+  - id: playwright-webkit
+    label: WebKit (Playwright)
+    framework: playwright
+    browser: playwright-webkit
+    storage_state:
+      states:
+        - id: webkit

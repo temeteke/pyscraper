@@ -48,6 +48,10 @@ services:
       - SE_NODE_GRID_URL=http://selenium-hub:4444
       - 'SE_NODE_STEREOTYPE={"browserName": "chrome", "platformName": "Linux", "pyscraper:node": "chromium-profile"}'
       - SE_VNC_NO_PASSWORD=true
+      # Desktop size (Xvfb) shown in noVNC (16:9 to match the default 16:9
+      # console tiles). Restart to apply.
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
     volumes:
       - chrome-profile:/tmp/chrome-profile
     expose:
@@ -71,6 +75,10 @@ services:
       - SE_NODE_GRID_URL=http://selenium-hub:4444
       - 'SE_NODE_STEREOTYPE={"browserName": "firefox", "platformName": "Linux", "pyscraper:node": "firefox-profile"}'
       - SE_VNC_NO_PASSWORD=true
+      # Desktop size (Xvfb) shown in noVNC (16:9 to match the default 16:9
+      # console tiles). Restart to apply.
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
     volumes:
       - firefox-profile:/tmp/firefox-profile
     expose:
@@ -111,6 +119,11 @@ services:
       - PLAYWRIGHT_NODE_NAME=chromium
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-chromium
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+      # Desktop size (Xvfb) shown in noVNC (default 1280x720 to match the
+      # default 16:9 console tiles); the browser window follows it via
+      # explicit launch flags. Override to change, restart to apply:
+      # - PLAYWRIGHT_SCREEN_WIDTH=1920
+      # - PLAYWRIGHT_SCREEN_HEIGHT=1080
     expose:
       - "3000"
       - "7900"
@@ -136,6 +149,12 @@ services:
       - PLAYWRIGHT_NODE_NAME=firefox
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-firefox
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+      # Desktop size (Xvfb) shown in noVNC (default 1280x720 to match the
+      # default 16:9 console tiles; launch flags only size the startup
+      # window, per-page windows follow the session viewport, see
+      # operations.md). Override to change, restart to apply:
+      # - PLAYWRIGHT_SCREEN_WIDTH=1920
+      # - PLAYWRIGHT_SCREEN_HEIGHT=1080
     expose:
       - "3000"
       - "7900"
@@ -165,6 +184,11 @@ services:
       - PLAYWRIGHT_NODE_NAME=webkit
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-webkit
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+      # Desktop size (Xvfb) shown in noVNC (default 1280x720 to match the
+      # default 16:9 console tiles; the WebKit window follows the session
+      # viewport, see operations.md). Override to change, restart to apply:
+      # - PLAYWRIGHT_SCREEN_WIDTH=1920
+      # - PLAYWRIGHT_SCREEN_HEIGHT=1080
     expose:
       - "3000"
       - "7900"
@@ -177,20 +201,22 @@ services:
     # No depends_on: nodes retry Hub registration, so they can start
     # in any order; launch-server stays usable even if the Hub is down.
 
-  gateway:
+  console:
     # Single entry point: noVNC reverse proxy + UI + session-manager relay
     # (/api/playwright/* (incl. states) to playwright-session-manager,
     # /api/selenium/* to selenium-session-manager).
     # Dedicated image (config + UI baked in, rendered at start from
     # /etc/resolv.conf); the same image runs on any Docker network.
-    image: temeteke/pyscraper-gateway:latest
+    # Serve under a path prefix with CONSOLE_BASE_PATH=/console (default:
+    # root; "/" then 308-redirects to the prefix).
+    image: temeteke/pyscraper-console:latest
     build:
       context: .
-      dockerfile: Dockerfile.gateway
+      dockerfile: Dockerfile.console
     ports:
       - "8080:80"
     restart: unless-stopped
-    # Startup order only (no health gate): the gateway resolves backends
+    # Startup order only (no health gate): the console resolves backends
     # via variable + resolver at request time and retries, so strict
     # health coupling would only delay startup without adding safety.
     depends_on:
@@ -203,7 +229,7 @@ services:
       - selenium-session-manager
 
   playwright-session-manager:
-    # Playwright session open/close/save API for the gateway UI (published
+    # Playwright session open/close/save API for the console UI (published
     # as temeteke/pyscraper-playwright-session-manager; build for local dev
     # -- see Dockerfile.playwright-session-manager). FastAPI + uvicorn.
     image: temeteke/pyscraper-playwright-session-manager:latest
@@ -214,10 +240,17 @@ services:
       - PLAYWRIGHT_SESSION_MANAGER_PORT=8081
       - PLAYWRIGHT_HUB_WS=ws://playwright-hub:4000/ws
       - SESSION_STATE_DIR=/data/sessions
+      # Desktop size shared with the Playwright nodes' Xvfb (default
+      # 1280x720): the manager computes the Firefox/WebKit default
+      # viewports from it so viewport-less sessions fill the desktop.
+      # Keep in sync with the nodes (same values); a mismatch leaves
+      # browser windows smaller or larger than the VNC desktop:
+      # - PLAYWRIGHT_SCREEN_WIDTH=1920
+      # - PLAYWRIGHT_SCREEN_HEIGHT=1080
       # Browser startup can exceed the 60s open default on slow hosts
       # (webkit); raise if open timeouts appear in the manager logs.
       # When raising timeouts, keep the generated /api/ locations in sync
-      # (gateway/generate.jq): proxy_read_timeout > 2 * OPEN_TIMEOUT + 10 and
+      # (console/generate.jq): proxy_read_timeout > 2 * OPEN_TIMEOUT + 10 and
       # > WORKER_TIMEOUT. The shipped default is 150s (OPEN 60 / WORKER
       # 120); e.g. OPEN 90 / WORKER 150 needs 220s.
       # - PLAYWRIGHT_OPEN_TIMEOUT=90
@@ -235,7 +268,7 @@ services:
       start_period: 10s
 
   selenium-session-manager:
-    # Selenium session open/close API for the gateway UI (published as
+    # Selenium session open/close API for the console UI (published as
     # temeteke/pyscraper-selenium-session-manager; build for local dev --
     # see Dockerfile.selenium-session-manager). FastAPI + uvicorn.
     image: temeteke/pyscraper-selenium-session-manager:latest
@@ -264,6 +297,6 @@ volumes:
   # chmod 777).
   chrome-profile:
   firefox-profile:
-  # Gateway UI state files (storage_state JSON only), shared with
+  # Console UI state files (storage_state JSON only), shared with
   # the host for inspection and reuse from pyscraper client code.
   session-states:

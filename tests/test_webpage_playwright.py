@@ -1320,7 +1320,7 @@ class TestWebPagePlaywrightIntegration:
       pytest tests/test_webpage_playwright.py -m integration -k Playwright -v
 
     Manual checks (not automated here): Hub registry at
-    ``http://localhost:4001/health`` and the gateway at
+    ``http://localhost:4001/health`` and the console at
     ``http://localhost:8080/``.
     """
 

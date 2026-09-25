@@ -1,7 +1,7 @@
-"""Playwright session manager for the gateway UI.
+"""Playwright session manager for the console UI.
 
 A small HTTP API (FastAPI) that opens/closes Playwright browser
-sessions so the gateway UI can operate browsers without running
+sessions so the console UI can operate browsers without running
 pyscraper client code.
 
 Sessions open via the Hub (``ws://`` relay) on a dedicated owner thread
@@ -16,16 +16,15 @@ Endpoints (all JSON):
 * ``PUT /api/playwright/states/{id}`` {session_id} -> create/overwrite
   ``SESSION_STATE_DIR/{id}.json`` from that session
 * ``DELETE /api/playwright/states/{id}`` -> remove the state file
-* ``POST /api/playwright/sessions`` {browser, node?, url?, storage_state?,
-  state_id?} (``state_id`` and ``storage_state`` are mutually exclusive)
+* ``POST /api/playwright/sessions`` {browser, node?, url?, state_id?,
+  context_options?} (``context_options`` mirrors the console registry
+  allowlist; ``storage_state`` and ``proxy`` are rejected; when no
+  viewport/device_scale_factor/is_mobile is given Chromium opens with
+  the native window size (``no_viewport``) and Firefox/WebKit open with
+  an explicit reduced-height default viewport (see ``_default_viewport``)
+  so a headed browser fills the VNC desktop at any configured size)
 * ``GET /api/playwright/sessions`` / ``DELETE /api/playwright/sessions/{id}``
 * ``GET /openapi.json`` / ``GET /docs`` (auto-generated API reference)
-
-Deprecated (kept for compatibility, removal planned):
-
-* ``GET /api/playwright/state-files`` -> ``{"state_files": [...]}``
-* ``POST /api/playwright/sessions/{id}/save`` {path}
-* the path/dict form of the ``storage_state`` open field; use ``state_id``
 
 Browsers are fixed names: ``playwright-chromium`` / ``playwright-firefox`` /
 ``playwright-webkit``. The request field is ``browser`` (renamed from
@@ -63,11 +62,11 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Literal, Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _int_env(name, default):
@@ -122,6 +121,50 @@ PLAYWRIGHT_BROWSERS = {
     "playwright-webkit": "webkit",
 }
 
+# Browser chrome heights measured as outer-minus-viewport on the headed
+# nodes at 1280x720 (Firefox 1280x805, WebKit 1280x758): both engines
+# resize each page window to fit the viewport plus chrome, while launch
+# flags only size the startup window (Firefox) or don't exist (WebKit)
+# and the no-viewport fallbacks are smaller than the desktop.
+_FIREFOX_CHROME_HEIGHT = 85
+_WEBKIT_CHROME_HEIGHT = 38
+
+
+def _screen_size():
+    """Desktop geometry shared with the nodes' Xvfb.
+
+    Same names and defaults as the nodes (``PLAYWRIGHT_SCREEN_WIDTH`` /
+    ``PLAYWRIGHT_SCREEN_HEIGHT``, default ``1280`` / ``720``); invalid
+    values fall back with a warning (manager convention -- the nodes
+    fail fast instead). Keep the manager value in sync with the nodes
+    (see compose.yaml): a mismatch leaves browser windows smaller or
+    larger than the VNC desktop. Read once at import: like the other
+    manager settings it applies on restart.
+    """
+    return (
+        _int_env("PLAYWRIGHT_SCREEN_WIDTH", 1280),
+        _int_env("PLAYWRIGHT_SCREEN_HEIGHT", 720),
+    )
+
+
+SCREEN_WIDTH, SCREEN_HEIGHT = _screen_size()
+
+
+def _default_viewport(browser):
+    """Viewport that lands the outer window exactly on the desktop.
+
+    Returns None for Chromium (the native window size via ``no_viewport``
+    follows any desktop). Firefox/WebKit windows are resized to fit the
+    viewport plus browser chrome, so the height is reduced accordingly.
+    Degenerate desktops (shorter than the chrome) clamp to 1px, which
+    stays schema-valid.
+    """
+    if browser == "playwright-firefox":
+        return {"width": SCREEN_WIDTH, "height": max(SCREEN_HEIGHT - _FIREFOX_CHROME_HEIGHT, 1)}
+    if browser == "playwright-webkit":
+        return {"width": SCREEN_WIDTH, "height": max(SCREEN_HEIGHT - _WEBKIT_CHROME_HEIGHT, 1)}
+    return None
+
 
 _pw_sessions = {}  # id -> {"browser", "node", "worker"}
 _LOCK = threading.Lock()
@@ -147,9 +190,9 @@ class _PlaywrightWorker(threading.Thread):
     on this worker via a request queue; HTTP handlers block on the reply.
     """
 
-    def __init__(self, browser, node=None, url=None, storage_state=None):
+    def __init__(self, browser, node=None, url=None, storage_state=None, context_options=None):
         super().__init__(daemon=True)
-        self._args = (browser, node, url, storage_state)
+        self._args = (browser, node, url, storage_state, context_options)
         self._requests = queue.Queue()
         self.session = None
         self.error = None
@@ -222,12 +265,6 @@ class _PlaywrightWorker(threading.Thread):
         # worker alive so the caller can retry (the entry is kept too).
         self.call(_PlaywrightBackend.close, self.session)
         self._requests.put((None, (), None))
-
-
-def _state_files():
-    if not STATE_DIR.is_dir():
-        return []
-    return sorted(p.name for p in STATE_DIR.iterdir() if p.is_file())
 
 
 def _state_dir_fd():
@@ -361,44 +398,6 @@ def _delete_state_id(path):
     os.unlink(path.name, dir_fd=dir_fd)
 
 
-def _atomic_write_json(path, state):
-    """Path-based atomic JSON write used by the deprecated save API.
-
-    The parent directory is opened once with ``O_DIRECTORY`` and the write
-    goes through a sibling temp file plus ``os.replace``, matching the ID
-    API's atomicity and permission behavior.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        name = path.name
-        mode = 0o666
-        try:
-            existing = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            pass
-        else:
-            if stat.S_ISREG(existing.st_mode):
-                mode = stat.S_IMODE(existing.st_mode)
-        tmp = f".state-{uuid.uuid4().hex}.tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode, dir_fd=parent_fd)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(state, handle)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
-        except BaseException:
-            try:
-                os.unlink(tmp, dir_fd=parent_fd)
-            except OSError:
-                pass
-            raise
-    finally:
-        os.close(parent_fd)
-
-
 def _collect_state(sid):
     """Return session ``sid``'s storage state dict, or a ``JSONResponse``.
 
@@ -429,34 +428,9 @@ def _collect_state(sid):
         return JSONResponse({"detail": str(exc)}, status_code=502)
 
 
-def _resolve_state_path(value):
-    """Resolve a storage_state value to a server-side path or dict.
-
-    Dicts pass through; plain names resolve under STATE_DIR; absolute
-    paths are used as-is. Anything escaping STATE_DIR is rejected.
-    Non-string, non-dict values are rejected (they would TypeError in
-    Path() and surface as 502 instead of 422). Leading/trailing
-    whitespace is stripped here so every caller gets the canonical
-    form (e.g. "  ../outside.json  " is rejected, not stored padded).
-    """
-    if value is None or isinstance(value, dict):
-        return value
-    if not isinstance(value, str):
-        raise ValueError(f"path must be a string or dict: {value!r}")
-    value = value.strip()
-    p = Path(value)
-    if not p.is_absolute():
-        p = STATE_DIR / p
-    try:
-        p.resolve().relative_to(STATE_DIR.resolve())
-    except ValueError:
-        raise ValueError(f"path escapes state dir: {value!r}") from None
-    return str(p)
-
-
 class _PlaywrightBackend:
     @staticmethod
-    def open(browser, node=None, url=None, storage_state=None):
+    def open(browser, node=None, url=None, storage_state=None, context_options=None):
         from playwright.sync_api import sync_playwright
 
         browser_name = PLAYWRIGHT_BROWSERS[browser]
@@ -473,10 +447,9 @@ class _PlaywrightBackend:
                 headers={"x-playwright-launch-options": json.dumps(options)},
                 timeout=OPEN_TIMEOUT * 1000,
             )
-            kwargs = {}
-            resolved = _resolve_state_path(storage_state)
-            if resolved is not None:
-                kwargs["storage_state"] = resolved
+            kwargs = dict(context_options or {})
+            if storage_state is not None:
+                kwargs["storage_state"] = storage_state
             context = playwright_browser.new_context(**kwargs)
             page = context.new_page()
             if url:
@@ -540,33 +513,50 @@ def _nonempty_str(value, field_name):
     return value.strip()
 
 
+class Viewport(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class ContextOptions(BaseModel):
+    """Playwright ``new_context`` options accepted from the console UI.
+
+    Mirrors the console registry allowlist (console/generate.jq):
+    ``storage_state`` and ``proxy`` are deliberately not context options,
+    and unknown keys are rejected (``extra="forbid"``). Strict types keep
+    stringly-typed values (``"yes"``, ``"2"``) out.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    locale: Optional[str] = None
+    timezone_id: Optional[str] = None
+    viewport: Optional[Viewport] = None
+    user_agent: Optional[str] = None
+    color_scheme: Optional[Literal["light", "dark", "no-preference"]] = None
+    device_scale_factor: Optional[float] = Field(default=None, gt=0)
+    has_touch: Optional[bool] = None
+    is_mobile: Optional[bool] = None
+    extra_http_headers: Optional[dict[str, str]] = None
+
+
 class OpenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     browser: Literal["playwright-chromium", "playwright-firefox", "playwright-webkit"]
     node: Optional[str] = None
     url: Optional[str] = None
-    storage_state: Optional[Union[str, dict]] = None
     # Field constraints mirror _resolve_state_id and surface in the
     # OpenAPI schema (pattern + maxLength) so generated docs match runtime.
     state_id: Optional[str] = Field(default=None, pattern=r"^[a-z0-9-]+$", max_length=63)
+    context_options: Optional[ContextOptions] = None
 
     @field_validator("node", "url")
     @classmethod
     def _strip_optional(cls, value, info):
         return _nonempty_str(value, info.field_name)
-
-    @field_validator("storage_state")
-    @classmethod
-    def _check_storage_state(cls, value):
-        if isinstance(value, str) and not value.strip():
-            raise ValueError("storage_state must not be empty")
-        if isinstance(value, dict) and not value:
-            raise ValueError("storage_state must not be empty")
-        # Eager path check so escapes are 422, not a worker-thread
-        # failure surfaced as 502.
-        _resolve_state_path(value)
-        return value.strip() if isinstance(value, str) else value
 
     @field_validator("state_id")
     @classmethod
@@ -578,25 +568,6 @@ class OpenRequest(BaseModel):
         if not isinstance(value, str) or not STATE_ID_RE.fullmatch(value) or len(value) > 63:
             raise ValueError("invalid state_id (want ^[a-z0-9-]+$, max 63)")
         return value
-
-    @model_validator(mode="after")
-    def _state_id_exclusive(self):
-        if self.state_id is not None and self.storage_state is not None:
-            raise ValueError("state_id and storage_state are mutually exclusive")
-        return self
-
-
-class SaveRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    path: str
-
-    @field_validator("path")
-    @classmethod
-    def _strip_path(cls, value):
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("path is required")
-        return value.strip()
 
 
 class SaveStateRequest(BaseModel):
@@ -613,11 +584,6 @@ class SaveStateRequest(BaseModel):
 
 
 app = FastAPI(title="Playwright session manager")
-
-
-@app.get("/api/playwright/state-files")
-def state_files():
-    return {"state_files": _state_files()}
 
 
 @app.get("/api/playwright/states")
@@ -702,13 +668,37 @@ def open_session(body: OpenRequest):
         except (OSError, ValueError) as exc:
             return JSONResponse({"detail": f"invalid state file: {exc}"}, status_code=422)
     else:
-        storage_state = body.storage_state
+        storage_state = None
+    resolved_options = (
+        body.context_options.model_dump(exclude_none=True)
+        if body.context_options is not None
+        else {}
+    )
+    if not any(
+        key in resolved_options for key in ("viewport", "device_scale_factor", "is_mobile")
+    ):
+        # The injection is only valid without viewport/
+        # device_scale_factor/is_mobile (the server rejects those
+        # combinations), so an explicitly emulated session keeps the
+        # legacy behavior.
+        if body.browser == "playwright-chromium":
+            # Native window size: without this Playwright applies its 720p
+            # default viewport and resizes the headed window to fit it
+            # (1288x805 on Linux), leaving the rest of the VNC desktop black.
+            resolved_options["no_viewport"] = True
+        else:
+            # Firefox/WebKit windows are resized to fit the viewport plus
+            # browser chrome (see _default_viewport): an explicit
+            # reduced-height viewport lands the outer window exactly on
+            # the desktop at any configured size.
+            resolved_options["viewport"] = _default_viewport(body.browser)
     try:
         worker = _PlaywrightWorker(
             body.browser,
             node=body.node,
             url=body.url,
             storage_state=storage_state,
+            context_options=resolved_options,
         )
     except Exception as exc:
         print(f"[playwright-session-manager] open failed: {exc!r}", file=sys.stderr, flush=True)
@@ -729,33 +719,6 @@ def open_session(body: OpenRequest):
         "node": body.node,
         "url": body.url,
     }
-
-
-@app.post("/api/playwright/sessions/{sid}/save")
-def save_session(sid: str, body: SaveRequest):
-    # Keep the v2.0.0 precedence: an unknown session is 404 even when the
-    # path is also invalid.
-    with _LOCK:
-        exists = sid in _pw_sessions
-    if not exists:
-        return JSONResponse({"detail": "unknown session"}, status_code=404)
-    try:
-        resolved = _resolve_state_path(body.path)
-    except ValueError as exc:
-        return JSONResponse({"detail": str(exc)}, status_code=422)
-    state = _collect_state(sid)
-    if isinstance(state, JSONResponse):
-        return state
-    try:
-        _atomic_write_json(resolved, state)
-    except OSError as exc:
-        print(
-            f"[playwright-session-manager] save {sid!r} failed: {exc!r}",
-            file=sys.stderr,
-            flush=True,
-        )
-        return JSONResponse({"detail": str(exc)}, status_code=502)
-    return {"id": sid, "path": resolved, "state": state}
 
 
 @app.delete("/api/playwright/sessions/{sid}")

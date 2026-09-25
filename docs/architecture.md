@@ -91,23 +91,28 @@ offline capability, and reproducibility.
   must be explicit rather than load-balanced; Playwright sessions are
   disposable, so the Hub stays a simple relay. See [operations.md](operations.md).
 
-### Gateway and session managers
+### Console and session managers
 
-`gateway` (dedicated `Dockerfile.gateway` image) is the single browser
+`console` (dedicated `Dockerfile.console` image) is the single browser
 entry point: tile overview, single-browser views (`/view/<id>`), raw noVNC
 (`/vnc/<id>/`), and `/api/` proxies to the session managers. It is
-registry-driven: at start `gateway/entrypoint.sh` validates
-`gateway/endpoints.yaml` with `gateway/generate.jq` (jq) and renders the
-nginx config (`/etc/nginx/conf.d/gateway.conf`) and the UI's endpoint list
-(`/run/gateway/endpoints.json`, served at `/api/endpoints`);
-`/etc/resolv.conf` supplies the resolver.
+registry-driven: at start `console/entrypoint.sh` validates
+`console/config.yaml` with `console/generate.jq` (jq) and renders the
+nginx config (`/etc/nginx/conf.d/console.conf`) and the UI's target list
+(`/run/console/config.json`, served at `<base>/config.json`);
+`/etc/resolv.conf` supplies the resolver. The registry carries `ui`
+(columns / group_by), optional root `context_options` (Playwright context
+defaults merged per target), and `targets` with `label`, `framework`,
+`browser`, optional `node`/`group`, `storage_state.states`, and `novnc`
+upstreams.
 `servers/playwright_session_manager.py` (open/close/save via the Hub
 relay, one owner thread per session, `storage_state` load/save, plus the
-`states` id resource) and `servers/selenium_session_manager.py`
-(open/close via the Grid REST API, no state restore) are
+`states` id resource; `context_options` is passed to `new_context`) and
+`servers/selenium_session_manager.py` (open/close via the Grid REST API,
+no state restore) are
 both FastAPI apps (Pydantic validation, `422` on invalid bodies,
 auto-generated `/openapi.json` + `/docs`), published alongside the
-gateway. The browser target field is `browser` (renamed from `target` in
+console. The browser target field is `browser` (renamed from `target` in
 v2.0.0). The Hub
 registry and the node's Python wrapper stay stdlib-only (the node image
 also ships Playwright). State files live in the
@@ -116,7 +121,7 @@ compose network, local dev use).
 
 ### Trust boundary: closed network, trusted clients
 
-The gateway stack assumes a closed compose network and trusted
+The console stack assumes a closed compose network and trusted
 clients. Consequences, decided deliberately and not to be re-litigated
 in review without new threat information:
 
@@ -124,6 +129,11 @@ in review without new threat information:
   reflected validation input is Starlette's default (untruncated).
   No fixed-message substitution, no truncation helpers, no body-size
   cap on client requests.
+- `<base>/config.json` is served unauthenticated: it exposes the
+  registry's target metadata, including storage-state labels/prefill URLs
+  and resolved `context_options` (`extra_http_headers` values included).
+  Do not put secrets (tokens, `Authorization`, `Cookie`) in
+  `states[].url` or `context_options.extra_http_headers`.
 - There is no `?force` escape hatch. Restarting the owning manager
   container only discards the in-memory handle; the Grid session or
   node-side browser is NOT released by that restart and must be cleaned

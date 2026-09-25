@@ -1,7 +1,7 @@
-"""Selenium session manager for the gateway UI.
+"""Selenium session manager for the console UI.
 
 A small HTTP API (FastAPI) that opens/closes Selenium browser sessions
-so the gateway UI can operate browsers without running pyscraper client
+so the console UI can operate browsers without running pyscraper client
 code.
 
 Sessions open via the Grid REST API (``/wd/hub/session``) with an
@@ -177,6 +177,22 @@ class _SeleniumBackend:
                 flush=True,
             )
             raise RuntimeError(f"Grid did not return a sessionId: {created!r}")
+        try:
+            # Fill the node desktop so noVNC shows a full window: the Grid
+            # session opens at the driver default size otherwise. Best
+            # effort: some drivers reject maximize (e.g. WM-less setups),
+            # and the session is still usable unmaximized, so a failure
+            # only warns instead of aborting the open.
+            # NOTE: an empty JSON object, not an empty body: the Grid
+            # rejects body-less parameterless commands with 400.
+            cls._request("POST", f"/session/{session_id}/window/maximize", {})
+        except Exception as exc:  # noqa: BLE001 -- log, keep the session
+            print(
+                f"[selenium-session-manager] maximize {session_id!r} failed: {exc!r} "
+                "(continuing unmaximized)",
+                file=sys.stderr,
+                flush=True,
+            )
         try:
             if url:
                 cls._request("POST", f"/session/{session_id}/url", {"url": url})
