@@ -29,8 +29,8 @@ XPath/CSS selectors). Each backend subclasses it:
 - `WebPageRequests` (`RequestsMixin`, `WebPage`) - plain HTTP via `requests`
 - `WebPageCurl` (`WebPage`) - `curl` subprocess for restricted environments
 - `WebPageSelenium` (`WebPage`, abstract) - Selenium WebDriver base with
-  `profile=` / `node=` / `capabilities=` support; `WebPageFirefox` and
-  `WebPageChrome` are thin browser-specific subclasses
+  `profile=` / `node=` / `capabilities=` support; `WebPageSeleniumFirefox` and
+  `WebPageSeleniumChrome` are thin browser-specific subclasses
 - `WebPagePlaywright` (`WebPage`, abstract) - Playwright base with
   `profile=` / `user_data_dir=` (local persistent contexts) / `node=`
   (Hub routing) / `storage_state=` / `context_options=` support;

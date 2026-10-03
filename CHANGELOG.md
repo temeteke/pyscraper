@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Sections are numbered by version without dates; the release date is the Git
 tag.
 
+## [3.2.0]
+
+### Added
+
+- Explicit Selenium browser class names: `WebPageSeleniumChrome` and
+  `WebPageSeleniumFirefox`. The original `WebPageChrome` and `WebPageFirefox`
+  names remain available as aliases in both `pyscraper` and
+  `pyscraper.webpage_selenium`; existing imports require no migration.
+
+### Changed
+
+- Dev Containers run as the non-root `vscode` user, with Python dependencies
+  installed in the user's writable package directory. Rebuild existing
+  containers to apply the configuration; see
+  [development.md](docs/development.md).
+
 ## [3.1.0]
 
 ### Added

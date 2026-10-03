@@ -5,15 +5,15 @@ For test execution strategy, see [testing.md](testing.md).
 
 ## Selenium Grid
 
-`WebPageFirefox` and `WebPageChrome` connect to a Selenium Grid when
+`WebPageSeleniumFirefox` and `WebPageSeleniumChrome` connect to a Selenium Grid when
 `SELENIUM_FIREFOX_URL` / `SELENIUM_CHROME_URL` is set. Use the `node=`
 argument to route a session to the Grid node that hosts a persistent
 profile (the recommended way for fixed profiles):
 
 ```python
-from pyscraper import WebPageFirefox
+from pyscraper import WebPageSeleniumFirefox
 
-with WebPageFirefox(
+with WebPageSeleniumFirefox(
     "https://example.com",
     node="firefox-profile",
 ) as web_page:
@@ -28,7 +28,7 @@ Any additional extension capability can also be passed via the
 `capabilities` argument for custom Grid stereotypes:
 
 ```python
-with WebPageFirefox(
+with WebPageSeleniumFirefox(
     "https://example.com",
     capabilities={"profile:name": "fixed-profile"},
 ) as web_page:

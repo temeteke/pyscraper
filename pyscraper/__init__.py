@@ -25,7 +25,12 @@ from .webpage_playwright import (
     WebPagePlaywrightWebKit,
 )
 from .webpage_requests import WebPageRequests
-from .webpage_selenium import WebPageChrome, WebPageFirefox
+from .webpage_selenium import (
+    WebPageChrome,
+    WebPageFirefox,
+    WebPageSeleniumChrome,
+    WebPageSeleniumFirefox,
+)
 
 try:
     __version__ = version("pyscraper")
@@ -36,6 +41,8 @@ __all__ = [
     "CaptureSession",
     "RequestEntry",
     "WebPageRequests",
+    "WebPageSeleniumFirefox",
+    "WebPageSeleniumChrome",
     "WebPageFirefox",
     "WebPageChrome",
     "WebPageCurl",

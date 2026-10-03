@@ -30,9 +30,9 @@ with WebPageRequests("https://example.com") as web_page:
 ```
 
 ```python
-from pyscraper import WebPageFirefox
+from pyscraper import WebPageSeleniumFirefox
 
-with WebPageFirefox("https://example.com") as web_page:
+with WebPageSeleniumFirefox("https://example.com") as web_page:
     for element in web_page.get("//a"):
         print(element.text)
 ```
@@ -47,6 +47,9 @@ with WebPagePlaywrightChromium("https://example.com") as web_page:
 
 For Grid/Hub routing (`node=`), profiles vs `storage_state`, and the browser
 console, see [Operations Guide](docs/operations.md).
+
+`WebPageChrome` and `WebPageFirefox` remain available as backward-compatible
+aliases of `WebPageSeleniumChrome` and `WebPageSeleniumFirefox`, respectively.
 
 ### Downloading files
 

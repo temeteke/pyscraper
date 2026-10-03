@@ -333,7 +333,7 @@ class WebPageSelenium(WebPage, ABC):
             self.driver = None
 
 
-class WebPageFirefox(WebPageSelenium):
+class WebPageSeleniumFirefox(WebPageSelenium):
     """Web page access via Selenium WebDriver for Firefox.
 
     When ``SELENIUM_FIREFOX_URL`` is set, a remote WebDriver session is
@@ -438,7 +438,7 @@ class WebPageFirefox(WebPageSelenium):
             return webdriver.Firefox(options=options)
 
 
-class WebPageChrome(WebPageSelenium):
+class WebPageSeleniumChrome(WebPageSelenium):
     """Web page access via Selenium WebDriver for Chrome.
 
     When ``SELENIUM_CHROME_URL`` is set, a remote WebDriver session is
@@ -510,3 +510,8 @@ class WebPageChrome(WebPageSelenium):
             if self.profile:
                 options.add_argument(f"--user-data-dir={self.profile}")
             return webdriver.Chrome(options=options)
+
+
+# Backward-compatible aliases for the original Selenium class names.
+WebPageChrome = WebPageSeleniumChrome
+WebPageFirefox = WebPageSeleniumFirefox
