@@ -49,17 +49,16 @@ def _normalize_proxy_for_selenium(value):
 _RESERVED_CAPABILITY_KEYS = frozenset({"moz:firefoxOptions", "goog:chromeOptions", "proxy"})
 
 
-def _warn_unsupported_capabilities(capabilities):
-    """Log a warning for capabilities that are ignored by the library.
+def _filter_capabilities(capabilities):
+    """Return supported capabilities and warn about excluded values.
 
     ``moz:firefoxOptions`` / ``goog:chromeOptions`` are rebuilt from the
     library's own settings, ``proxy`` is always configured from environment
     variables, and non-JSON values cannot be sent to a remote WebDriver.
-    These keys are silently dropped, so surface them to callers.
+    Reserved keys and non-JSON values are excluded from the session request.
     """
-    if not capabilities:
-        return
-    for key, value in capabilities.items():
+    supported = {}
+    for key, value in (capabilities or {}).items():
         if key in _RESERVED_CAPABILITY_KEYS:
             logger.warning("Capability key %r is managed by the library and was ignored", key)
             continue
@@ -71,6 +70,36 @@ def _warn_unsupported_capabilities(capabilities):
                 key,
                 e,
             )
+            continue
+        supported[key] = value
+    return supported
+
+
+def _proxy_from_env():
+    """Build Firefox's browser proxy before adding the Grid host to no_proxy."""
+    http_proxy = _get_env_anycase("HTTP_PROXY")
+    https_proxy = _get_env_anycase("HTTPS_PROXY")
+    no_proxy = _get_env_anycase("NO_PROXY")
+
+    if http_proxy or https_proxy or no_proxy:
+        proxy_dict = {"proxyType": proxy.ProxyType.MANUAL}
+        if http_proxy:
+            proxy_dict["httpProxy"] = _normalize_proxy_for_selenium(http_proxy)
+        if https_proxy:
+            proxy_dict["sslProxy"] = _normalize_proxy_for_selenium(https_proxy)
+        if no_proxy:
+            proxy_dict["noProxy"] = no_proxy.split(",")
+    else:
+        proxy_dict = {"proxyType": proxy.ProxyType.DIRECT}
+    return proxy.Proxy(proxy_dict)
+
+
+def _wait_until(search_context, condition, timeout):
+    """Wait for a Selenium condition, translating timeout errors."""
+    try:
+        return WebDriverWait(search_context, timeout).until(condition)
+    except selenium.common.exceptions.TimeoutException as e:
+        raise WebPageTimeoutError from e
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -94,12 +123,7 @@ class SeleniumWebPageElement(WebPageElement):
         return self.element.get_attribute("innerText")
 
     def wait(self, xpath, timeout=10):
-        try:
-            WebDriverWait(self.element, timeout).until(
-                EC.presence_of_element_located((By.XPATH, xpath))
-            )
-        except selenium.common.exceptions.TimeoutException as e:
-            raise WebPageTimeoutError from e
+        _wait_until(self.element, EC.presence_of_element_located((By.XPATH, xpath)), timeout)
 
     def get(self, xpath, timeout=0):
         if timeout:
@@ -111,12 +135,7 @@ class SeleniumWebPageElement(WebPageElement):
 
     def click(self, timeout=0):
         if timeout:
-            try:
-                WebDriverWait(self.element, timeout).until(
-                    EC.element_to_be_clickable(self.element)
-                )
-            except selenium.common.exceptions.TimeoutException as e:
-                raise WebPageTimeoutError from e
+            _wait_until(self.element, EC.element_to_be_clickable(self.element), timeout)
         self.element.click()
 
     def mouse_over(self):
@@ -149,11 +168,18 @@ class WebPageSelenium(WebPage, ABC):
         cookies: dict | None = None,
         cookies_file=None,
         page_load_strategy=None,
+        profile=None,
+        user_data_dir: str | None = None,
+        capabilities: dict | None = None,
+        node: str | None = None,
     ):
         self.driver = None
         self.cookies = cookies or {}
         self.cookies_file = cookies_file
         self.page_load_strategy = page_load_strategy
+        self.profile = resolve_profile(profile, user_data_dir)
+        self.capabilities = dict(capabilities) if capabilities else None
+        self.node = node
         if not url:
             url = self.DEFAULT_URL
         super().__init__(url, params=params, encoding=encoding)
@@ -168,10 +194,13 @@ class WebPageSelenium(WebPage, ABC):
     def _configure_no_proxy_for_remote(self, remote_url):
         configure_no_proxy_for_remote(remote_url)
 
+    def _apply_dedicated_settings(self, options):
+        if self.page_load_strategy:
+            options.page_load_strategy = self.page_load_strategy
+
     def _init_remote_options(self, options):
         """Apply shared remote Grid settings to ``options``."""
-        _warn_unsupported_capabilities(self.capabilities)
-        for key, value in (self.capabilities or {}).items():
+        for key, value in _filter_capabilities(self.capabilities).items():
             options.set_capability(key, value)
         if self.node is not None:
             options.set_capability("pyscraper:node", self.node)
@@ -230,12 +259,7 @@ class WebPageSelenium(WebPage, ABC):
 
     def wait(self, xpath, timeout=10):
         self._ensure_open()
-        try:
-            WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located((By.XPATH, xpath))
-            )
-        except selenium.common.exceptions.TimeoutException as e:
-            raise WebPageTimeoutError from e
+        _wait_until(self.driver, EC.presence_of_element_located((By.XPATH, xpath)), timeout)
 
     def get(self, xpath, timeout=0):
         self._ensure_open()
@@ -376,66 +400,48 @@ class WebPageSeleniumFirefox(WebPageSelenium):
             cookies=cookies,
             cookies_file=cookies_file,
             page_load_strategy=page_load_strategy,
+            profile=profile,
+            user_data_dir=user_data_dir,
+            capabilities=capabilities,
+            node=node,
         )
-        self.profile = resolve_profile(profile, user_data_dir)
         self.language = language
-        self.capabilities = dict(capabilities) if capabilities else None
-        self.node = node
 
     def _apply_dedicated_settings(self, options):
-        if self.page_load_strategy:
-            options.page_load_strategy = self.page_load_strategy
+        super()._apply_dedicated_settings(options)
 
         if self.language:
             options.set_preference("intl.accept_languages", self.language)
 
+    def _configure_remote_options(self, options):
+        self._init_remote_options(options)
+        profile = self.profile or os.environ.get("SELENIUM_FIREFOX_PROFILE")
+        if profile:
+            options.add_argument("-profile")
+            options.add_argument(profile)
+        options.proxy = _proxy_from_env()
+
+    def _create_local_driver(self, options):
+        self._apply_dedicated_settings(options)
+        options.add_argument("-headless")
+        if self.profile:
+            # Preserve the legacy constructor fallback for older Selenium.
+            try:
+                options.profile = webdriver.FirefoxProfile(self.profile)
+            except Exception:
+                return webdriver.Firefox(
+                    options=options,
+                    firefox_profile=webdriver.FirefoxProfile(self.profile),
+                )
+        return webdriver.Firefox(options=options)
+
     def _create_driver(self):
         options = webdriver.FirefoxOptions()
-
         if url := os.environ.get("SELENIUM_FIREFOX_URL"):
-            self._init_remote_options(options)
-
-            profile = self.profile or os.environ.get("SELENIUM_FIREFOX_PROFILE")
-            if profile:
-                options.add_argument("-profile")
-                options.add_argument(profile)
-
-            http_proxy = _get_env_anycase("HTTP_PROXY")
-            https_proxy = _get_env_anycase("HTTPS_PROXY")
-            no_proxy = _get_env_anycase("NO_PROXY")
-
-            if http_proxy or https_proxy or no_proxy:
-                proxy_dict = {"proxyType": proxy.ProxyType.MANUAL}
-                if http_proxy:
-                    proxy_dict["httpProxy"] = _normalize_proxy_for_selenium(http_proxy)
-                if https_proxy:
-                    proxy_dict["sslProxy"] = _normalize_proxy_for_selenium(https_proxy)
-                if no_proxy:
-                    proxy_dict["noProxy"] = no_proxy.split(",")
-            else:
-                proxy_dict = {"proxyType": proxy.ProxyType.DIRECT}
-            options.proxy = proxy.Proxy(proxy_dict)
-
+            self._configure_remote_options(options)
             self._configure_no_proxy_for_remote(url)
-
             return webdriver.Remote(command_executor=url, options=options)
-
-        else:
-            self._apply_dedicated_settings(options)
-            # headless property is deprecated since Selenium 4.x
-            options.add_argument("-headless")
-            if self.profile:
-                # FirefoxProfile() constructor is deprecated; Options.profile is the
-                # current API. Fall back to the legacy constructor for older Selenium.
-                try:
-                    options.profile = webdriver.FirefoxProfile(self.profile)
-                except Exception:
-                    return webdriver.Firefox(
-                        options=options,
-                        firefox_profile=webdriver.FirefoxProfile(self.profile),
-                    )
-                return webdriver.Firefox(options=options)
-            return webdriver.Firefox(options=options)
+        return self._create_local_driver(options)
 
 
 class WebPageSeleniumChrome(WebPageSelenium):
@@ -479,14 +485,11 @@ class WebPageSeleniumChrome(WebPageSelenium):
             cookies=cookies,
             cookies_file=cookies_file,
             page_load_strategy=page_load_strategy,
+            profile=profile,
+            user_data_dir=user_data_dir,
+            capabilities=capabilities,
+            node=node,
         )
-        self.profile = resolve_profile(profile, user_data_dir)
-        self.capabilities = dict(capabilities) if capabilities else None
-        self.node = node
-
-    def _apply_dedicated_settings(self, options):
-        if self.page_load_strategy:
-            options.page_load_strategy = self.page_load_strategy
 
     def _create_driver(self):
         options = webdriver.ChromeOptions()

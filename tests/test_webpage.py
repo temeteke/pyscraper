@@ -1,15 +1,24 @@
+import contextlib
+import json
 import logging
 import os
 import subprocess
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pytest
 import requests
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.webelement import WebElement
 
 from pyscraper.webpage import WebPageNoSuchElementError, WebPageTimeoutError
 from pyscraper.webpage_curl import WebPageCurl
 from pyscraper.webpage_requests import WebPageRequests
-from pyscraper.webpage_selenium import WebPageSeleniumChrome, WebPageSeleniumFirefox
+from pyscraper.webpage_selenium import (
+    SeleniumWebPageElement,
+    WebPageSeleniumChrome,
+    WebPageSeleniumFirefox,
+)
 
 
 @pytest.mark.parametrize(
@@ -347,382 +356,10 @@ class TestWebPageCurlCommand:
         assert kwargs["stderr"] == subprocess.PIPE
 
 
-class TestConfigureNoProxyForRemote:
-    """Unit tests for WebPageSelenium._configure_no_proxy_for_remote.
-
-    Tests that the method correctly updates lowercase 'no_proxy' and
-    uppercase 'NO_PROXY' env vars when using remote Selenium WebDriver.
-    """
-
-    def _cleanup_env(self, keys):
-        for key in keys:
-            os.environ.pop(key, None)
-
-    def _set_env_and_run(self, env_vars, page_class, url):
-        saved = {}
-        for key, value in env_vars.items():
-            saved[key] = os.environ.get(key)
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        try:
-            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-                with page_class(url):
-                    pass
-        finally:
-            for key, value in saved.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
-
-    def test_lowercase_updated(self):
-        saved_no_proxy = os.environ.get("no_proxy")
-        saved_NO_PROXY = os.environ.get("NO_PROXY")
-        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
-        saved_http = os.environ.get("HTTP_PROXY")
-        saved_https = os.environ.get("HTTPS_PROXY")
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ["no_proxy"] = "localhost,127.0.0.1"
-            os.environ["NO_PROXY"] = "localhost,127.0.0.1"
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            assert "firefox:4444" in os.environ["no_proxy"]
-            assert "firefox:4444" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in [
-                ("no_proxy", saved_no_proxy),
-                ("NO_PROXY", saved_NO_PROXY),
-                ("SELENIUM_FIREFOX_URL", saved_ff_url),
-                ("HTTP_PROXY", saved_http),
-                ("HTTPS_PROXY", saved_https),
-            ]:
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def test_uppercase_only(self):
-        saved_no_proxy = os.environ.get("no_proxy")
-        saved_NO_PROXY = os.environ.get("NO_PROXY")
-        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
-        saved_http = os.environ.get("HTTP_PROXY")
-        saved_https = os.environ.get("HTTPS_PROXY")
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ.pop("no_proxy", None)
-            os.environ["NO_PROXY"] = "localhost,127.0.0.1"
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            assert "firefox:4444" in os.environ["no_proxy"]
-            assert "firefox:4444" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in [
-                ("no_proxy", saved_no_proxy),
-                ("NO_PROXY", saved_NO_PROXY),
-                ("SELENIUM_FIREFOX_URL", saved_ff_url),
-                ("HTTP_PROXY", saved_http),
-                ("HTTPS_PROXY", saved_https),
-            ]:
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def test_neither_set(self):
-        saved_no_proxy = os.environ.get("no_proxy")
-        saved_NO_PROXY = os.environ.get("NO_PROXY")
-        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
-        saved_http = os.environ.get("HTTP_PROXY")
-        saved_https = os.environ.get("HTTPS_PROXY")
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ.pop("no_proxy", None)
-            os.environ.pop("NO_PROXY", None)
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            assert os.environ["no_proxy"] == "firefox:4444"
-            assert os.environ["NO_PROXY"] == "firefox:4444"
-        finally:
-            for k, v in [
-                ("no_proxy", saved_no_proxy),
-                ("NO_PROXY", saved_NO_PROXY),
-                ("SELENIUM_FIREFOX_URL", saved_ff_url),
-                ("HTTP_PROXY", saved_http),
-                ("HTTPS_PROXY", saved_https),
-            ]:
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def test_duplicate_not_added(self):
-        saved_no_proxy = os.environ.get("no_proxy")
-        saved_NO_PROXY = os.environ.get("NO_PROXY")
-        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
-        saved_http = os.environ.get("HTTP_PROXY")
-        saved_https = os.environ.get("HTTPS_PROXY")
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ["no_proxy"] = "firefox:4444"
-            os.environ["NO_PROXY"] = "firefox:4444"
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            assert os.environ["no_proxy"] == "firefox:4444"
-            assert os.environ["NO_PROXY"] == "firefox:4444"
-        finally:
-            for k, v in [
-                ("no_proxy", saved_no_proxy),
-                ("NO_PROXY", saved_NO_PROXY),
-                ("SELENIUM_FIREFOX_URL", saved_ff_url),
-                ("HTTP_PROXY", saved_http),
-                ("HTTPS_PROXY", saved_https),
-            ]:
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def test_partial_hostname_not_matched(self):
-        saved_no_proxy = os.environ.get("no_proxy")
-        saved_NO_PROXY = os.environ.get("NO_PROXY")
-        saved_ff_url = os.environ.get("SELENIUM_FIREFOX_URL")
-        saved_http = os.environ.get("HTTP_PROXY")
-        saved_https = os.environ.get("HTTPS_PROXY")
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ["no_proxy"] = "myfirefox:4444"
-            os.environ["NO_PROXY"] = "myfirefox:4444"
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            assert "firefox:4444" in os.environ["no_proxy"]
-            assert "firefox:4444" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in [
-                ("no_proxy", saved_no_proxy),
-                ("NO_PROXY", saved_NO_PROXY),
-                ("SELENIUM_FIREFOX_URL", saved_ff_url),
-                ("HTTP_PROXY", saved_http),
-                ("HTTPS_PROXY", saved_https),
-            ]:
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def test_chrome_lowercase_updated(self):
-        saved_no_proxy = os.environ.get("no_proxy")
-        saved_NO_PROXY = os.environ.get("NO_PROXY")
-        saved_chrome_url = os.environ.get("SELENIUM_CHROME_URL")
-        saved_http = os.environ.get("HTTP_PROXY")
-        saved_https = os.environ.get("HTTPS_PROXY")
-        try:
-            os.environ["SELENIUM_CHROME_URL"] = "http://chrome:9515/wd/hub"
-            os.environ["no_proxy"] = "localhost,127.0.0.1"
-            os.environ["NO_PROXY"] = "localhost,127.0.0.1"
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-                with WebPageSeleniumChrome("http://example.com"):
-                    pass
-            assert "chrome:9515" in os.environ["no_proxy"]
-            assert "chrome:9515" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in [
-                ("no_proxy", saved_no_proxy),
-                ("NO_PROXY", saved_NO_PROXY),
-                ("SELENIUM_CHROME_URL", saved_chrome_url),
-                ("HTTP_PROXY", saved_http),
-                ("HTTPS_PROXY", saved_https),
-            ]:
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def _assert_firefox_proxy(self, mock_remote, http_proxy=None, https_proxy=None, no_proxy=None):
-        mock_remote.assert_called_once()
-        _, kwargs = mock_remote.call_args
-        opts = kwargs["options"]
-
-        if http_proxy:
-            assert opts.proxy.httpProxy == http_proxy
-        else:
-            assert opts.proxy.httpProxy is None
-
-        if https_proxy:
-            assert opts.proxy.sslProxy == https_proxy
-        else:
-            assert opts.proxy.sslProxy is None
-
-        if no_proxy:
-            assert opts.proxy.noProxy == no_proxy
-        else:
-            assert opts.proxy.noProxy is None
-
-    def test_firefox_proxy_lowercase_only(self):
-        saved = {
-            k: os.environ.get(k)
-            for k in (
-                "http_proxy",
-                "https_proxy",
-                "no_proxy",
-                "HTTP_PROXY",
-                "HTTPS_PROXY",
-                "NO_PROXY",
-                "SELENIUM_FIREFOX_URL",
-            )
-        }
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ["http_proxy"] = "http://lower-proxy:80"
-            os.environ["https_proxy"] = "http://lower-proxy:80"
-            os.environ["no_proxy"] = "localhost,.local"
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            os.environ.pop("NO_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            self._assert_firefox_proxy(
-                mock_remote,
-                http_proxy="lower-proxy:80",
-                https_proxy="lower-proxy:80",
-                no_proxy=["localhost", ".local"],
-            )
-            assert "firefox:4444" in os.environ["no_proxy"]
-            assert "firefox:4444" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in saved.items():
-                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-    def test_firefox_proxy_both_cases(self):
-        saved = {
-            k: os.environ.get(k)
-            for k in (
-                "http_proxy",
-                "https_proxy",
-                "no_proxy",
-                "HTTP_PROXY",
-                "HTTPS_PROXY",
-                "NO_PROXY",
-                "SELENIUM_FIREFOX_URL",
-            )
-        }
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ["http_proxy"] = "http://lower-proxy:80"
-            os.environ["https_proxy"] = "http://lower-proxy:80"
-            os.environ["no_proxy"] = "localhost,.local"
-            os.environ["HTTP_PROXY"] = "http://UPPER-proxy:80"
-            os.environ["HTTPS_PROXY"] = "http://UPPER-proxy:80"
-            os.environ["NO_PROXY"] = "192.168.1.0/24"
-            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            self._assert_firefox_proxy(
-                mock_remote,
-                http_proxy="lower-proxy:80",
-                https_proxy="lower-proxy:80",
-                no_proxy=["localhost", ".local"],
-            )
-            assert "firefox:4444" in os.environ["no_proxy"]
-            assert "firefox:4444" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in saved.items():
-                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-    def test_firefox_proxy_uppercase_only(self):
-        saved = {
-            k: os.environ.get(k)
-            for k in (
-                "http_proxy",
-                "https_proxy",
-                "no_proxy",
-                "HTTP_PROXY",
-                "HTTPS_PROXY",
-                "NO_PROXY",
-                "SELENIUM_FIREFOX_URL",
-            )
-        }
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ["HTTP_PROXY"] = "http://upper-proxy:80"
-            os.environ["HTTPS_PROXY"] = "http://upper-proxy:80"
-            os.environ["NO_PROXY"] = "192.168.1.0/24"
-            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            self._assert_firefox_proxy(
-                mock_remote,
-                http_proxy="upper-proxy:80",
-                https_proxy="upper-proxy:80",
-                no_proxy=["192.168.1.0/24"],
-            )
-            assert "firefox:4444" in os.environ["no_proxy"]
-            assert "firefox:4444" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in saved.items():
-                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-    def test_firefox_proxy_no_scheme_passthrough(self):
-        saved = {
-            k: os.environ.get(k)
-            for k in (
-                "http_proxy",
-                "https_proxy",
-                "no_proxy",
-                "HTTP_PROXY",
-                "HTTPS_PROXY",
-                "NO_PROXY",
-                "SELENIUM_FIREFOX_URL",
-            )
-        }
-        try:
-            os.environ["SELENIUM_FIREFOX_URL"] = "http://firefox:4444/wd/hub"
-            os.environ["http_proxy"] = "plain-proxy:3128"
-            os.environ["https_proxy"] = "plain-proxy:3128"
-            os.environ["no_proxy"] = "localhost"
-            os.environ.pop("HTTP_PROXY", None)
-            os.environ.pop("HTTPS_PROXY", None)
-            os.environ.pop("NO_PROXY", None)
-            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-                with WebPageSeleniumFirefox("http://example.com"):
-                    pass
-            self._assert_firefox_proxy(
-                mock_remote,
-                http_proxy="plain-proxy:3128",
-                https_proxy="plain-proxy:3128",
-                no_proxy=["localhost"],
-            )
-            assert "firefox:4444" in os.environ["no_proxy"]
-            assert "firefox:4444" in os.environ["NO_PROXY"]
-        finally:
-            for k, v in saved.items():
-                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-
-class TestWebPageSeleniumCapabilitiesAndProfile:
-    """Unit tests for WebPageSeleniumFirefox/WebPageSeleniumChrome capabilities and profile arguments."""
-
-    _ENV_KEYS = (
+@pytest.fixture
+def selenium_env(monkeypatch):
+    """Isolate browser and proxy settings, including changes made by the library."""
+    keys = (
         "SELENIUM_FIREFOX_URL",
         "SELENIUM_CHROME_URL",
         "SELENIUM_FIREFOX_PROFILE",
@@ -735,140 +372,287 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         "no_proxy",
     )
 
-    def _run(self, page_class, env_vars=None, **kwargs):
-        saved = {key: os.environ.get(key) for key in self._ENV_KEYS}
-        for key in self._ENV_KEYS:
-            os.environ.pop(key, None)
-        for key, value in (env_vars or {}).items():
-            os.environ[key] = value
-        try:
+    @contextlib.contextmanager
+    def configure(env_vars=None):
+        with monkeypatch.context() as env:
+            for key in keys:
+                # Track absent keys too: the library can add them directly.
+                env.setenv(key, "")
+                env.delenv(key)
+            for key, value in (env_vars or {}).items():
+                env.setenv(key, value)
+            yield
+
+    return configure
+
+
+@pytest.fixture
+def selenium_driver(selenium_env):
+    def create(page_class, env_vars=None, **kwargs):
+        with selenium_env(env_vars):
             return page_class("http://example.com", **kwargs)._create_driver()
-        finally:
-            for key, value in saved.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+
+    return create
+
+
+@pytest.mark.parametrize("original", [None, "original-host"])
+def test_selenium_env_restores_library_changes(monkeypatch, selenium_env, original):
+    for key in ("no_proxy", "NO_PROXY"):
+        if original is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, original)
+    with pytest.raises(RuntimeError), selenium_env():
+        for key in ("no_proxy", "NO_PROXY"):
+            os.environ[key] = "firefox:4444"
+        raise RuntimeError("session failed")
+    for key in ("no_proxy", "NO_PROXY"):
+        assert os.environ.get(key) == original
+
+
+class TestConfigureNoProxyForRemote:
+    """Remote sessions bypass proxies without losing existing exclusions."""
+
+    @pytest.mark.parametrize(
+        ("page_class", "remote_env", "remote_url", "host"),
+        [
+            (
+                WebPageSeleniumFirefox,
+                "SELENIUM_FIREFOX_URL",
+                "http://firefox:4444/wd/hub",
+                "firefox:4444",
+            ),
+            (
+                WebPageSeleniumChrome,
+                "SELENIUM_CHROME_URL",
+                "http://chrome:9515/wd/hub",
+                "chrome:9515",
+            ),
+        ],
+        ids=["firefox", "chrome"],
+    )
+    @pytest.mark.parametrize(
+        ("env_vars", "expected_lower", "expected_upper"),
+        [
+            (
+                {"no_proxy": "localhost,127.0.0.1", "NO_PROXY": "localhost,127.0.0.1"},
+                "localhost,127.0.0.1,{host}",
+                "localhost,127.0.0.1,{host}",
+            ),
+            ({"NO_PROXY": "localhost,127.0.0.1"}, "{host}", "localhost,127.0.0.1,{host}"),
+            ({}, "{host}", "{host}"),
+            ({"no_proxy": "{host}", "NO_PROXY": "{host}"}, "{host}", "{host}"),
+            (
+                {"no_proxy": "my{host}", "NO_PROXY": "my{host}"},
+                "my{host},{host}",
+                "my{host},{host}",
+            ),
+        ],
+        ids=["both-cases", "uppercase-only", "unset", "duplicate", "partial-hostname"],
+    )
+    def test_remote_host_added(
+        self,
+        selenium_env,
+        page_class,
+        remote_env,
+        remote_url,
+        host,
+        env_vars,
+        expected_lower,
+        expected_upper,
+    ):
+        env_vars = {key: value.format(host=host) for key, value in env_vars.items()}
+        env_vars[remote_env] = remote_url
+        with selenium_env(env_vars):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+                with page_class("http://example.com"):
+                    pass
+            mock_remote.assert_called_once()
+            assert os.environ["no_proxy"] == expected_lower.format(host=host)
+            assert os.environ["NO_PROXY"] == expected_upper.format(host=host)
+
+    @pytest.mark.parametrize(
+        ("env_vars", "expected_proxy", "expected_no_proxy"),
+        [
+            (
+                {
+                    "http_proxy": "http://lower-proxy:80",
+                    "https_proxy": "http://lower-proxy:80",
+                    "no_proxy": "localhost,.local",
+                },
+                "lower-proxy:80",
+                ["localhost", ".local"],
+            ),
+            (
+                {
+                    "http_proxy": "http://lower-proxy:80",
+                    "https_proxy": "http://lower-proxy:80",
+                    "no_proxy": "localhost,.local",
+                    "HTTP_PROXY": "http://UPPER-proxy:80",
+                    "HTTPS_PROXY": "http://UPPER-proxy:80",
+                    "NO_PROXY": "192.168.1.0/24",
+                },
+                "lower-proxy:80",
+                ["localhost", ".local"],
+            ),
+            (
+                {
+                    "HTTP_PROXY": "http://upper-proxy:80",
+                    "HTTPS_PROXY": "http://upper-proxy:80",
+                    "NO_PROXY": "192.168.1.0/24",
+                },
+                "upper-proxy:80",
+                ["192.168.1.0/24"],
+            ),
+            (
+                {
+                    "http_proxy": "plain-proxy:3128",
+                    "https_proxy": "plain-proxy:3128",
+                    "no_proxy": "localhost",
+                },
+                "plain-proxy:3128",
+                ["localhost"],
+            ),
+        ],
+        ids=["lowercase-only", "lowercase-priority", "uppercase-only", "no-scheme"],
+    )
+    def test_firefox_proxy(self, selenium_env, env_vars, expected_proxy, expected_no_proxy):
+        env_vars = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub", **env_vars}
+        with selenium_env(env_vars):
+            with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+                with WebPageSeleniumFirefox("http://example.com"):
+                    pass
+            mock_remote.assert_called_once()
+            options = mock_remote.call_args.kwargs["options"]
+            assert options.proxy.httpProxy == expected_proxy
+            assert options.proxy.sslProxy == expected_proxy
+            assert options.proxy.noProxy == expected_no_proxy
+            assert "firefox:4444" in os.environ["no_proxy"].split(",")
+            assert "firefox:4444" in os.environ["NO_PROXY"].split(",")
+
+
+class TestWebPageSeleniumCapabilitiesAndProfile:
+    """Unit tests for WebPageSeleniumFirefox/WebPageSeleniumChrome capabilities and profile arguments."""
 
     def _remote_options(self, mock_remote):
         mock_remote.assert_called_once()
         _, kwargs = mock_remote.call_args
         return kwargs["options"]
 
-    def test_firefox_grid_capabilities(self):
+    def test_firefox_grid_capabilities(self, selenium_driver):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         caps = {"grid:profile": "fixed-profile", "se:name": "my-session"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumFirefox, env, capabilities=caps)
         options = self._remote_options(mock_remote)
         assert options.capabilities["grid:profile"] == "fixed-profile"
         assert options.capabilities["se:name"] == "my-session"
 
-    def test_firefox_grid_profile_argument(self):
+    def test_firefox_grid_profile_argument(self, selenium_driver):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, profile="/tmp/arg-profile")
+            selenium_driver(WebPageSeleniumFirefox, env, profile="/tmp/arg-profile")
         options = self._remote_options(mock_remote)
         assert "-profile" in options.arguments
         assert "/tmp/arg-profile" in options.arguments
 
-    def test_firefox_grid_profile_env_fallback(self):
+    def test_firefox_grid_profile_env_fallback(self, selenium_driver):
         env = {
             "SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub",
             "SELENIUM_FIREFOX_PROFILE": "/tmp/env-profile",
         }
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env)
+            selenium_driver(WebPageSeleniumFirefox, env)
         options = self._remote_options(mock_remote)
         assert "-profile" in options.arguments
         assert "/tmp/env-profile" in options.arguments
 
-    def test_firefox_grid_profile_argument_precedence(self):
+    def test_firefox_grid_profile_argument_precedence(self, selenium_driver):
         env = {
             "SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub",
             "SELENIUM_FIREFOX_PROFILE": "/tmp/env-profile",
         }
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, profile="/tmp/arg-profile")
+            selenium_driver(WebPageSeleniumFirefox, env, profile="/tmp/arg-profile")
         options = self._remote_options(mock_remote)
         assert "-profile" in options.arguments
         assert "/tmp/arg-profile" in options.arguments
         assert "/tmp/env-profile" not in options.arguments
 
-    def test_chrome_grid_capabilities(self):
+    def test_chrome_grid_capabilities(self, selenium_driver):
         env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
         caps = {"grid:profile": "fixed-profile", "se:name": "my-session"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumChrome, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumChrome, env, capabilities=caps)
         options = self._remote_options(mock_remote)
         assert options.capabilities["grid:profile"] == "fixed-profile"
         assert options.capabilities["se:name"] == "my-session"
 
-    def test_chrome_grid_profile_argument(self):
+    def test_chrome_grid_profile_argument(self, selenium_driver):
         env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumChrome, env, profile="/tmp/arg-profile")
+            selenium_driver(WebPageSeleniumChrome, env, profile="/tmp/arg-profile")
         options = self._remote_options(mock_remote)
         assert "--user-data-dir=/tmp/arg-profile" in options.arguments
 
-    def test_chrome_grid_profile_env_fallback(self):
+    def test_chrome_grid_profile_env_fallback(self, selenium_driver):
         env = {
             "SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub",
             "SELENIUM_CHROME_PROFILE": "/tmp/env-profile",
         }
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumChrome, env)
+            selenium_driver(WebPageSeleniumChrome, env)
         options = self._remote_options(mock_remote)
         assert "--user-data-dir=/tmp/env-profile" in options.arguments
 
-    def test_chrome_grid_profile_argument_precedence(self):
+    def test_chrome_grid_profile_argument_precedence(self, selenium_driver):
         env = {
             "SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub",
             "SELENIUM_CHROME_PROFILE": "/tmp/env-profile",
         }
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumChrome, env, profile="/tmp/arg-profile")
+            selenium_driver(WebPageSeleniumChrome, env, profile="/tmp/arg-profile")
         options = self._remote_options(mock_remote)
         assert "--user-data-dir=/tmp/arg-profile" in options.arguments
         assert "--user-data-dir=/tmp/env-profile" not in options.arguments
 
-    def test_firefox_grid_node_capability(self):
+    def test_firefox_grid_node_capability(self, selenium_driver):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, node="cf")
+            selenium_driver(WebPageSeleniumFirefox, env, node="cf")
         options = self._remote_options(mock_remote)
         assert options.capabilities["pyscraper:node"] == "cf"
 
-    def test_chrome_grid_node_capability(self):
+    def test_chrome_grid_node_capability(self, selenium_driver):
         env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumChrome, env, node="cf")
+            selenium_driver(WebPageSeleniumChrome, env, node="cf")
         options = self._remote_options(mock_remote)
         assert options.capabilities["pyscraper:node"] == "cf"
 
-    def test_chrome_local_profile(self):
+    def test_chrome_local_profile(self, selenium_driver):
         with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
-            self._run(WebPageSeleniumChrome, profile="/tmp/local-profile")
+            selenium_driver(WebPageSeleniumChrome, profile="/tmp/local-profile")
         mock_chrome.assert_called_once()
         _, kwargs = mock_chrome.call_args
         assert "--user-data-dir=/tmp/local-profile" in kwargs["options"].arguments
 
-    def test_chrome_local_no_profile(self):
+    def test_chrome_local_no_profile(self, selenium_driver):
         with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
-            self._run(WebPageSeleniumChrome)
+            selenium_driver(WebPageSeleniumChrome)
         mock_chrome.assert_called_once()
         _, kwargs = mock_chrome.call_args
         assert not any(
             argument.startswith("--user-data-dir") for argument in kwargs["options"].arguments
         )
 
-    def test_firefox_local_profile(self):
+    def test_firefox_local_profile(self, selenium_driver):
         import tempfile
 
         profile_dir = tempfile.mkdtemp()
         try:
             with patch("pyscraper.webpage_selenium.webdriver.Firefox") as mock_firefox:
-                self._run(WebPageSeleniumFirefox, profile=profile_dir)
+                selenium_driver(WebPageSeleniumFirefox, profile=profile_dir)
         finally:
             import shutil
 
@@ -880,13 +664,13 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         profile = kwargs.get("firefox_profile") or getattr(opts, "profile", None)
         assert profile is not None
 
-    def test_firefox_local_user_data_dir(self):
+    def test_firefox_local_user_data_dir(self, selenium_driver):
         import tempfile
 
         profile_dir = tempfile.mkdtemp()
         try:
             with patch("pyscraper.webpage_selenium.webdriver.Firefox") as mock_firefox:
-                self._run(WebPageSeleniumFirefox, user_data_dir=profile_dir)
+                selenium_driver(WebPageSeleniumFirefox, user_data_dir=profile_dir)
         finally:
             import shutil
 
@@ -897,32 +681,32 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         profile = kwargs.get("firefox_profile") or getattr(opts, "profile", None)
         assert profile is not None
 
-    def test_chrome_local_user_data_dir(self):
+    def test_chrome_local_user_data_dir(self, selenium_driver):
         with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
-            self._run(WebPageSeleniumChrome, user_data_dir="/tmp/local-udd")
+            selenium_driver(WebPageSeleniumChrome, user_data_dir="/tmp/local-udd")
         mock_chrome.assert_called_once()
         _, kwargs = mock_chrome.call_args
         assert "--user-data-dir=/tmp/local-udd" in kwargs["options"].arguments
 
-    def test_firefox_grid_user_data_dir(self):
+    def test_firefox_grid_user_data_dir(self, selenium_driver):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, user_data_dir="/tmp/grid-udd")
+            selenium_driver(WebPageSeleniumFirefox, env, user_data_dir="/tmp/grid-udd")
         options = self._remote_options(mock_remote)
         assert "-profile" in options.arguments
         assert "/tmp/grid-udd" in options.arguments
 
-    def test_chrome_grid_user_data_dir(self):
+    def test_chrome_grid_user_data_dir(self, selenium_driver):
         env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumChrome, env, user_data_dir="/tmp/grid-udd")
+            selenium_driver(WebPageSeleniumChrome, env, user_data_dir="/tmp/grid-udd")
         options = self._remote_options(mock_remote)
         assert "--user-data-dir=/tmp/grid-udd" in options.arguments
 
-    def test_profile_overrides_user_data_dir(self):
+    def test_profile_overrides_user_data_dir(self, selenium_driver):
         with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
             with pytest.warns(UserWarning, match="profile takes precedence"):
-                self._run(
+                selenium_driver(
                     WebPageSeleniumChrome,
                     profile="/tmp/profile",
                     user_data_dir="/tmp/udd",
@@ -931,38 +715,42 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         assert "--user-data-dir=/tmp/profile" in kwargs["options"].arguments
         assert "--user-data-dir=/tmp/udd" not in kwargs["options"].arguments
 
-    def test_firefox_grid_page_load_strategy_argument_wins(self):
+    def test_firefox_grid_page_load_strategy_argument_wins(self, selenium_driver):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         caps = {"pageLoadStrategy": "eager"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps, page_load_strategy="none")
+            selenium_driver(
+                WebPageSeleniumFirefox, env, capabilities=caps, page_load_strategy="none"
+            )
         options = self._remote_options(mock_remote)
         assert options.capabilities["pageLoadStrategy"] == "none"
 
-    def test_chrome_grid_page_load_strategy_argument_wins(self):
+    def test_chrome_grid_page_load_strategy_argument_wins(self, selenium_driver):
         env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
         caps = {"pageLoadStrategy": "eager"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumChrome, env, capabilities=caps, page_load_strategy="none")
+            selenium_driver(
+                WebPageSeleniumChrome, env, capabilities=caps, page_load_strategy="none"
+            )
         options = self._remote_options(mock_remote)
         assert options.capabilities["pageLoadStrategy"] == "none"
 
-    def test_firefox_grid_proxy_env_wins(self):
+    def test_firefox_grid_proxy_env_wins(self, selenium_driver):
         env = {
             "SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub",
             "HTTP_PROXY": "http://proxy.example:80",
         }
         caps = {"proxy": {"proxyType": "system"}}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumFirefox, env, capabilities=caps)
         options = self._remote_options(mock_remote)
         assert options.proxy.httpProxy == "proxy.example:80"
 
-    def test_firefox_grid_language_argument_wins(self):
+    def test_firefox_grid_language_argument_wins(self, selenium_driver):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         caps = {"moz:firefoxOptions": {"prefs": {"intl.accept_languages": "en"}}}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps, language="ja")
+            selenium_driver(WebPageSeleniumFirefox, env, capabilities=caps, language="ja")
         options = self._remote_options(mock_remote)
         prefs = options.to_capabilities()["moz:firefoxOptions"]["prefs"]
         assert prefs["intl.accept_languages"] == "ja"
@@ -973,40 +761,178 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         caps["grid:profile"] = "mutated"
         assert page.capabilities["grid:profile"] == "fixed"
 
-    def test_firefox_grid_reserved_key_warns(self, caplog):
+    def test_firefox_grid_reserved_key_warns(self, selenium_driver, caplog):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         caps = {"moz:firefoxOptions": {"binary": "/custom/ff"}}
         with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumFirefox, env, capabilities=caps)
         assert any("moz:firefoxOptions" in record.message for record in caplog.records)
 
-    def test_chrome_grid_reserved_key_warns(self, caplog):
+    def test_chrome_grid_reserved_key_warns(self, selenium_driver, caplog):
         env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
         caps = {"goog:chromeOptions": {"binary": "/custom/chrome"}}
         with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-            self._run(WebPageSeleniumChrome, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumChrome, env, capabilities=caps)
         assert any("goog:chromeOptions" in record.message for record in caplog.records)
 
-    def test_firefox_grid_proxy_key_warns(self, caplog):
+    def test_firefox_grid_proxy_key_warns(self, selenium_driver, caplog):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         caps = {"proxy": {"proxyType": "system"}}
         with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumFirefox, env, capabilities=caps)
         assert any(repr("proxy") in record.message for record in caplog.records)
 
-    def test_firefox_grid_non_json_value_warns(self, caplog):
+    def test_firefox_grid_non_json_value_warns(self, selenium_driver, caplog):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         caps = {"weird": {1, 2}}
         with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumFirefox, env, capabilities=caps)
         assert any("not JSON serializable" in record.message for record in caplog.records)
 
-    def test_firefox_grid_normal_key_no_warning(self, caplog):
+    def test_firefox_grid_normal_key_no_warning(self, selenium_driver, caplog):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}
         caps = {"grid:profile": "fixed-profile"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote"):
-            self._run(WebPageSeleniumFirefox, env, capabilities=caps)
+            selenium_driver(WebPageSeleniumFirefox, env, capabilities=caps)
         assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+    @pytest.mark.parametrize(
+        ("page_class", "remote_env", "browser_options", "foreign_options"),
+        [
+            (
+                WebPageSeleniumFirefox,
+                "SELENIUM_FIREFOX_URL",
+                "moz:firefoxOptions",
+                "goog:chromeOptions",
+            ),
+            (
+                WebPageSeleniumChrome,
+                "SELENIUM_CHROME_URL",
+                "goog:chromeOptions",
+                "moz:firefoxOptions",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("invalid_kind", ["set", "circular"])
+    def test_unsupported_capabilities_excluded_from_session(
+        self,
+        selenium_driver,
+        caplog,
+        page_class,
+        remote_env,
+        browser_options,
+        foreign_options,
+        invalid_kind,
+    ):
+        invalid_value = {1, 2} if invalid_kind == "set" else []
+        if invalid_kind == "circular":
+            invalid_value.append(invalid_value)
+        caps = {
+            "moz:firefoxOptions": {"binary": "/custom/firefox"},
+            "goog:chromeOptions": {"binary": "/custom/chrome"},
+            "proxy": {"proxyType": "system"},
+            "custom:invalid": invalid_value,
+            "custom:valid": {"labels": ["session"]},
+        }
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            selenium_driver(page_class, {remote_env: "http://grid:4444/wd/hub"}, capabilities=caps)
+        options = self._remote_options(mock_remote)
+        request_caps = options.to_capabilities()
+        # Exercise the serialization boundary hidden by the mocked Remote driver.
+        json.dumps(request_caps)
+        assert "custom:invalid" not in request_caps
+        assert foreign_options not in request_caps
+        assert "binary" not in request_caps[browser_options]
+        assert request_caps.get("proxy", {}).get("proxyType") != "system"
+        assert request_caps["custom:valid"] == caps["custom:valid"]
+        assert caps["custom:invalid"] is invalid_value
+        for key in ("moz:firefoxOptions", "goog:chromeOptions", "proxy", "custom:invalid"):
+            assert any(repr(key) in record.message for record in caplog.records)
+
+    def test_firefox_local_legacy_profile_fallback(self, selenium_driver, mocker):
+        profile = mocker.Mock()
+        mocker.patch("pyscraper.webpage_selenium.webdriver.FirefoxProfile", return_value=profile)
+        mocker.patch(
+            "pyscraper.webpage_selenium.webdriver.FirefoxOptions.profile",
+            new_callable=PropertyMock,
+            side_effect=AttributeError("profile setter unavailable"),
+        )
+        with patch("pyscraper.webpage_selenium.webdriver.Firefox") as mock_firefox:
+            selenium_driver(
+                WebPageSeleniumFirefox,
+                profile="/tmp/profile",
+                page_load_strategy="eager",
+                language="ja",
+            )
+        mock_firefox.assert_called_once()
+        kwargs = mock_firefox.call_args.kwargs
+        assert kwargs["firefox_profile"] is profile
+        assert "-headless" in kwargs["options"].arguments
+        assert kwargs["options"].page_load_strategy == "eager"
+        assert (
+            kwargs["options"].to_capabilities()["moz:firefoxOptions"]["prefs"][
+                "intl.accept_languages"
+            ]
+            == "ja"
+        )
+
+
+class TestSeleniumWaits:
+    @pytest.mark.parametrize("target_kind", ["page", "element"])
+    def test_wait_uses_target_search_context(self, mocker, target_kind):
+        context = mocker.Mock()
+        if target_kind == "page":
+            target = WebPageSeleniumFirefox()
+            target.driver = context
+        else:
+            target = SeleniumWebPageElement(context)
+        assert target.wait(".//a", timeout=0) is None
+        context.find_element.assert_called_once_with(By.XPATH, ".//a")
+
+    @pytest.mark.parametrize("target_kind", ["page", "element"])
+    def test_wait_translates_timeout(self, mocker, target_kind):
+        context = mocker.Mock()
+        context.find_element.side_effect = NoSuchElementException("missing")
+        if target_kind == "page":
+            target = WebPageSeleniumFirefox()
+            target.driver = context
+        else:
+            target = SeleniumWebPageElement(context)
+        with pytest.raises(WebPageTimeoutError) as exc:
+            target.wait(".//missing", timeout=0)
+        assert isinstance(exc.value.__cause__, TimeoutException)
+
+    @pytest.mark.parametrize("timeout", [0, 1])
+    def test_element_click(self, mocker, timeout):
+        element = mocker.Mock(spec=WebElement)
+        element.is_displayed.return_value = True
+        element.is_enabled.return_value = True
+        SeleniumWebPageElement(element).click(timeout=timeout)
+        element.click.assert_called_once_with()
+        if timeout:
+            element.is_displayed.assert_called_once_with()
+            element.is_enabled.assert_called_once_with()
+        else:
+            element.is_displayed.assert_not_called()
+
+    def test_element_click_does_not_click_after_timeout(self, mocker):
+        element = mocker.Mock()
+        timeout = TimeoutException("not clickable")
+        mocker.patch("pyscraper.webpage_selenium.WebDriverWait.until", side_effect=timeout)
+        with pytest.raises(WebPageTimeoutError) as exc:
+            SeleniumWebPageElement(element).click(timeout=1)
+        assert exc.value.__cause__ is timeout
+        element.click.assert_not_called()
+
+    def test_page_click_preserves_selenium_timeout(self, mocker):
+        page = WebPageSeleniumFirefox()
+        page.driver = mocker.Mock()
+        timeout = TimeoutException("not clickable")
+        mocker.patch("pyscraper.webpage_selenium.WebDriverWait.until", side_effect=timeout)
+        with pytest.raises(TimeoutException) as exc:
+            page.click("//a", timeout=0)
+        assert exc.value is timeout
+        page.driver.find_element.return_value.click.assert_not_called()
 
 
 class TestWebPageMutableDefaults:

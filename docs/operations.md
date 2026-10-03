@@ -46,7 +46,8 @@ Notes:
   settings. Reserved option keys such as `moz:firefoxOptions` and
   `goog:chromeOptions` must not be passed. `proxy` cannot be set via
   `capabilities`; configure it with `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`
-  environment variables. Unsupported capabilities are logged as warnings.
+  environment variables. Reserved keys and values that cannot be serialized
+  as JSON are excluded from the session request and logged as warnings.
 - `profile` selects the browser profile directory (Firefox uses `-profile`,
   Chrome uses `--user-data-dir`). It takes precedence over the legacy
   `SELENIUM_FIREFOX_PROFILE` / `SELENIUM_CHROME_PROFILE` environment
