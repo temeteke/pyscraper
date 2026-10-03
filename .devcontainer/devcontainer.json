@@ -1,6 +1,6 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/docker-existing-docker-compose
-// If you want to run as a non-root user in the container, see .devcontainer/docker-compose.yml.
+// The dev service and VS Code both run as the image's vscode user.
 {
 	// Update the 'dockerComposeFile' list if you have more compose files or use different names.
 	// The .devcontainer/docker-compose.yml file contains any overrides you need/want to make.
@@ -28,10 +28,11 @@
 
 	// Uncomment the next line to run commands after the container is created - for example installing curl.
 	// "postCreateCommand": "apt-get update && apt-get install -y curl",
-	"postCreateCommand": "git config --global --add safe.directory /workspace && git config --global core.filemode false && cd /workspace && pip install -e \".[console]\"",
+	"postCreateCommand": "git config --global --add safe.directory /workspace && git config --global core.filemode false && cd /workspace && python -m pip install --user -e \".[console]\"",
 
-	// Uncomment to connect as a non-root user if you've added one. See https://aka.ms/vscode-remote/containers/non-root.
-	"remoteUser": "root",
+	// Match the host UID/GID on Linux so bind-mounted files keep host ownership.
+	"remoteUser": "vscode",
+	"updateRemoteUserUID": true,
 
 	"customizations": {
 		"vscode": {

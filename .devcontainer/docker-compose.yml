@@ -1,14 +1,9 @@
 services:
   # Update this to the name of the service you want to work with in your docker-compose.yml file
   dev:
-    # If you want add a non-root user to your Dockerfile, you can use the "remoteUser"
-    # property in devcontainer.json to cause VS Code its sub-processes (terminals, tasks,
-    # debugging) to execute as the user. Uncomment the next line if you want the entire
-    # container to run as this user instead. Note that, on Linux, you may need to
-    # ensure the UID and GID of the container user you create matches your local user.
-    # See https://aka.ms/vscode-remote/containers/non-root for details.
-    #
-    # user: vscode
+    # Use the same non-root user for the container and VS Code processes.
+    # Dev Containers matches this user's UID/GID to the local user on Linux.
+    user: vscode
 
     # Uncomment if you want to override the service's Dockerfile to one in the .devcontainer
     # folder. Note that the path of the Dockerfile and context is relative to the *primary*

@@ -19,6 +19,21 @@ pip install pytest pytest-cov pytest-mock
 pytest tests/
 ```
 
+### Dev Container User
+
+The Dev Container runs as `vscode`, including VS Code terminals and lifecycle
+commands. On Linux, `updateRemoteUserUID` matches the user's UID/GID to the
+local user when the container is created. Python dependencies are installed
+with `python -m pip install --user` under `/home/vscode/.local`, which remains
+writable by that user. No virtual environment is created in the container.
+
+After changing these settings, run **Dev Containers: Rebuild Container** in
+VS Code. Verify that `whoami` prints `vscode` and `id -u` is nonzero; on Linux,
+compare the UID with `id -u` run on the host.
+
+See the [Dev Containers non-root user documentation](https://code.visualstudio.com/remote/advancedcontainers/add-nonroot-user)
+for platform-specific bind-mount behavior.
+
 ### Recommended Tools
 
 Linting and formatting are handled by ruff (see `pyproject.toml` and
