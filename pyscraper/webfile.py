@@ -16,6 +16,8 @@ from pyscraper.utils import get_filename_from_url
 logger = logging.getLogger(__name__)
 
 
+_READ_CHUNK_SIZE = 8192
+
 _HEXDIGITS = set("0123456789abcdefABCDEF")
 
 
@@ -153,16 +155,16 @@ def _filename_from_content_disposition(content_disposition):
 
 class MyTqdm(tqdm):
     def __init__(self, *args, **kwargs):
-        if "file" not in kwargs:
-            kwargs["file"] = sys.stderr
-        if hasattr(kwargs["file"], "isatty") and not kwargs["file"].isatty():
-            kwargs["disable"] = True
-        elif logger.getEffectiveLevel() > logging.INFO:
-            kwargs["disable"] = True
-        else:
-            kwargs["disable"] = False
+        kwargs.setdefault("file", sys.stderr)
+        if "disable" not in kwargs:
+            if hasattr(kwargs["file"], "isatty") and not kwargs["file"].isatty():
+                kwargs["disable"] = True
+            elif logger.getEffectiveLevel() > logging.INFO:
+                kwargs["disable"] = True
+            else:
+                kwargs["disable"] = False
 
-        return super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
 
 class FileIOBase:
@@ -208,7 +210,10 @@ class WebFileMixin:
     def __str__(self):
         return self.url
 
+    __hash__ = None  # unhashable by design: url changes after open()
+
     def __eq__(self, other):
+        """Compare by URL. Instances are intentionally unhashable (see __hash__)."""
         if not isinstance(other, self.__class__):
             return NotImplemented
         return self.url == other.url
@@ -333,7 +338,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             self.open_response()
 
     @property
-    def size(self):
+    def size(self) -> int | None:
+        """Return the total file size, or None when the headers omit it."""
         if self.response is None:
             raise WebFileError("Response is not opened.")
 
@@ -341,6 +347,7 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             return int(content_range.split("/")[-1].strip())
         elif content_length := self.response.headers.get("Content-Length"):
             return int(content_length)
+        return None
 
     def get_filename(self):
         """Resolve the output filename.
@@ -448,8 +455,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             raise WebFileSeekError("Server does not support range requests.")
 
         # check if offset is within range
-        if offset < 0 or offset >= self.size:
-            raise WebFileSeekError(f"Offset {offset} is out of range. File size is {self.size}.")
+        total = self.size
+        if total is None:
+            raise WebFileSeekError("Cannot seek when the file size is unknown.")
+        if offset < 0 or offset >= total:
+            raise WebFileSeekError(f"Offset {offset} is out of range. File size is {total}.")
 
         if offset == self.position:
             return self.position
@@ -463,6 +473,81 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.open_response()
 
         return super().seek(offset)
+
+    def _prepare_download(
+        self,
+        directory,
+        file_name,
+        filename,
+        file_stem,
+        filestem,
+        file_suffix,
+        filesuffix,
+        temp_file,
+    ):
+        """Apply naming overrides and resolve the temporary download path."""
+        self.directory = directory
+        self.filename = file_name or filename
+        self.filestem = file_stem or filestem
+        self.filesuffix = file_suffix or filesuffix
+
+        return Path(temp_file) if temp_file is not None else self.temp_file
+
+    def _resume_offset(self, wf, resolved_temp_file):
+        """Return the resume offset for a partial download (0 when unresumable)."""
+        if not resolved_temp_file.exists():
+            return 0
+        downloaded_file_size = resolved_temp_file.stat().st_size
+        try:
+            wf.seek(downloaded_file_size)
+        except WebFileSeekError:
+            resolved_temp_file.unlink()
+            return 0
+        return downloaded_file_size
+
+    def _download_known_size(self, wf, resolved_temp_file, progress_callback):
+        downloaded_file_size = self._resume_offset(wf, resolved_temp_file)
+
+        with MyTqdm(
+            total=wf.size,
+            initial=downloaded_file_size,
+            unit="B",
+            unit_scale=True,
+            dynamic_ncols=True,
+        ) as pbar:
+            with resolved_temp_file.open("ab") as f:
+                current_size = downloaded_file_size
+                for chunk in iter(partial(wf.read, _READ_CHUNK_SIZE), b""):
+                    f.write(chunk)
+                    pbar.update(len(chunk))
+                    current_size += len(chunk)
+                    if progress_callback:
+                        progress_callback(current_size, wf.size)
+
+        self._verify_size(wf, resolved_temp_file)
+
+    def _verify_size(self, wf, resolved_temp_file):
+        """Check the downloaded size unless the response is compressed."""
+        if wf.response.headers.get("Content-Encoding"):
+            return
+        actual = resolved_temp_file.stat().st_size
+        wf.logger.debug(f"Comparing file size {actual} {wf.size}")
+        if actual > wf.size:
+            resolved_temp_file.unlink()
+            raise WebFileError(
+                "Downloaded file size is larger than expected. Removed downloaded file."
+            )
+        elif actual < wf.size:
+            raise WebFileError("Downloaded file size is smaller than expected.")
+
+    def _download_unknown_size(self, wf, resolved_temp_file, progress_callback):
+        with resolved_temp_file.open("wb") as f:
+            current_size = 0
+            for chunk in iter(partial(wf.read, _READ_CHUNK_SIZE), b""):
+                f.write(chunk)
+                current_size += len(chunk)
+                if progress_callback:
+                    progress_callback(current_size, None)
 
     def download(
         self,
@@ -495,12 +580,16 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                 ``unlink(temp_file=...)`` to clean it up.
         """
 
-        self.directory = directory
-        self.filename = file_name or filename
-        self.filestem = file_stem or filestem
-        self.filesuffix = file_suffix or filesuffix
-
-        resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
+        resolved_temp_file = self._prepare_download(
+            directory,
+            file_name,
+            filename,
+            file_stem,
+            filestem,
+            file_suffix,
+            filesuffix,
+            temp_file,
+        )
 
         if self.filepath.exists():
             self.logger.warning(f"{self.filepath} is already downloaded.")
@@ -512,53 +601,9 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
         with self as wf:
             if wf.size:
-                if resolved_temp_file.exists():
-                    downloaded_file_size = resolved_temp_file.stat().st_size
-                    try:
-                        wf.seek(downloaded_file_size)
-                    except WebFileSeekError:
-                        resolved_temp_file.unlink()
-                        downloaded_file_size = 0
-                else:
-                    downloaded_file_size = 0
-
-                with MyTqdm(
-                    total=wf.size,
-                    initial=downloaded_file_size,
-                    unit="B",
-                    unit_scale=True,
-                    dynamic_ncols=True,
-                ) as pbar:
-                    with resolved_temp_file.open("ab") as f:
-                        current_size = downloaded_file_size
-                        for chunk in iter(partial(wf.read, 8192), b""):
-                            f.write(chunk)
-                            pbar.update(len(chunk))
-                            current_size += len(chunk)
-                            if progress_callback:
-                                progress_callback(current_size, wf.size)
-
-                # Check file size after download if not compressed
-                if not wf.response.headers.get("Content-Encoding"):
-                    wf.logger.debug(
-                        f"Comparing file size {resolved_temp_file.stat().st_size} {wf.size}"
-                    )
-                    if resolved_temp_file.stat().st_size > wf.size:
-                        resolved_temp_file.unlink()
-                        raise WebFileError(
-                            "Downloaded file size is larger than expected. Removed downloaded file."
-                        )
-                    elif resolved_temp_file.stat().st_size < wf.size:
-                        raise WebFileError("Downloaded file size is smaller than expected.")
-
+                self._download_known_size(wf, resolved_temp_file, progress_callback)
             else:
-                with resolved_temp_file.open("wb") as f:
-                    current_size = 0
-                    for chunk in iter(partial(wf.read, 8192), b""):
-                        f.write(chunk)
-                        current_size += len(chunk)
-                        if progress_callback:
-                            progress_callback(current_size, None)
+                self._download_unknown_size(wf, resolved_temp_file, progress_callback)
 
             wf.logger.debug("Removing temporary file")
             shutil.move(resolved_temp_file, wf.filepath)
@@ -577,6 +622,11 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         resolved_temp_file.unlink(missing_ok=True)
 
     def exists(self):
+        """Check reachability with a GET request.
+
+        Returns False for 4xx client errors; other failures propagate.
+        This is a reachability check only, not a validity check.
+        """
         if self.response is None:
             try:
                 with self as wf:

@@ -1,5 +1,6 @@
 import logging
 import os
+import warnings
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,76 @@ def _get_env_anycase(name):
     """
     lower = name.lower()
     return os.environ.get(lower, os.environ.get(name))
+
+
+def merge_url_params(url, params: dict | None = None, encoding=None):
+    """Merge additional query params into a URL.
+
+    Existing query strings are preserved and ``params`` values overwrite
+    same-named keys. Returns ``url`` unchanged when ``params`` is falsy.
+    """
+    if not params:
+        return url
+    parsed_url = urlparse(url)
+    parsed_qs = parse_qs(parsed_url.query)
+    parsed_qs.update(params)
+    return urlunparse(
+        parsed_url._replace(query=urlencode(parsed_qs, doseq=True, encoding=encoding))
+    )
+
+
+def resolve_profile(profile, user_data_dir):
+    """Resolve the effective browser profile directory.
+
+    ``user_data_dir`` is an alias for ``profile``. When both are given,
+    ``profile`` takes precedence and a warning is emitted.
+    """
+    if user_data_dir is not None and profile is not None:
+        warnings.warn(
+            "profile takes precedence over user_data_dir; user_data_dir is ignored",
+            UserWarning,
+            stacklevel=2,
+        )
+    return profile if profile is not None else user_data_dir
+
+
+def configure_no_proxy_for_remote(remote_url):
+    """Add a remote browser URL's host to ``no_proxy``/``NO_PROXY``."""
+    netloc = urlparse(remote_url).netloc
+
+    for key in ("no_proxy", "NO_PROXY"):
+        if current := os.environ.get(key):
+            if netloc not in current.split(","):
+                os.environ[key] = current + "," + netloc
+        else:
+            os.environ[key] = netloc
+
+
+def dump_html(html, filestem=None):
+    """Write ``html`` to ``<filestem>.html`` and return its path."""
+    if not filestem:
+        filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    filepath = Path(filestem + ".html")
+    with filepath.open("w") as f:
+        f.write(html)
+
+    return filepath
+
+
+def iter_scroll_positions(scroll_height, viewport_height):
+    """Yield scroll offsets covering ``scroll_height``.
+
+    A non-positive viewport falls back to a single capture at offset 0
+    so callers never loop forever when the viewport size is unavailable.
+    """
+    if scroll_height <= 0:
+        return
+    step = viewport_height if viewport_height and viewport_height > 0 else scroll_height
+    scroll = 0
+    while scroll < scroll_height:
+        yield scroll
+        scroll += step
 
 
 class WebPageError(Exception):
@@ -174,14 +245,7 @@ class WebPageParserMixin(ABC):
         return self.lxml_html.xpath(xpath)
 
     def dump(self, filestem=None):
-        if not filestem:
-            filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        filepath = Path(filestem + ".html")
-        with filepath.open("w") as f:
-            f.write(self.html)
-
-        return filepath
+        return dump_html(self.html, filestem)
 
 
 class WebPage(WebPageParserMixin):
@@ -193,17 +257,15 @@ class WebPage(WebPageParserMixin):
 
         if not params_encoding:
             params_encoding = encoding
-        parsed_url = urlparse(url)
-        parsed_qs = parse_qs(parsed_url.query)
-        parsed_qs.update(params)
-        self.request_url = urlunparse(
-            parsed_url._replace(query=urlencode(parsed_qs, doseq=True, encoding=params_encoding))
-        )
+        self.request_url = merge_url_params(url, params, encoding=params_encoding)
 
     def __str__(self):
         return self.url
 
+    __hash__ = None  # unhashable by design: url changes after open()
+
     def __eq__(self, other):
+        """Compare by URL. Instances are intentionally unhashable (see __hash__)."""
         if not isinstance(other, self.__class__):
             return NotImplemented
         return self.url == other.url

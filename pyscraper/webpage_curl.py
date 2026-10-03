@@ -15,4 +15,10 @@ class WebPageCurl(WebPage):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
-        ).stdout.decode()
+        ).stdout.decode(self.encoding or "utf-8")
+
+    @WebPage.url.setter
+    def url(self, value):
+        WebPage.url.fset(self, value)
+        # Drop the cached curl result so a URL change refetches.
+        self.__dict__.pop("html", None)

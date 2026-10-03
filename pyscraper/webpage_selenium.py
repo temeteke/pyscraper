@@ -3,13 +3,11 @@ import json
 import logging
 import os
 import re
-import warnings
 from abc import ABC
-from datetime import datetime
 from http.client import RemoteDisconnected
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
 
 import lxml.html
 import selenium.common.exceptions
@@ -28,6 +26,11 @@ from pyscraper.webpage import (
     WebPageNoSuchElementError,
     WebPageTimeoutError,
     _get_env_anycase,
+    configure_no_proxy_for_remote,
+    dump_html,
+    iter_scroll_positions,
+    merge_url_params,
+    resolve_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,22 +71,6 @@ def _warn_unsupported_capabilities(capabilities):
                 key,
                 e,
             )
-
-
-def _resolve_profile(profile, user_data_dir):
-    """Resolve the effective browser profile directory.
-
-    ``user_data_dir`` is an alias for ``profile``. When both are given,
-    ``profile`` takes precedence and a warning is emitted (matches the
-    WebPagePlaywright alias resolution for symmetry).
-    """
-    if user_data_dir is not None and profile is not None:
-        warnings.warn(
-            "profile takes precedence over user_data_dir; user_data_dir is ignored",
-            UserWarning,
-            stacklevel=2,
-        )
-    return profile if profile is not None else user_data_dir
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -145,8 +132,10 @@ class SeleniumWebPageElement(WebPageElement):
     @contextlib.contextmanager
     def switch(self):
         self.element.parent.switch_to.frame(self.element)
-        yield
-        self.element.parent.switch_to.parent_frame()
+        try:
+            yield
+        finally:
+            self.element.parent.switch_to.parent_frame()
 
 
 class WebPageSelenium(WebPage, ABC):
@@ -177,14 +166,16 @@ class WebPageSelenium(WebPage, ABC):
             raise WebPageError("Driver is not opened yet")
 
     def _configure_no_proxy_for_remote(self, remote_url):
-        netloc = urlparse(remote_url).netloc
+        configure_no_proxy_for_remote(remote_url)
 
-        for key in ("no_proxy", "NO_PROXY"):
-            if current := os.environ.get(key):
-                if netloc not in current.split(","):
-                    os.environ[key] = current + "," + netloc
-            else:
-                os.environ[key] = netloc
+    def _init_remote_options(self, options):
+        """Apply shared remote Grid settings to ``options``."""
+        _warn_unsupported_capabilities(self.capabilities)
+        for key, value in (self.capabilities or {}).items():
+            options.set_capability(key, value)
+        if self.node is not None:
+            options.set_capability("pyscraper:node", self.node)
+        self._apply_dedicated_settings(options)
 
     @property
     def url(self):
@@ -278,12 +269,7 @@ class WebPageSelenium(WebPage, ABC):
 
     def go(self, url, params: dict | None = None):
         self._ensure_open()
-        if params:
-            parsed_url = urlparse(url)
-            parsed_qs = parse_qs(parsed_url.query)
-            parsed_qs.update(params)
-            url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
-        self.driver.get(url)
+        self.driver.get(merge_url_params(url, params))
 
     def forward(self):
         self._ensure_open()
@@ -307,24 +293,18 @@ class WebPageSelenium(WebPage, ABC):
 
     def dump(self, filestem=None):
         self._ensure_open()
-        if not filestem:
-            filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        filepath = Path(filestem + ".html")
-        with filepath.open("w") as f:
-            f.write(self.html)
+        filepath = dump_html(self.html, filestem)
         files = [filepath]
+        stem_path = filepath.with_suffix("")
 
         scroll_height = self.driver.execute_script("return document.body.scrollHeight")
         inner_height = self.driver.execute_script("return window.innerHeight")
 
-        scroll = 0
-        while scroll < scroll_height:
+        for scroll in iter_scroll_positions(scroll_height, inner_height):
             self.driver.execute_script(f"window.scrollTo(0, {scroll})")
-            filepath = Path(filestem + f"_{scroll}.png")
-            self.driver.save_screenshot(str(filepath))
-            files.append(filepath)
-            scroll += inner_height
+            png_path = Path(f"{stem_path}_{scroll}.png")
+            self.driver.save_screenshot(str(png_path))
+            files.append(png_path)
 
         return files
 
@@ -397,7 +377,7 @@ class WebPageFirefox(WebPageSelenium):
             cookies_file=cookies_file,
             page_load_strategy=page_load_strategy,
         )
-        self.profile = _resolve_profile(profile, user_data_dir)
+        self.profile = resolve_profile(profile, user_data_dir)
         self.language = language
         self.capabilities = dict(capabilities) if capabilities else None
         self.node = node
@@ -413,13 +393,7 @@ class WebPageFirefox(WebPageSelenium):
         options = webdriver.FirefoxOptions()
 
         if url := os.environ.get("SELENIUM_FIREFOX_URL"):
-            _warn_unsupported_capabilities(self.capabilities)
-            for key, value in (self.capabilities or {}).items():
-                options.set_capability(key, value)
-            if self.node is not None:
-                options.set_capability("pyscraper:node", self.node)
-
-            self._apply_dedicated_settings(options)
+            self._init_remote_options(options)
 
             profile = self.profile or os.environ.get("SELENIUM_FIREFOX_PROFILE")
             if profile:
@@ -506,7 +480,7 @@ class WebPageChrome(WebPageSelenium):
             cookies_file=cookies_file,
             page_load_strategy=page_load_strategy,
         )
-        self.profile = _resolve_profile(profile, user_data_dir)
+        self.profile = resolve_profile(profile, user_data_dir)
         self.capabilities = dict(capabilities) if capabilities else None
         self.node = node
 
@@ -518,13 +492,7 @@ class WebPageChrome(WebPageSelenium):
         options = webdriver.ChromeOptions()
 
         if url := os.environ.get("SELENIUM_CHROME_URL"):
-            _warn_unsupported_capabilities(self.capabilities)
-            for key, value in (self.capabilities or {}).items():
-                options.set_capability(key, value)
-            if self.node is not None:
-                options.set_capability("pyscraper:node", self.node)
-
-            self._apply_dedicated_settings(options)
+            self._init_remote_options(options)
 
             options.add_argument("--start-maximized")
             profile = self.profile or os.environ.get("SELENIUM_CHROME_PROFILE")

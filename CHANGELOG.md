@@ -6,6 +6,45 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Sections are numbered by version without dates; the release date is the Git
 tag.
 
+## [Unreleased]
+
+### Added
+
+- Selenium per-node browser launch options: `SELENIUM_NODE_CHROME_OPTIONS`
+  maps a node name to `{"args": [...], "excludeSwitches": [...]}` (injected
+  as `goog:chromeOptions` for `selenium-chrome` sessions on that node only);
+  `SELENIUM_NODE_FIREFOX_OPTIONS` maps a node name to
+  `{"args": [...], "prefs": {...}}` (injected as `moz:firefoxOptions` for
+  `selenium-firefox` sessions on that node only). When unset or blank the
+  session request keeps its legacy shape. Invalid values fail fast at
+  manager startup; profile selectors (`--user-data-dir`, `-profile`/`-P`/
+  `--profile` forms) are rejected. See [operations.md](docs/operations.md).
+
+### Fixed
+
+- Selenium session manager: Grid control traffic (session
+  create/maximize/navigate/close) bypasses `HTTP(S)_PROXY` env; browser
+  proxy stays a launch arg.
+- `WebPageCurl` refetches after a `url` change instead of returning the
+  stale cached result, and decodes with the instance encoding.
+- `HlsFile.read(0)` returns `b""` without I/O instead of reading everything.
+- `WebFile.seek` raises `WebFileSeekError` (instead of `TypeError`) when
+  the file size is unknown; `WebFile.size` is now explicitly `int | None`.
+- `HlsFile.read` raises `WebFileError` when skipping ahead past a segment
+  whose size is unknown, instead of failing with `TypeError`.
+
+### Changed
+
+- Internal refactoring with no behavior change (all unit tests pass
+  unmodified): shared URL query merging, profile/no-proxy helpers, HTML
+  dump and scroll-position helpers, Selenium remote-options setup,
+  Playwright browser subclasses, HLS resource enumeration, `WebFile`
+  download steps, `try/finally` frame switching, lazy cached User-Agent,
+  and dynamic `HlsFile.clear_cache`.
+- Documented contracts only (no implementation change): `WebFile.exists` /
+  `HlsFile.exists` reachability scope, and intentionally unhashable
+  `WebPage` / `WebFile` equality.
+
 ## [3.0.0]
 
 This is a breaking release; see **Migration** for the changes to apply.

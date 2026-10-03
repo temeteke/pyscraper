@@ -6,9 +6,7 @@ import time
 import warnings
 from abc import ABC
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import lxml.html
 
@@ -18,25 +16,14 @@ from pyscraper.webpage import (
     WebPageError,
     WebPageNoSuchElementError,
     _get_env_anycase,
+    configure_no_proxy_for_remote,
+    dump_html,
+    iter_scroll_positions,
+    merge_url_params,
+    resolve_profile,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_user_data_dir(profile, user_data_dir):
-    """Resolve the effective browser profile directory.
-
-    ``profile`` is the canonical argument (mirrors WebPageSelenium);
-    ``user_data_dir`` is an alias for it. When both are given, ``profile``
-    takes precedence and a warning is emitted.
-    """
-    if user_data_dir is not None and profile is not None:
-        warnings.warn(
-            "profile takes precedence over user_data_dir; user_data_dir is ignored",
-            UserWarning,
-            stacklevel=2,
-        )
-    return profile if profile is not None else user_data_dir
 
 
 @dataclass
@@ -113,33 +100,42 @@ class PlaywrightWebPageElement(WebPageElement):
             raise WebPageError("Element is not an iframe")
         original_page = self._page
         self._page = frame
-        yield
-        self._page = original_page
+        try:
+            yield
+        finally:
+            self._page = original_page
 
 
 class WebPagePlaywright(WebPage, ABC):
+    DEFAULT_URL = "about:blank"
+
     def __init__(
         self,
-        url,
+        url=None,
         params: dict | None = None,
-        encoding=None,
+        cookies: dict | None = None,
+        headless: bool = True,
         profile: str | None = None,
         user_data_dir: str | None = None,
         node: str | None = None,
         storage_state: str | os.PathLike | dict | None = None,
         context_options: dict | None = None,
+        encoding=None,
     ):
         self._playwright = None
         self._browser = None
         self._context = None
         self._page = None
-        self._cookies = {}
-        self._user_data_dir = _resolve_user_data_dir(profile, user_data_dir)
+        self._cookies = cookies or {}
+        self._headless = headless
+        self._user_data_dir = resolve_profile(profile, user_data_dir)
         self.profile = profile
         self.node = node
         self._storage_state = storage_state
         self._context_options = dict(context_options or {})
         self._persistent = False
+        if not url:
+            url = self.DEFAULT_URL
         super().__init__(url, params=params, encoding=encoding)
 
     def _launch_options_header(self) -> dict:
@@ -234,12 +230,7 @@ class WebPagePlaywright(WebPage, ABC):
 
     def go(self, url, params: dict | None = None):
         self._ensure_open()
-        if params:
-            parsed_url = urlparse(url)
-            parsed_qs = parse_qs(parsed_url.query)
-            parsed_qs.update(params)
-            url = urlunparse(parsed_url._replace(query=urlencode(parsed_qs, doseq=True)))
-        self._page.goto(url)
+        self._page.goto(merge_url_params(url, params))
 
     def forward(self):
         self._ensure_open()
@@ -263,37 +254,24 @@ class WebPagePlaywright(WebPage, ABC):
 
     def dump(self, filestem=None):
         self._ensure_open()
-        if not filestem:
-            filestem = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        filepath = Path(filestem + ".html")
-        with filepath.open("w") as f:
-            f.write(self.html)
+        filepath = dump_html(self.html, filestem)
         files = [filepath]
+        stem_path = filepath.with_suffix("")
 
         scroll_height = self._page.evaluate("document.body.scrollHeight")
         viewport = self._page.viewport_size
         inner_height = viewport["height"] if viewport else 0
 
-        scroll = 0
-        while scroll < scroll_height:
+        for scroll in iter_scroll_positions(scroll_height, inner_height):
             self._page.evaluate(f"window.scrollTo(0, {scroll})")
-            filepath = Path(filestem + f"_{scroll}.png")
-            self._page.screenshot(path=str(filepath))
-            files.append(filepath)
-            scroll += inner_height
+            png_path = Path(f"{stem_path}_{scroll}.png")
+            self._page.screenshot(path=str(png_path))
+            files.append(png_path)
 
         return files
 
     def _configure_no_proxy_for_remote(self, remote_url):
-        netloc = urlparse(remote_url).netloc
-
-        for key in ("no_proxy", "NO_PROXY"):
-            if current := os.environ.get(key):
-                if netloc not in current.split(","):
-                    os.environ[key] = current + "," + netloc
-            else:
-                os.environ[key] = netloc
+        configure_no_proxy_for_remote(remote_url)
 
     def _proxy_settings(self) -> dict:
         # HTTPS_PROXY takes precedence over HTTP_PROXY, matching the original
@@ -429,91 +407,13 @@ class WebPagePlaywright(WebPage, ABC):
 class WebPagePlaywrightChromium(WebPagePlaywright):
     _browser_name = "chromium"
 
-    def __init__(
-        self,
-        url=None,
-        params: dict | None = None,
-        cookies: dict | None = None,
-        headless: bool = True,
-        profile: str | None = None,
-        user_data_dir: str | None = None,
-        node: str | None = None,
-        storage_state: str | os.PathLike | dict | None = None,
-        context_options: dict | None = None,
-    ):
-        if not url:
-            url = "about:blank"
-        super().__init__(
-            url,
-            params=params,
-            profile=profile,
-            user_data_dir=user_data_dir,
-            node=node,
-            storage_state=storage_state,
-            context_options=context_options,
-        )
-        self._cookies = cookies or {}
-        self._headless = headless
-
 
 class WebPagePlaywrightFirefox(WebPagePlaywright):
     _browser_name = "firefox"
 
-    def __init__(
-        self,
-        url=None,
-        params: dict | None = None,
-        cookies: dict | None = None,
-        headless: bool = True,
-        profile: str | None = None,
-        user_data_dir: str | None = None,
-        node: str | None = None,
-        storage_state: str | os.PathLike | dict | None = None,
-        context_options: dict | None = None,
-    ):
-        if not url:
-            url = "about:blank"
-        super().__init__(
-            url,
-            params=params,
-            profile=profile,
-            user_data_dir=user_data_dir,
-            node=node,
-            storage_state=storage_state,
-            context_options=context_options,
-        )
-        self._cookies = cookies or {}
-        self._headless = headless
-
 
 class WebPagePlaywrightWebKit(WebPagePlaywright):
     _browser_name = "webkit"
-
-    def __init__(
-        self,
-        url=None,
-        params: dict | None = None,
-        cookies: dict | None = None,
-        headless: bool = True,
-        profile: str | None = None,
-        user_data_dir: str | None = None,
-        node: str | None = None,
-        storage_state: str | os.PathLike | dict | None = None,
-        context_options: dict | None = None,
-    ):
-        if not url:
-            url = "about:blank"
-        super().__init__(
-            url,
-            params=params,
-            profile=profile,
-            user_data_dir=user_data_dir,
-            node=node,
-            storage_state=storage_state,
-            context_options=context_options,
-        )
-        self._cookies = cookies or {}
-        self._headless = headless
 
 
 class CaptureSession:

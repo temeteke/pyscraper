@@ -1,21 +1,36 @@
 import logging
+from functools import lru_cache
 
 import requests
 from fake_useragent import UserAgent
 
 logger = logging.getLogger(__name__)
 
-user_agent = UserAgent(platforms="desktop")
+
+@lru_cache(maxsize=8)
+def _make_user_agent(cls):
+    """Build (and cache) a desktop UserAgent for the given class.
+
+    Keyed by class so test patches (``mocker.patch(...UserAgent)`` install
+    a fresh ``MagicMock`` per test) never observe a stale cached instance,
+    while production use keeps a single shared instance.
+    """
+    return cls(platforms="desktop")
+
+
+def _get_user_agent():
+    """Return the shared desktop UserAgent, created lazily (import stays offline)."""
+    return _make_user_agent(UserAgent)
 
 
 class RequestsMixin:
     def open_session(self):
         if self.session is None:
             self.session = requests.Session()
-            self.session.headers["User-Agent"] = user_agent.random
+            self.session.headers["User-Agent"] = _get_user_agent().random
 
         if not self.session.headers.get("User-Agent"):
-            self.session.headers["User-Agent"] = user_agent.random
+            self.session.headers["User-Agent"] = _get_user_agent().random
 
         self.session.headers.update(self.request_headers)
 

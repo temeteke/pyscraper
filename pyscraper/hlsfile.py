@@ -13,9 +13,25 @@ from fake_useragent import UserAgent  # noqa: F401 -- patched by tests
 
 from pyscraper.requests import RequestsMixin
 from pyscraper.utils import get_filename_from_url
-from pyscraper.webfile import FileIOBase, MyTqdm, WebFile, WebFileClientError, WebFileMixin
+from pyscraper.webfile import (
+    FileIOBase,
+    MyTqdm,
+    WebFile,
+    WebFileClientError,
+    WebFileError,
+    WebFileMixin,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_base_query_string(url, base_qs):
+    """Append ``base_qs`` to ``url`` when it has no query string."""
+    if base_qs:
+        parsed = urlparse(url)
+        if not parsed.query:
+            return urlunparse(parsed._replace(query=base_qs))
+    return url
 
 
 def _validate_temp_directory(temp_directory, filepath):
@@ -102,11 +118,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 m3u8_obj = m3u8.loads(content, uri=base_uri)
             if m3u8_obj.playlists:
                 best = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
-                variant_url = best.absolute_uri
-                if self._base_query_string:
-                    parsed = urlparse(variant_url)
-                    if not parsed.query:
-                        variant_url = urlunparse(parsed._replace(query=self._base_query_string))
+                variant_url = _apply_base_query_string(best.absolute_uri, self._base_query_string)
                 return get_best_playlist(variant_url)
             else:
                 return m3u8_obj
@@ -138,33 +150,39 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 return True
         return False
 
+    def _iter_resource_uris(self):
+        """Yield playlist resource URIs in download order, deduplicated."""
+        seen = set()
+
+        def _emit(uri):
+            if uri and uri not in seen:
+                seen.add(uri)
+                return uri
+            return None
+
+        for segment in self.m3u8_obj.segments:
+            if uri := _emit(segment.absolute_uri):
+                yield uri
+            init = segment.init_section
+            if init and (uri := _emit(init.absolute_uri)):
+                yield uri
+        for key in filter(None, self.m3u8_obj.keys):
+            if key.uri and (uri := _emit(key.absolute_uri)):
+                yield uri
+        for key in filter(None, self.m3u8_obj.session_keys):
+            if key.uri and (uri := _emit(key.absolute_uri)):
+                yield uri
+        for segment in self.m3u8_obj.segments:
+            key = segment.key
+            if key and key.uri and (uri := _emit(key.absolute_uri)):
+                yield uri
+        for init_section in self.m3u8_obj.segment_map:
+            if uri := _emit(init_section.absolute_uri):
+                yield uri
+
     @cached_property
     def _uri_to_local_name(self):
-        seen = set()
-        ordered_uris = []
-        for segment in self.m3u8_obj.segments:
-            if segment.absolute_uri not in seen:
-                seen.add(segment.absolute_uri)
-                ordered_uris.append(segment.absolute_uri)
-            if segment.init_section and segment.init_section.absolute_uri not in seen:
-                seen.add(segment.init_section.absolute_uri)
-                ordered_uris.append(segment.init_section.absolute_uri)
-        for key in filter(None, self.m3u8_obj.keys):
-            if key.uri and key.absolute_uri not in seen:
-                seen.add(key.absolute_uri)
-                ordered_uris.append(key.absolute_uri)
-        for key in filter(None, self.m3u8_obj.session_keys):
-            if key.uri and key.absolute_uri not in seen:
-                seen.add(key.absolute_uri)
-                ordered_uris.append(key.absolute_uri)
-        for segment in self.m3u8_obj.segments:
-            if segment.key and segment.key.uri and segment.key.absolute_uri not in seen:
-                seen.add(segment.key.absolute_uri)
-                ordered_uris.append(segment.key.absolute_uri)
-        for init_section in self.m3u8_obj.segment_map:
-            if init_section.absolute_uri not in seen:
-                seen.add(init_section.absolute_uri)
-                ordered_uris.append(init_section.absolute_uri)
+        ordered_uris = list(self._iter_resource_uris())
 
         basename_groups = {}
         for uri in ordered_uris:
@@ -202,101 +220,45 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             segment.uri = mapping[segment.absolute_uri]
         return obj.dumps()
 
+    def _make_resource_file(self, absolute_uri, temp_directory):
+        mapping = self._uri_to_local_name
+        base_qs = getattr(self, "_base_query_string", "")
+        return WebFile(
+            _apply_base_query_string(absolute_uri, base_qs),
+            headers=dict(self.headers),
+            cookies=dict(self.cookies),
+            directory=temp_directory,
+            filename=mapping[absolute_uri],
+        )
+
     def _build_web_files(self, temp_directory):
         mapping = self._uri_to_local_name
         files = []
         last_init_uri = None
-        base_qs = getattr(self, "_base_query_string", "")
         for segment in self.m3u8_obj.segments:
-            seg_url = segment.absolute_uri
             init = segment.init_section
             if init and init.absolute_uri != last_init_uri:
-                init_url = init.absolute_uri
-                if base_qs:
-                    parsed = urlparse(init_url)
-                    if not parsed.query:
-                        init_url = urlunparse(parsed._replace(query=base_qs))
-                files.append(
-                    WebFile(
-                        init_url,
-                        headers=dict(self.headers),
-                        cookies=dict(self.cookies),
-                        directory=temp_directory,
-                        filename=mapping[init.absolute_uri],
-                    )
-                )
+                files.append(self._make_resource_file(init.absolute_uri, temp_directory))
                 last_init_uri = init.absolute_uri
-            if base_qs:
-                parsed = urlparse(seg_url)
-                if not parsed.query:
-                    seg_url = urlunparse(parsed._replace(query=base_qs))
-            files.append(
-                WebFile(
-                    seg_url,
-                    headers=dict(self.headers),
-                    cookies=dict(self.cookies),
-                    directory=temp_directory,
-                    filename=mapping[segment.absolute_uri],
-                )
-            )
+            files.append(self._make_resource_file(segment.absolute_uri, temp_directory))
 
         seen_keys = set()
-        for key in filter(None, self.m3u8_obj.keys):
-            if key.uri and key.absolute_uri in mapping and key.absolute_uri not in seen_keys:
-                seen_keys.add(key.absolute_uri)
-                key_url = key.absolute_uri
-                if base_qs:
-                    parsed = urlparse(key_url)
-                    if not parsed.query:
-                        key_url = urlunparse(parsed._replace(query=base_qs))
-                files.append(
-                    WebFile(
-                        key_url,
-                        headers=dict(self.headers),
-                        cookies=dict(self.cookies),
-                        directory=temp_directory,
-                        filename=mapping[key.absolute_uri],
-                    )
-                )
-        for key in filter(None, self.m3u8_obj.session_keys):
-            if key.uri and key.absolute_uri in mapping and key.absolute_uri not in seen_keys:
-                seen_keys.add(key.absolute_uri)
-                key_url = key.absolute_uri
-                if base_qs:
-                    parsed = urlparse(key_url)
-                    if not parsed.query:
-                        key_url = urlunparse(parsed._replace(query=base_qs))
-                files.append(
-                    WebFile(
-                        key_url,
-                        headers=dict(self.headers),
-                        cookies=dict(self.cookies),
-                        directory=temp_directory,
-                        filename=mapping[key.absolute_uri],
-                    )
-                )
+        key_groups = [self.m3u8_obj.keys, self.m3u8_obj.session_keys]
+        for keys in key_groups:
+            for key in filter(None, keys):
+                if key.uri and key.absolute_uri in mapping and key.absolute_uri not in seen_keys:
+                    seen_keys.add(key.absolute_uri)
+                    files.append(self._make_resource_file(key.absolute_uri, temp_directory))
         for segment in self.m3u8_obj.segments:
+            key = segment.key
             if (
-                segment.key
-                and segment.key.uri
-                and segment.key.absolute_uri in mapping
-                and segment.key.absolute_uri not in seen_keys
+                key
+                and key.uri
+                and key.absolute_uri in mapping
+                and key.absolute_uri not in seen_keys
             ):
-                seen_keys.add(segment.key.absolute_uri)
-                key_url = segment.key.absolute_uri
-                if base_qs:
-                    parsed = urlparse(key_url)
-                    if not parsed.query:
-                        key_url = urlunparse(parsed._replace(query=base_qs))
-                files.append(
-                    WebFile(
-                        key_url,
-                        headers=dict(self.headers),
-                        cookies=dict(self.cookies),
-                        directory=temp_directory,
-                        filename=mapping[segment.key.absolute_uri],
-                    )
-                )
+                seen_keys.add(key.absolute_uri)
+                files.append(self._make_resource_file(key.absolute_uri, temp_directory))
         return files
 
     @cached_property
@@ -316,21 +278,17 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
 
     def clear_cache(self):
         """Clear all cached properties."""
-        cached_properties = [
-            "m3u8_obj",
-            "m3u8_content",
-            "m3u8_content_url",
-            "m3u8_content_filename",
-            "_has_encryption",
-            "_uri_to_local_name",
-            "web_files",
-        ]
-        for prop_name in cached_properties:
-            try:
-                delattr(self, prop_name)
-            except AttributeError:
-                pass
+        for name, value in type(self).__dict__.items():
+            if isinstance(value, cached_property):
+                try:
+                    delattr(self, name)
+                except AttributeError:
+                    pass
         self._base_query_string = ""
+
+    def _require_unencrypted(self, method):
+        if self._has_encryption:
+            raise HlsFileError(f"Cannot {method}() encrypted HLS stream.")
 
     def read(self, size=None):
         """
@@ -345,24 +303,30 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         Returns:
             bytes: Concatenated content of all playlist resources.
         """
-        if self._has_encryption:
-            raise HlsFileError("Cannot read() encrypted HLS stream.")
-        total_chunk = b""
+        self._require_unencrypted("read")
+        if size == 0:
+            return b""
+        chunks = []
         web_file_position = self.position
         for web_file in self.web_files:
             with web_file as wf:
-                if web_file_position >= wf.size:
-                    web_file_position -= wf.size
+                file_size = wf.size
+                if file_size is None:
+                    if web_file_position:
+                        raise WebFileError("Cannot read() when a segment size is unknown.")
+                elif web_file_position >= file_size:
+                    web_file_position -= file_size
                     continue
-                else:
+                if web_file_position:
                     wf.seek(web_file_position)
                     web_file_position = 0
-                    chunk = wf.read(size)
-                total_chunk += chunk
-                if size:
+                chunk = wf.read(size)
+                chunks.append(chunk)
+                if size is not None:
                     size -= len(chunk)
                     if size == 0:
                         break
+        total_chunk = b"".join(chunks)
         self.position += len(total_chunk)
         return total_chunk
 
@@ -376,8 +340,7 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         Yields:
             bytes: Full content of each playlist resource.
         """
-        if self._has_encryption:
-            raise HlsFileError("Cannot read_files() encrypted HLS stream.")
+        self._require_unencrypted("read_files")
         for web_file in self.web_files:
             with web_file as wf:
                 yield wf.read()
@@ -493,9 +456,13 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             shutil.rmtree(resolved_temp_directory)
 
     def exists(self):
-        # NOTE: checks reachability of the first resource in playlist order.
-        # For fMP4 this is the EXT-X-MAP init section, not necessarily a segment.
-        # Not a complete validity check for all segments.
+        """Check reachability of the first playlist resource only.
+
+        For fMP4 this is the EXT-X-MAP init section, not necessarily a
+        segment. Not a complete validity check for all segments.
+        Returns False for empty playlists and 4xx client errors;
+        other failures propagate (same contract as WebFile.exists).
+        """
         try:
             return self.web_files[0].exists()
         except IndexError:
