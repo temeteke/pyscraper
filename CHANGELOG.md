@@ -6,7 +6,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Sections are numbered by version without dates; the release date is the Git
 tag.
 
-## [Unreleased]
+## [3.1.0]
 
 ### Added
 
