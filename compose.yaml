@@ -278,6 +278,18 @@ services:
     environment:
       - SELENIUM_SESSION_MANAGER_PORT=8082
       - SELENIUM_HUB_URL=http://selenium-hub:4444/wd/hub
+      # Per-node browser launch options (JSON node -> options map; unset
+      # keeps the legacy request). Applies only to the named node of the
+      # matching browser; other nodes and the other browser are unaffected.
+      # Chrome: {"<node>": {"args": [...], "excludeSwitches": [...]}}.
+      # Firefox: {"<node>": {"args": [...], "prefs": {...}}}.
+      # --user-data-dir (Chrome) and profile selectors -profile/-P/--profile
+      # (incl. = forms, Firefox) are rejected: fixed profiles are owned by
+      # the node volume and pyscraper:node routing (see docs/operations.md).
+      # Browser proxy goes in args as --proxy-server=...; Grid control
+      # traffic always bypasses proxy env. Restart to apply, e.g.:
+      # - 'SELENIUM_NODE_CHROME_OPTIONS={"chromium-profile": {"args": ["--disable-blink-features=AutomationControlled", "--lang=ja-JP", "--proxy-server=http://proxy.example:3128"], "excludeSwitches": ["enable-automation"]}}'
+      # - 'SELENIUM_NODE_FIREFOX_OPTIONS={"firefox-profile": {"args": ["-marionette"], "prefs": {"intl.accept_languages": "ja-JP"}}}'
     expose:
       - "8082"
     restart: unless-stopped

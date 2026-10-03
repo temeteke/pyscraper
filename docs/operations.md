@@ -307,6 +307,41 @@ pyscraper client code:
   managers treat a malformed entry as `500` (Selenium re-validates the
   id with the same expression on close; Playwright duck-types the
   worker with `callable()` checks).
+- Selenium per-node browser launch options (configured via manager env
+  vars; restart the manager to apply): `SELENIUM_NODE_CHROME_OPTIONS` maps a node
+  name to `{"args": [...], "excludeSwitches": [...]}` injected as
+  `goog:chromeOptions` for `selenium-chrome` sessions on that node only;
+  `SELENIUM_NODE_FIREFOX_OPTIONS` maps a node name to
+  `{"args": [...], "prefs": {...}}` injected as `moz:firefoxOptions`
+  for `selenium-firefox` sessions on that node only. When unset or
+  blank the session request keeps its legacy shape
+  (`browserName` plus the optional `pyscraper:node` stereotype). Scope:
+  matching browser plus a node listed in the map; other nodes, nodeless
+  sessions, and the other browser are unaffected, and `pyscraper:node`
+  routing is preserved. Merging: exact-duplicate entries are deduped
+  order-preserving; distinct values sharing a flag prefix are both sent
+  (e.g. two `--disable-blink-features=` values are left for Chrome to
+  resolve). The manager itself sends no baseline args, so there is no
+  manager-vs-configured conflict. Rejected at startup (fail-fast
+  `SystemExit` with the reason on stderr, never a silent fallback):
+  non-JSON values, non-object maps, node names outside
+  `^[A-Za-z0-9._-]+$`, unknown option keys, blank arg/switch strings, flag prefix
+  violations (`--` for Chrome, `-` for Firefox), `--user-data-dir`
+  (Chrome) and profile selectors (`-profile`/`-profile=`, `-P`/`-P=`,
+  `--profile`/`--profile=`) -- fixed profiles are owned by the
+  node volume and `pyscraper:node` routing, and the manager never emits
+  them. Note an empty option object (`{"node": {}}`) is skipped, not an
+  error; only malformed values fail. Proxy separation: a browser proxy
+  travels as a launch arg
+  (e.g. `--proxy-server=http://proxy.example:3128`); Grid control
+  traffic (create/maximize/navigate/close) bypasses proxy env via a
+  `ProxyHandler({})` opener, and the manager never sends a `proxy`
+  capability. Restart the manager to apply, e.g.
+  `SELENIUM_NODE_CHROME_OPTIONS='{"chromium-profile": {"args":
+  ["--disable-blink-features=AutomationControlled", "--lang=ja-JP",
+  "--proxy-server=http://proxy.example:3128"], "excludeSwitches":
+  ["enable-automation"]}}' (commented example in `compose.yaml`; not
+  enabled by default).
 - Close is retryable: the entry is kept server-side until close
   succeeds, and a failed close returns `{"detail": ..., "retryable": true}`
   (HTTP 502) so the UI can retry without losing the handle.

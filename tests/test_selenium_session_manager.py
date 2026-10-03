@@ -6,9 +6,11 @@ console UI via the Grid REST API (FastAPI + TestClient).
 
 import importlib.util
 import json
+import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 SM_PATH = Path(__file__).resolve().parent.parent / "servers" / "selenium_session_manager.py"
@@ -19,6 +21,8 @@ def _load_sm(monkeypatch, tmp_path, env=None):
         "SELENIUM_SESSION_MANAGER_PORT",
         "SELENIUM_HUB_URL",
         "SELENIUM_REQUEST_TIMEOUT",
+        "SELENIUM_NODE_CHROME_OPTIONS",
+        "SELENIUM_NODE_FIREFOX_OPTIONS",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in (env or {}).items():
@@ -146,6 +150,242 @@ class TestSeleniumSessions:
             ("POST", "/session/abc/window/maximize", {}),
             ("POST", "/session/abc/url", {"url": "https://example.com"}),
         ]
+
+    def test_open_without_node_options_is_legacy_payload(self, monkeypatch, tmp_path):
+        sm = _load_sm(monkeypatch, tmp_path)
+        assert sm.NODE_CHROME_OPTIONS == {}
+        assert sm.NODE_FIREFOX_OPTIONS == {}
+
+    def test_open_chrome_options_injected_for_matching_node(self, monkeypatch, tmp_path):
+        env = {
+            "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                {
+                    "chromium-profile": {
+                        "args": [
+                            "--disable-blink-features=AutomationControlled",
+                            "--lang=ja-JP",
+                            "--proxy-server=http://proxy.example:3128",
+                        ],
+                        "excludeSwitches": ["enable-automation"],
+                    }
+                }
+            )
+        }
+        sm = _load_sm(monkeypatch, tmp_path, env=env)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-chrome", "node": "chromium-profile"},
+            )
+            assert r.status_code == 200
+        assert calls[0] == (
+            "POST",
+            "/session",
+            {
+                "capabilities": {
+                    "alwaysMatch": {
+                        "browserName": "chrome",
+                        "pyscraper:node": "chromium-profile",
+                        "goog:chromeOptions": {
+                            "args": [
+                                "--disable-blink-features=AutomationControlled",
+                                "--lang=ja-JP",
+                                "--proxy-server=http://proxy.example:3128",
+                            ],
+                            "excludeSwitches": ["enable-automation"],
+                        },
+                    }
+                }
+            },
+        )
+
+    def test_open_chrome_options_scoped_to_node(self, monkeypatch, tmp_path):
+        env = {
+            "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                {"chromium-profile": {"args": ["--lang=ja-JP"]}}
+            )
+        }
+        sm = _load_sm(monkeypatch, tmp_path, env=env)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-chrome", "node": "other-node"},
+            )
+            assert r.status_code == 200
+            r = _client(sm).post("/api/selenium/sessions", json={"browser": "selenium-chrome"})
+            assert r.status_code == 200
+        create_payloads = [payload for _, path, payload in calls if path == "/session"]
+        assert create_payloads == [
+            {
+                "capabilities": {
+                    "alwaysMatch": {"browserName": "chrome", "pyscraper:node": "other-node"}
+                }
+            },
+            {"capabilities": {"alwaysMatch": {"browserName": "chrome"}}},
+        ]
+
+    def test_open_chrome_options_not_applied_to_firefox(self, monkeypatch, tmp_path):
+        env = {
+            "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                {"shared-profile": {"args": ["--lang=ja-JP"]}}
+            )
+        }
+        sm = _load_sm(monkeypatch, tmp_path, env=env)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-firefox", "node": "shared-profile"},
+            )
+            assert r.status_code == 200
+        assert calls[0][2] == {
+            "capabilities": {
+                "alwaysMatch": {"browserName": "firefox", "pyscraper:node": "shared-profile"}
+            }
+        }
+
+    def test_open_firefox_options_injected_for_matching_node(self, monkeypatch, tmp_path):
+        env = {
+            "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                {
+                    "firefox-profile": {
+                        "args": ["-marionette"],
+                        "prefs": {"intl.accept_languages": "ja-JP"},
+                    }
+                }
+            )
+        }
+        sm = _load_sm(monkeypatch, tmp_path, env=env)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-firefox", "node": "firefox-profile"},
+            )
+            assert r.status_code == 200
+        assert calls[0][2] == {
+            "capabilities": {
+                "alwaysMatch": {
+                    "browserName": "firefox",
+                    "pyscraper:node": "firefox-profile",
+                    "moz:firefoxOptions": {
+                        "args": ["-marionette"],
+                        "prefs": {"intl.accept_languages": "ja-JP"},
+                    },
+                }
+            }
+        }
+
+    def test_open_firefox_options_not_applied_to_chrome(self, monkeypatch, tmp_path):
+        env = {
+            "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                {"shared-profile": {"args": ["-marionette"]}}
+            )
+        }
+        sm = _load_sm(monkeypatch, tmp_path, env=env)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-chrome", "node": "shared-profile"},
+            )
+            assert r.status_code == 200
+        assert calls[0][2] == {
+            "capabilities": {
+                "alwaysMatch": {"browserName": "chrome", "pyscraper:node": "shared-profile"}
+            }
+        }
+
+    def test_open_chrome_options_dedupes_exact_duplicates(self, monkeypatch, tmp_path):
+        env = {
+            "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                {"chromium-profile": {"args": ["--lang=ja-JP", "--lang=ja-JP"]}}
+            )
+        }
+        sm = _load_sm(monkeypatch, tmp_path, env=env)
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-chrome", "node": "chromium-profile"},
+            )
+            assert r.status_code == 200
+        assert calls[0][2]["capabilities"]["alwaysMatch"]["goog:chromeOptions"] == {
+            "args": ["--lang=ja-JP"]
+        }
+
+    def test_grid_opener_carries_empty_proxy_handler(self, monkeypatch, tmp_path):
+        # The Grid opener must not honour proxy env: browser proxy is a
+        # launch arg, Grid control traffic always goes direct. With
+        # ProxyHandler({}) the opener installs no proxy_open hook, so no
+        # proxy is ever resolved from the environment (verified by the
+        # request-level test below; the handler list itself carries no
+        # ProxyHandler by urllib design).
+        sm = _load_sm(monkeypatch, tmp_path)
+        assert isinstance(sm._NO_PROXY_OPENER, urllib.request.OpenerDirector)
+        proxy_hooks = [
+            h
+            for handlers in sm._NO_PROXY_OPENER.handle_open.values()
+            for h in handlers
+            if type(h) is urllib.request.ProxyHandler
+        ]
+        assert proxy_hooks == []
+
+    def test_grid_request_ignores_proxy_env(self, monkeypatch, tmp_path):
+        # With proxy env set, the Grid opener still resolves no proxy:
+        # ProxyHandler({}) installs no http_open/https_open hook, so
+        # urllib never rewrites the request for a proxy. Asserted on the
+        # opener structure directly (no opener mocking): the http/https
+        # open chains carry no ProxyHandler, and the http/https request
+        # processors are the plain HTTP(S)Handlers whose do_request_
+        # leaves the request untouched.
+        sm = _load_sm(monkeypatch, tmp_path)
+        monkeypatch.setenv("HTTP_PROXY", "http://user:secret@proxy.example:3128")
+        monkeypatch.setenv("http_proxy", "http://user:secret@proxy.example:3128")
+        monkeypatch.setenv("HTTPS_PROXY", "http://user:secret@proxy.example:3128")
+        monkeypatch.setenv("https_proxy", "http://user:secret@proxy.example:3128")
+        for scheme in ("http", "https"):
+            assert [type(h).__name__ for h in sm._NO_PROXY_OPENER.handle_open[scheme]] == [
+                f"{scheme.upper()}Handler"
+            ]
+        req = urllib.request.Request("http://selenium-hub:4444/wd/hub/session")
+        for scheme in ("http", "https"):
+            for processor in sm._NO_PROXY_OPENER.process_request[scheme]:
+                req = processor.do_request_(req)
+        assert req.full_url == "http://selenium-hub:4444/wd/hub/session"
+        assert req.get_header("Proxy-authorization") is None
 
     def test_open_maximize_failure_continues(self, monkeypatch, tmp_path, capsys):
         # Maximize is best effort: a rejecting driver must not destroy the
@@ -307,8 +547,6 @@ class TestSeleniumSessions:
         assert sm.PORT == 8082
 
     def test_request_read_capped(self, monkeypatch, tmp_path):
-        import urllib.request
-
         sm = _load_sm(monkeypatch, tmp_path)
         seen = {}
 
@@ -327,8 +565,9 @@ class TestSeleniumSessions:
                 return False
 
         body = b'{"sessionId": "abc-123"}'
-        with patch.object(urllib.request, "urlopen", return_value=FakeResp(body)):
+        with patch.object(sm._NO_PROXY_OPENER, "open", return_value=FakeResp(body)) as m:
             out = sm._SeleniumBackend._request("GET", "/status")
+            assert m.call_count == 1
         assert out == {"sessionId": "abc-123"}
         assert seen["n"] == sm.GRID_READ_CAP
 
@@ -397,6 +636,320 @@ class TestSeleniumSessions:
         assert r.status_code == 200
         ids = {s["id"] for s in r.json()["sessions"]}
         assert {sid, "broken", "non-dict"} <= ids
+
+
+class TestNodeOptionsValidation:
+    def test_blank_env_is_legacy(self, monkeypatch, tmp_path):
+        sm = _load_sm(
+            monkeypatch,
+            tmp_path,
+            env={"SELENIUM_NODE_CHROME_OPTIONS": "  ", "SELENIUM_NODE_FIREFOX_OPTIONS": ""},
+        )
+        assert sm.NODE_CHROME_OPTIONS == {}
+        assert sm.NODE_FIREFOX_OPTIONS == {}
+
+    def test_empty_entry_is_skipped(self, monkeypatch, tmp_path):
+        sm = _load_sm(
+            monkeypatch,
+            tmp_path,
+            env={"SELENIUM_NODE_CHROME_OPTIONS": json.dumps({"chromium-profile": {}})},
+        )
+        assert sm.NODE_CHROME_OPTIONS == {}
+
+    def test_invalid_json_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(monkeypatch, tmp_path, env={"SELENIUM_NODE_CHROME_OPTIONS": "{broken"})
+        assert exc.value.code == 1
+        assert "not valid JSON" in capsys.readouterr().err
+
+    def test_non_object_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch, tmp_path, env={"SELENIUM_NODE_CHROME_OPTIONS": json.dumps(["x"])}
+            )
+        assert exc.value.code == 1
+        assert "must be a JSON object" in capsys.readouterr().err
+
+    def test_bad_node_name_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={"SELENIUM_NODE_CHROME_OPTIONS": json.dumps({"bad node!": {}})},
+            )
+        assert exc.value.code == 1
+        assert "must match" in capsys.readouterr().err
+
+    def test_unknown_key_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                        {"chromium-profile": {"binary": "/x"}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "unknown keys" in capsys.readouterr().err
+
+    def test_chrome_arg_prefix_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                        {"chromium-profile": {"args": ["lang=ja-JP"]}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "must start with '--'" in capsys.readouterr().err
+
+    def test_blank_arg_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                        {"chromium-profile": {"args": ["  "]}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "non-empty strings" in capsys.readouterr().err
+
+    def test_chrome_user_data_dir_rejected(self, monkeypatch, tmp_path, capsys):
+        for args in (["--user-data-dir=/tmp/x"], ["--user-data-dir"]):
+            with pytest.raises(SystemExit) as exc:
+                _load_sm(
+                    monkeypatch,
+                    tmp_path,
+                    env={
+                        "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                            {"chromium-profile": {"args": args}}
+                        )
+                    },
+                )
+            assert exc.value.code == 1
+            assert "--user-data-dir" in capsys.readouterr().err
+
+    def test_firefox_profile_rejected(self, monkeypatch, tmp_path, capsys):
+        # "-width" is a valid Firefox geometry dummy: it passes the "-"
+        # prefix check so the test reaches the profile rejection.
+        for args in (
+            ["-profile", "-width"],
+            ["-profile=-width"],
+            ["-P", "-width"],
+            ["-P=-width"],
+            ["--profile", "-width"],
+            ["--profile=-width"],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                _load_sm(
+                    monkeypatch,
+                    tmp_path,
+                    env={
+                        "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                            {"firefox-profile": {"args": args}}
+                        )
+                    },
+                )
+            assert exc.value.code == 1
+            assert "must not select a profile" in capsys.readouterr().err
+
+    def test_firefox_arg_prefix_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                        {"firefox-profile": {"args": ["marionette"]}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "must start with '-'" in capsys.readouterr().err
+
+    def test_firefox_bad_pref_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                        {"firefox-profile": {"prefs": {"intl.accept_languages": ["ja"]}}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "must be a string, number, or boolean" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+    def test_firefox_nonfinite_pref_fails_startup(self, monkeypatch, tmp_path, capsys, token):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_FIREFOX_OPTIONS": (
+                        '{"firefox-profile": {"prefs": {"x": ' + token + "}}}"
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "must not contain" in capsys.readouterr().err
+
+    def test_firefox_prefs_accept_primitives(self, monkeypatch, tmp_path):
+        sm = _load_sm(
+            monkeypatch,
+            tmp_path,
+            env={
+                "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                    {
+                        "firefox-profile": {
+                            "prefs": {"a": "x", "b": 1, "c": 1.5, "d": True},
+                        }
+                    }
+                )
+            },
+        )
+        assert sm.NODE_FIREFOX_OPTIONS["firefox-profile"]["prefs"] == {
+            "a": "x",
+            "b": 1,
+            "c": 1.5,
+            "d": True,
+        }
+
+    def test_firefox_options_scoped_to_node(self, monkeypatch, tmp_path):
+        sm = _load_sm(
+            monkeypatch,
+            tmp_path,
+            env={
+                "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                    {"firefox-profile": {"args": ["-marionette"]}}
+                )
+            },
+        )
+        calls = []
+
+        def fake_request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return {"sessionId": "abc"}
+
+        with patch.object(sm._SeleniumBackend, "_request", side_effect=fake_request):
+            r = _client(sm).post(
+                "/api/selenium/sessions",
+                json={"browser": "selenium-firefox", "node": "other-node"},
+            )
+            assert r.status_code == 200
+            r = _client(sm).post("/api/selenium/sessions", json={"browser": "selenium-firefox"})
+            assert r.status_code == 200
+        create_payloads = [payload for _, path, payload in calls if path == "/session"]
+        assert create_payloads == [
+            {
+                "capabilities": {
+                    "alwaysMatch": {"browserName": "firefox", "pyscraper:node": "other-node"}
+                }
+            },
+            {"capabilities": {"alwaysMatch": {"browserName": "firefox"}}},
+        ]
+
+    def test_exclude_switches_validation(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                        {"chromium-profile": {"excludeSwitches": "--x"}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "must be a list" in capsys.readouterr().err
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                        {"chromium-profile": {"excludeSwitches": ["  "]}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "non-empty strings" in capsys.readouterr().err
+
+    def test_firefox_unknown_key_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                        {"firefox-profile": {"excludeSwitches": ["x"]}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "unknown keys" in capsys.readouterr().err
+
+    def test_options_helpers_return_copies(self, monkeypatch, tmp_path):
+        sm = _load_sm(
+            monkeypatch,
+            tmp_path,
+            env={
+                "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                    {
+                        "chromium-profile": {
+                            "args": ["--lang=ja-JP"],
+                            "excludeSwitches": ["enable-automation"],
+                        }
+                    }
+                ),
+                "SELENIUM_NODE_FIREFOX_OPTIONS": json.dumps(
+                    {
+                        "firefox-profile": {
+                            "args": ["-marionette"],
+                            "prefs": {"intl.accept_languages": "ja-JP"},
+                        }
+                    }
+                ),
+            },
+        )
+        first = sm._chrome_options_for("chromium-profile")
+        first["args"].append("--evil")
+        first["excludeSwitches"].append("evil-switch")
+        assert sm._chrome_options_for("chromium-profile") == {
+            "args": ["--lang=ja-JP"],
+            "excludeSwitches": ["enable-automation"],
+        }
+        firefox_first = sm._firefox_options_for("firefox-profile")
+        firefox_first["args"].append("-evil")
+        firefox_first["prefs"]["intl.accept_languages"] = "evil"
+        assert sm._firefox_options_for("firefox-profile") == {
+            "args": ["-marionette"],
+            "prefs": {"intl.accept_languages": "ja-JP"},
+        }
+
+    def test_non_list_args_fails_startup(self, monkeypatch, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _load_sm(
+                monkeypatch,
+                tmp_path,
+                env={
+                    "SELENIUM_NODE_CHROME_OPTIONS": json.dumps(
+                        {"chromium-profile": {"args": "--lang=ja-JP"}}
+                    )
+                },
+            )
+        assert exc.value.code == 1
+        assert "must be a list" in capsys.readouterr().err
 
 
 class TestBrowserField:

@@ -32,11 +32,20 @@ Environment:
 * ``SELENIUM_SESSION_MANAGER_PORT`` (default ``8082``)
 * ``SELENIUM_HUB_URL`` (default ``http://selenium-hub:4444/wd/hub``)
 * ``SELENIUM_REQUEST_TIMEOUT`` (default ``30``, seconds per Grid call)
+* ``SELENIUM_NODE_CHROME_OPTIONS`` (default unset: legacy behavior; JSON
+  object mapping node name to ``{"args": [...], "excludeSwitches": [...]}``
+  injected as ``goog:chromeOptions`` for ``selenium-chrome`` sessions on
+  that node only)
+* ``SELENIUM_NODE_FIREFOX_OPTIONS`` (default unset: legacy behavior; JSON
+  object mapping node name to ``{"args": [...], "prefs": {...}}``
+  injected as ``moz:firefoxOptions`` for ``selenium-firefox`` sessions on
+  that node only)
 
 No authentication (closed compose network, local dev use only).
 """
 
 import json
+import math
 import os
 import re
 import sys
@@ -88,6 +97,134 @@ if not 1 <= PORT <= 65535:
 SELENIUM_HUB_URL = os.environ.get("SELENIUM_HUB_URL", "http://selenium-hub:4444/wd/hub")
 # Timeout for every Grid REST round-trip (session create/url/close).
 REQUEST_TIMEOUT = _int_env("SELENIUM_REQUEST_TIMEOUT", 30)
+
+# Node name pattern shared with the console registry (console/generate.jq).
+_NODE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+# Browser-driven proxy must never touch Grid control traffic (session
+# create/maximize/navigate/close): urllib honours HTTP(S)_PROXY env by
+# default, so Grid calls go through a proxy-bypassing opener. This mirrors
+# servers/playwright_node.py::_proxy_bypass_opener for Hub registration.
+_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _fail(message):
+    """Abort startup with a clear error for invalid node options."""
+    print(
+        f"[selenium-session-manager] invalid node options: {message}", file=sys.stderr, flush=True
+    )
+    raise SystemExit(1)
+
+
+def _parse_str_list(value, where, prefix=None):
+    """Validate a list of non-empty strings, optionally sharing a prefix."""
+    if not isinstance(value, list):
+        _fail(f"{where} must be a list of strings")
+    seen = set()
+    result = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            _fail(f"{where} must be a list of non-empty strings")
+        # Never echo the entry value: it may carry proxy credentials.
+        if prefix is not None and not item.startswith(prefix):
+            _fail(f"{where} entry must start with {prefix!r}")
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def _parse_prefs(value, where):
+    """Validate a Firefox prefs mapping (finite primitives only)."""
+    if not isinstance(value, dict):
+        _fail(f"{where} must be a mapping")
+    result = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip():
+            _fail(f"{where} keys must be non-empty strings")
+        if isinstance(item, bool):
+            pass
+        elif isinstance(item, int):
+            pass
+        elif isinstance(item, float):
+            if not math.isfinite(item):
+                _fail(f"{where} floats must be finite")
+        elif not isinstance(item, str):
+            _fail(f"{where} values must be a string, number, or boolean")
+        result[key] = item
+    return result
+
+
+def _parse_node_options(env_name, allowed_keys, arg_prefix):
+    """Parse a node -> launch options JSON mapping env var.
+
+    Returns ``{}`` when unset/blank (legacy behavior). Any structural
+    problem aborts startup via ``SystemExit`` instead of silently
+    falling back, so a typo never runs with half-applied flags.
+    """
+    raw = os.environ.get(env_name, "")
+    if not raw.strip():
+        return {}
+
+    def _reject_constant(token):
+        _fail(f"{env_name} must not contain {token}")
+
+    try:
+        parsed = json.loads(raw, parse_constant=_reject_constant)
+    except ValueError as exc:
+        _fail(f"{env_name} is not valid JSON: {exc}")
+    if not isinstance(parsed, dict):
+        _fail(f"{env_name} must be a JSON object mapping node name to options")
+    result = {}
+    for node, options in parsed.items():
+        where = f"{env_name}[{node!r}]"
+        if not isinstance(node, str) or not node.strip() or not _NODE_NAME_RE.fullmatch(node):
+            _fail(f"{env_name} keys must match ^[A-Za-z0-9._-]+$ (got {node!r})")
+        if not isinstance(options, dict):
+            _fail(f"{where} must be a mapping")
+        unknown = sorted(set(options) - set(allowed_keys))
+        if unknown:
+            _fail(
+                f"{where} has unknown keys: {', '.join(unknown)} "
+                f"(allowed: {', '.join(allowed_keys)})"
+            )
+        entry = {}
+        if "args" in allowed_keys:
+            args = _parse_str_list(options.get("args", []), f"{where}.args", arg_prefix)
+            for arg in args:
+                if arg == "--user-data-dir" or arg.startswith("--user-data-dir="):
+                    _fail(
+                        f"{where}.args must not set --user-data-dir "
+                        "(fixed profiles are owned by the node volume and routing)"
+                    )
+                # -profile takes a path and -P takes a profile name; both
+                # (-profile= and -P= forms included) would escape the fixed
+                # profile. The check also runs for Chrome maps (harmless:
+                # Chrome has no -profile flag) to keep one shared code path.
+                if arg in ("-profile", "-P", "--profile") or arg.startswith(
+                    ("-profile=", "-P=", "--profile=")
+                ):
+                    _fail(
+                        f"{where}.args must not select a profile "
+                        "(fixed profiles are owned by the node volume and routing)"
+                    )
+            entry["args"] = args
+        if "excludeSwitches" in allowed_keys:
+            entry["excludeSwitches"] = _parse_str_list(
+                options.get("excludeSwitches", []), f"{where}.excludeSwitches"
+            )
+        if "prefs" in allowed_keys:
+            entry["prefs"] = _parse_prefs(options.get("prefs", {}), f"{where}.prefs")
+        if not any(entry.values()):
+            continue
+        result[node] = entry
+    return result
+
+
+NODE_CHROME_OPTIONS = _parse_node_options(
+    "SELENIUM_NODE_CHROME_OPTIONS", ("args", "excludeSwitches"), "--"
+)
+NODE_FIREFOX_OPTIONS = _parse_node_options("SELENIUM_NODE_FIREFOX_OPTIONS", ("args", "prefs"), "-")
 
 
 SELENIUM_BROWSERS = {
@@ -141,6 +278,36 @@ class _GoneFromGrid(Exception):
     pass
 
 
+def _chrome_options_for(node):
+    """Return the configured goog:chromeOptions for a node, or None."""
+    if not node:
+        return None
+    entry = NODE_CHROME_OPTIONS.get(node)
+    if not entry:
+        return None
+    options = {}
+    if entry.get("args"):
+        options["args"] = list(entry["args"])
+    if entry.get("excludeSwitches"):
+        options["excludeSwitches"] = list(entry["excludeSwitches"])
+    return options or None
+
+
+def _firefox_options_for(node):
+    """Return the configured moz:firefoxOptions for a node, or None."""
+    if not node:
+        return None
+    entry = NODE_FIREFOX_OPTIONS.get(node)
+    if not entry:
+        return None
+    options = {}
+    if entry.get("args"):
+        options["args"] = list(entry["args"])
+    if entry.get("prefs"):
+        options["prefs"] = dict(entry["prefs"])
+    return options or None
+
+
 class _SeleniumBackend:
     @staticmethod
     def _request(method, path, payload=None):
@@ -151,7 +318,7 @@ class _SeleniumBackend:
             headers={"Content-Type": "application/json"},
             method=method,
         )
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as resp:
+        with _NO_PROXY_OPENER.open(request, timeout=REQUEST_TIMEOUT) as resp:
             # Grid status/session replies are small JSON; cap the read so
             # a rogue endpoint cannot OOM us. Truncation surfaces as a
             # json error below, i.e. a 502 like any other Grid failure.
@@ -163,6 +330,14 @@ class _SeleniumBackend:
         capabilities = {"browserName": browser_name}
         if node:
             capabilities["pyscraper:node"] = node
+        if browser == "selenium-chrome":
+            chrome_options = _chrome_options_for(node)
+            if chrome_options:
+                capabilities["goog:chromeOptions"] = chrome_options
+        elif browser == "selenium-firefox":
+            firefox_options = _firefox_options_for(node)
+            if firefox_options:
+                capabilities["moz:firefoxOptions"] = firefox_options
         created = cls._request("POST", "/session", {"capabilities": {"alwaysMatch": capabilities}})
         # Grid 4.x answers in W3C shape: {"value": {"sessionId": ...}}.
         session_id = created.get("sessionId")
