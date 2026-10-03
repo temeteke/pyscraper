@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Sections are numbered by version without dates; the release date is the Git
 tag.
 
+## [3.3.0]
+
+### Added
+
+- Console views accept `?url=<percent-encoded-URL>` to prefill the URL
+  field, including Selenium views without storage state. On initial load,
+  an explicit URL takes precedence over the selected Playwright state's URL.
+
 ## [3.2.0]
 
 ### Added

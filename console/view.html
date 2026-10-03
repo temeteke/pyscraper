@@ -43,6 +43,7 @@ const route = deriveBaseAndId();
 const BASE = route ? route.base : "";
 const ID = route ? route.id : null;
 const REQUESTED_STATE = new URLSearchParams(location.search).get("state") || "";
+const REQUESTED_URL = new URLSearchParams(location.search).get("url") || "";
 const $ = id => document.getElementById(id);
 
 function vncUrl(e) {
@@ -389,6 +390,9 @@ async function setup(e) {
   if (supportsState) {
     existingIds = await loadStateIds();
     prefillUrl();
+    if (REQUESTED_URL) $("url").value = REQUESTED_URL;
+  } else if (REQUESTED_URL) {
+    $("url").value = REQUESTED_URL;
   }
   await refreshSession();
   setInterval(refreshSession, 10000);

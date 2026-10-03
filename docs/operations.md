@@ -250,6 +250,7 @@ If no URL is given, the session opens on a blank page (Chrome shows
   Next time, load `storage_state="state.json"` to reuse the session.
 - Selenium: sessions always open on a blank page or the given URL (no
   state restore; cookie persistence is a client-code concern).
+  Selenium views accept ?url=<percent-encoded-URL> to prefill the URL field. No state is restored.
 
 ### Session managers
 
