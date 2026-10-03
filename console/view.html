@@ -61,6 +61,19 @@ function formatDetail(data, status) {
   return JSON.stringify(detail);
 }
 
+// Keep HTTP outcomes available to callers: Open treats rejection and an
+// uncertain server outcome differently. Only transport errors throw here.
+async function requestJson(url, options, payload) {
+  const init = {...options};
+  if (payload !== undefined) {
+    init.headers = {"Content-Type": "application/json", ...init.headers};
+    init.body = JSON.stringify(payload);
+  }
+  const res = await fetch(url, init);
+  const data = (await res.json().catch(() => ({}))) ?? {};
+  return {res, data};
+}
+
 function showToast(msg) {
   const el = $("toast");
   el.textContent = msg.length > 300 ? msg.slice(0, 300) + "\u2026" : msg;
@@ -277,8 +290,7 @@ async function setup(e) {
     setStateLocked(true);
     $("open").disabled = true;
     try {
-      const res = await fetch(apiBase, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
-      const data = (await res.json().catch(() => ({}))) ?? {};
+      const {res, data} = await requestJson(apiBase, {method: "POST"}, payload);
       if (!res.ok) {
         const detail = formatDetail(data, res.status);
         if (res.status >= 400 && res.status < 500) {
@@ -338,8 +350,7 @@ async function setup(e) {
     closing = true;
     applySession();
     try {
-      const res = await fetch(`${apiBase}/${target}`, {method: "DELETE"});
-      const data = (await res.json().catch(() => ({}))) ?? {};
+      const {res, data} = await requestJson(`${apiBase}/${target}`, {method: "DELETE"});
       if (!res.ok) throw new Error(formatDetail(data, res.status));
       // Close is confirmed: reflect it now, then reconcile with the server.
       sessionId = null;
@@ -366,12 +377,11 @@ async function setup(e) {
     saving = true;
     applySession();
     try {
-      const res = await fetch(`${BASE}/api/playwright/states/${encodeURIComponent(stateId)}`, {
-        method: "PUT",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({session_id: targetSessionId}),
-      });
-      const data = (await res.json().catch(() => ({}))) ?? {};
+      const {res, data} = await requestJson(
+        `${BASE}/api/playwright/states/${encodeURIComponent(stateId)}`,
+        {method: "PUT"},
+        {session_id: targetSessionId},
+      );
       if (!res.ok) throw new Error(formatDetail(data, res.status));
       // The file may be new; refresh the existence set for later Opens.
       // A failed refresh keeps the last known list (never assume empty).

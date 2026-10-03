@@ -345,6 +345,44 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             with web_file as wf:
                 yield wf.read()
 
+    def _prepare_download(
+        self, directory, filename, filestem, filesuffix, temp_file, temp_directory
+    ):
+        """Apply naming overrides and validate call-local scratch paths."""
+        self.directory = directory
+        self.filename = filename
+        self.filestem = filestem
+        self.filesuffix = filesuffix
+        resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
+        resolved_temp_directory = _validate_temp_directory(
+            temp_directory if temp_directory is not None else self.temp_directory,
+            self.filepath,
+        )
+        return resolved_temp_file, resolved_temp_directory
+
+    def _write_local_playlist(self, temp_directory):
+        m3u8_file = temp_directory / Path(self.filestem + ".m3u8")
+        with m3u8_file.open("w") as f:
+            f.write(self.m3u8_content_filename)
+        return m3u8_file
+
+    def _download_resources(self, temp_directory, progress_callback):
+        web_files = self._build_web_files(temp_directory)
+        total_files = len(web_files)
+        with MyTqdm(total=total_files, unit="file", dynamic_ncols=True) as pbar:
+            for current_file, web_file in enumerate(web_files, start=1):
+                web_file.download()
+                pbar.update(1)
+                if progress_callback:
+                    progress_callback(current_file, total_files)
+
+    def _merge_resources(self, m3u8_file, temp_file):
+        ff = ffmpy.FFmpeg(
+            inputs={str(m3u8_file): "-allowed_extensions ALL -extension_picky 0"},
+            outputs={str(temp_file): "-c copy"},
+        )
+        ff.run()
+
     def download(
         self,
         directory=None,
@@ -381,15 +419,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 ``directory / filestem``. Local to this call; pass it to
                 ``unlink(temp_directory=...)`` to clean it up.
         """
-        self.directory = directory
-        self.filename = filename
-        self.filestem = filestem
-        self.filesuffix = filesuffix
-
-        resolved_temp_file = Path(temp_file) if temp_file is not None else self.temp_file
-        resolved_temp_directory = _validate_temp_directory(
-            temp_directory if temp_directory is not None else self.temp_directory,
-            self.filepath,
+        resolved_temp_file, resolved_temp_directory = self._prepare_download(
+            directory, filename, filestem, filesuffix, temp_file, temp_directory
         )
 
         if self.filepath.exists():
@@ -403,30 +434,9 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         if resolved_temp_file.exists():
             resolved_temp_file.unlink()
 
-        m3u8_file = resolved_temp_directory / Path(self.filestem + ".m3u8")
-        with m3u8_file.open("w") as f:
-            f.write(self.m3u8_content_filename)
-
-        web_files = self._build_web_files(resolved_temp_directory)
-        total_files = len(web_files)
-        current_file = 0
-        with MyTqdm(
-            total=total_files,
-            unit="file",
-            dynamic_ncols=True,
-        ) as pbar:
-            for web_file in web_files:
-                web_file.download()
-                current_file += 1
-                pbar.update(1)
-                if progress_callback:
-                    progress_callback(current_file, total_files)
-
-        ff = ffmpy.FFmpeg(
-            inputs={str(m3u8_file): "-allowed_extensions ALL -extension_picky 0"},
-            outputs={str(resolved_temp_file): "-c copy"},
-        )
-        ff.run()
+        m3u8_file = self._write_local_playlist(resolved_temp_directory)
+        self._download_resources(resolved_temp_directory, progress_callback)
+        self._merge_resources(m3u8_file, resolved_temp_file)
 
         shutil.move(resolved_temp_file, self.filepath)
 

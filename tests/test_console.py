@@ -1295,6 +1295,58 @@ class TestUI:
         assert "multiple (" in text
 
 
+class TestViewRequests:
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is required")
+    def test_http_outcomes_and_transport_errors(self):
+        # Execute the real UI functions, without starting main or needing a browser.
+        script = VIEW.read_text().split("<script>", 1)[1].split("</script>", 1)[0]
+        script = script.rsplit("\nmain();", 1)[0]
+        harness = (
+            r"""
+const assert = require("node:assert/strict");
+global.location = {pathname: "/console/view/chrome", search: ""};
+"""
+            + script
+            + r"""
+(async () => {
+  const options = {method: "POST"};
+  const payload = {browser: "selenium-chrome", url: "https://example.com"};
+  for (const status of [200, 422, 503]) {
+    const response = {ok: status < 400, status, json: async () => ({detail: "reason"})};
+    global.fetch = async (url, init) => {
+      assert.equal(url, "/console/api/selenium/sessions");
+      assert.equal(init.headers["Content-Type"], "application/json");
+      assert.deepEqual(JSON.parse(init.body), payload);
+      return response;
+    };
+    const {res, data} = await requestJson("/console/api/selenium/sessions", options, payload);
+    assert.equal(res, response);
+    assert.equal(res.status, status);
+    assert.equal(formatDetail(data, status), "reason");
+  }
+  assert.deepEqual(options, {method: "POST"});
+  for (const json of [async () => { throw new SyntaxError("invalid JSON"); }, async () => null]) {
+    global.fetch = async (url, init) => {
+      assert.deepEqual(init, {method: "DELETE"});
+      return {ok: true, status: 204, json};
+    };
+    const {res, data} = await requestJson("/sessions/id", {method: "DELETE"});
+    assert.equal(res.status, 204);
+    assert.deepEqual(data, {});
+    assert.equal(formatDetail(data, 204), "204");
+  }
+  const failure = new Error("network unavailable");
+  global.fetch = async () => { throw failure; };
+  await assert.rejects(requestJson("/sessions", {method: "POST"}, payload), err => err === failure);
+})().catch(err => { console.error(err); process.exitCode = 1; });
+"""
+        )
+        result = subprocess.run(
+            [shutil.which("node"), "-"], input=harness, text=True, capture_output=True, timeout=10
+        )
+        assert result.returncode == 0, result.stderr
+
+
 class TestContextOptionAllowlist:
     """The registry allowlist and the API model must not drift apart."""
 

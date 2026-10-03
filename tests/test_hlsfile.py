@@ -232,6 +232,29 @@ video002.ts
         hls_file.unlink()
         assert not f.exists()
 
+    @pytest.mark.parametrize("failure_stage", ["resource", "merge"])
+    def test_download_preserves_scratch_files_on_failure(
+        self, url, tmp_path, mocker, failure_stage
+    ):
+        hls = HlsFile(url)
+        scratch = tmp_path / "scratch"
+        failure = RuntimeError("download failed")
+        ffmpeg = mocker.patch("pyscraper.hlsfile.ffmpy.FFmpeg")
+        if failure_stage == "resource":
+            mocker.patch("pyscraper.hlsfile.WebFile.download", side_effect=failure)
+        else:
+            ffmpeg.return_value.run.side_effect = failure
+        with pytest.raises(RuntimeError) as exc:
+            hls.download(directory=tmp_path, temp_directory=scratch)
+        assert exc.value is failure
+        assert (scratch / "video.m3u8").exists()
+        assert not hls.filepath.exists()
+        if failure_stage == "resource":
+            ffmpeg.assert_not_called()
+        else:
+            assert (scratch / "video000.ts").exists()
+            ffmpeg.return_value.run.assert_called_once()
+
     def test_download_progress_callback(self, hls_file):
         progresses = []
 

@@ -288,94 +288,48 @@ def content():
     return b"x" * 1024
 
 
-# Auto-mock external HTTP requests for specific test scenarios
-@pytest.fixture(autouse=True)
-def mock_external_http(
-    request, mocker, mock_http_response, mock_range_response, mock_html_response
-):
-    """Automatically mock external HTTP requests for tests that would fail due to network issues.
+@pytest.fixture
+def mock_binary_response(mock_http_response, mock_range_response):
+    """Build full or ranged binary responses with the existing mock contract."""
 
-    This fixture intercepts requests to httpbin.org and temeteke.github.io and returns mock responses.
-
-    Skip mocking for integration tests or when explicitly disabled.
-    """
-    import os
-
-    # Skip mocking for integration tests or when explicitly disabled
-    if (
-        "integration" in request.keywords
-        or "no_mock" in request.keywords
-        or "no_mock_http" in request.keywords
-        or os.getenv("INTEGRATION_TEST") == "1"
+    def respond(
+        content, url, range_header="", content_type="application/octet-stream", accept_ranges=True
     ):
-        yield
-        return
+        size = len(content)
+        if accept_ranges and range_header:
+            range_val = range_header.replace("bytes=", "")
+            if "-" not in range_val:
+                return None
+            parts = range_val.split("-")
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else size - 1
+            return mock_range_response(start, end, size, content[start : end + 1])
+        headers = {"Content-Length": str(size), "Content-Type": content_type}
+        if accept_ranges:
+            headers["Accept-Ranges"] = "bytes"
+        return mock_http_response(200, content, headers, url)
 
-    def mock_get(session_instance, url, **kwargs):
-        # Strip query string for URL pattern matching
+    return respond
+
+
+@pytest.fixture
+def mock_httpbin_get(mock_http_response, mock_binary_response):
+    def respond(url, headers_dict, cookies):
         base_url = url.split("?")[0]
-        # Get headers from kwargs and merge with session headers
-        headers_dict = kwargs.get("headers", {}) or {}
-        if hasattr(session_instance, "headers"):
-            # Merge session headers with request headers
-            session_headers = (
-                dict(session_instance.headers)
-                if hasattr(session_instance.headers, "__iter__")
-                else {}
-            )
-            headers_dict = {**session_headers, **headers_dict}
-
         # Mock httpbin.org/range/* requests
         if "httpbin.org/range/" in base_url:
             # Extract size from URL
             size = int(base_url.split("/range/")[-1])
             content = b"x" * size
 
-            # Check if Range header is present
-            range_header = headers_dict.get("Range", "")
-
-            if range_header:
-                # Parse Range header: "bytes=start-end"
-                range_val = range_header.replace("bytes=", "")
-                if "-" in range_val:
-                    parts = range_val.split("-")
-                    start = int(parts[0]) if parts[0] else 0
-                    end = int(parts[1]) if parts[1] else size - 1
-                    return mock_range_response(start, end, size, content[start : end + 1])
-            else:
-                # No Range header - return full content
-                return mock_http_response(
-                    200,
-                    content,
-                    {
-                        "Content-Length": str(size),
-                        "Content-Type": "application/octet-stream",
-                        "Accept-Ranges": "bytes",
-                    },
-                    url,
-                )
+            return mock_binary_response(content, url, headers_dict.get("Range", ""))
 
         # Mock httpbin.org/bytes/* requests (without Range support)
         elif "httpbin.org/bytes/" in base_url:
             size = int(base_url.split("/bytes/")[-1])
             content = b"x" * size
 
-            # Check if Range header is present - should fail
-            if headers_dict.get("Range"):
-                # Simulate no Range support
-                return mock_http_response(
-                    200,
-                    content,
-                    {"Content-Length": str(size), "Content-Type": "application/octet-stream"},
-                    url,
-                )
-
-            return mock_http_response(
-                200,
-                content,
-                {"Content-Length": str(size), "Content-Type": "application/octet-stream"},
-                url,
-            )
+            return mock_binary_response(content, url, accept_ranges=False)
 
         # Mock httpbin.org redirect
         elif "httpbin.org/redirect-to" in url:
@@ -399,7 +353,7 @@ def mock_external_http(
         elif "httpbin.org/cookies" in url:
             import json
 
-            cookies_dict = kwargs.get("cookies", {})
+            cookies_dict = cookies
             response_data = {"cookies": dict(cookies_dict)}
             content = json.dumps(response_data).encode()
             response = mock_http_response(200, content, {"Content-Type": "application/json"}, url)
@@ -426,8 +380,14 @@ def mock_external_http(
             content = b"\xff\xd8\xff\xe0" + b"x" * 100  # JPEG header + dummy data
             return mock_http_response(200, content, {"Content-Type": "image/jpeg"}, url)
 
+    return respond
+
+
+@pytest.fixture
+def mock_test_page_get(mock_html_response):
+    def respond(url, headers_dict, cookies):
         # Mock temeteke.github.io test pages
-        elif "temeteke.github.io/pyscraper/tests/testdata/test.html" in url:
+        if "temeteke.github.io/pyscraper/tests/testdata/test.html" in url:
             html = """<!DOCTYPE html>
 <html>
 <head><title>Title</title></head>
@@ -450,8 +410,15 @@ def mock_external_http(
 </html>"""
             return mock_html_response(html, url=url)
 
+    return respond
+
+
+@pytest.fixture
+def mock_hls_get(mock_http_response, mock_binary_response):
+    def respond(url, headers_dict, cookies):
+        base_url = url.split("?")[0]
         # Mock GitHub raw content for HLS tests
-        elif "raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/" in url:
+        if "raw.githubusercontent.com/temeteke/pyscraper/master/tests/testdata/" in url:
             # Handle non-existent files (video_.m3u8 is intentionally missing)
             if "video_.m3u8" in base_url:
                 return mock_http_response(404, b"Not Found", {"Content-Type": "text/plain"}, url)
@@ -568,73 +535,58 @@ video002.ts
                     url,
                 )
             elif base_url.endswith(".m4s"):
-                full_content = b"x" * 20000
-                range_header = headers_dict.get("Range", "")
-                if range_header:
-                    range_val = range_header.replace("bytes=", "")
-                    if "-" in range_val:
-                        parts = range_val.split("-")
-                        start = int(parts[0]) if parts[0] else 0
-                        end = int(parts[1]) if parts[1] else len(full_content) - 1
-                        content = full_content[start : end + 1]
-                        return mock_range_response(start, end, len(full_content), content)
-                else:
-                    return mock_http_response(
-                        200,
-                        full_content,
-                        {
-                            "Content-Type": "application/octet-stream",
-                            "Content-Length": str(len(full_content)),
-                            "Accept-Ranges": "bytes",
-                        },
-                        url,
-                    )
+                return mock_binary_response(b"x" * 20000, url, headers_dict.get("Range", ""))
             elif "init.mp4" in base_url:
-                full_content = b"i" * 200
-                return mock_http_response(
-                    200,
-                    full_content,
-                    {
-                        "Content-Type": "application/octet-stream",
-                        "Content-Length": str(len(full_content)),
-                        "Accept-Ranges": "bytes",
-                    },
-                    url,
-                )
+                return mock_binary_response(b"i" * 200, url)
             elif base_url.endswith(".ts"):
-                # Mock video segment - differentiate by filename to create continuous stream
-                # video000.ts starts with TS header, others are plain data
-                if "video000.ts" in base_url:
-                    full_content = (
-                        b"\x47" + b"x" * 19999
-                    )  # First segment: TS header + data (20000 bytes)
-                else:
-                    full_content = b"x" * 20000  # Other segments: plain data (20000 bytes)
+                # The first segment has a TS header; later segments are plain data.
+                content = b"\x47" + b"x" * 19999 if "video000.ts" in base_url else b"x" * 20000
+                return mock_binary_response(
+                    content, url, headers_dict.get("Range", ""), content_type="video/mp2t"
+                )
 
-                # Check if Range header is present
-                range_header = headers_dict.get("Range", "")
+    return respond
 
-                if range_header:
-                    # Parse Range header: "bytes=start-end"
-                    range_val = range_header.replace("bytes=", "")
-                    if "-" in range_val:
-                        parts = range_val.split("-")
-                        start = int(parts[0]) if parts[0] else 0
-                        end = int(parts[1]) if parts[1] else len(full_content) - 1
-                        content = full_content[start : end + 1]
-                        return mock_range_response(start, end, len(full_content), content)
-                else:
-                    # No Range header - return full content
-                    return mock_http_response(
-                        200,
-                        full_content,
-                        {
-                            "Content-Type": "video/mp2t",
-                            "Content-Length": str(len(full_content)),
-                            "Accept-Ranges": "bytes",
-                        },
-                        url,
-                    )
+
+# Auto-mock external HTTP requests for specific test scenarios
+@pytest.fixture(autouse=True)
+def mock_external_http(
+    request, mocker, mock_http_response, mock_httpbin_get, mock_test_page_get, mock_hls_get
+):
+    """Automatically mock external HTTP requests for tests that would fail due to network issues.
+
+    This fixture intercepts requests to httpbin.org and temeteke.github.io and returns mock responses.
+
+    Skip mocking for integration tests or when explicitly disabled.
+    """
+    import os
+
+    # Skip mocking for integration tests or when explicitly disabled
+    if (
+        "integration" in request.keywords
+        or "no_mock" in request.keywords
+        or "no_mock_http" in request.keywords
+        or os.getenv("INTEGRATION_TEST") == "1"
+    ):
+        yield
+        return
+
+    def mock_get(session_instance, url, **kwargs):
+        # Get headers from kwargs and merge with session headers
+        headers_dict = kwargs.get("headers", {}) or {}
+        if hasattr(session_instance, "headers"):
+            # Merge session headers with request headers
+            session_headers = (
+                dict(session_instance.headers)
+                if hasattr(session_instance.headers, "__iter__")
+                else {}
+            )
+            headers_dict = {**session_headers, **headers_dict}
+
+        for respond in (mock_httpbin_get, mock_test_page_get, mock_hls_get):
+            response = respond(url, headers_dict, kwargs.get("cookies", {}))
+            if response is not None:
+                return response
 
         # Handle DNS error test case
         if "a.temeteke.com" in url:
