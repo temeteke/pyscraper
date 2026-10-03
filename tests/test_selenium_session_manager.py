@@ -151,7 +151,7 @@ class TestSeleniumSessions:
             ("POST", "/session/abc/url", {"url": "https://example.com"}),
         ]
 
-    def test_open_without_node_options_is_legacy_payload(self, monkeypatch, tmp_path):
+    def test_node_options_empty_map_by_default(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)
         assert sm.NODE_CHROME_OPTIONS == {}
         assert sm.NODE_FIREFOX_OPTIONS == {}

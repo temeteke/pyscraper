@@ -318,7 +318,12 @@ pyscraper client code:
   (`browserName` plus the optional `pyscraper:node` stereotype). Scope:
   matching browser plus a node listed in the map; other nodes, nodeless
   sessions, and the other browser are unaffected, and `pyscraper:node`
-  routing is preserved. Merging: exact-duplicate entries are deduped
+  routing is preserved. Firefox value-taking flags split across two tokens
+  (e.g. `-width 1280`) are not supported: every arg must carry its own
+  `-` prefix, so use the window maximize step instead for geometry.
+  `--profile-directory` (a subdirectory selector inside the fixed
+  user-data-dir) is allowed; picking another subdirectory changes what
+  gets persisted. Merging: exact-duplicate entries are deduped
   order-preserving; distinct values sharing a flag prefix are both sent
   (e.g. two `--disable-blink-features=` values are left for Chrome to
   resolve). The manager itself sends no baseline args, so there is no
