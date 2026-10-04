@@ -17,8 +17,6 @@ services:
 
   selenium-hub:
     image: selenium/hub:4.27.0
-    ports:
-      - "4444:4444"
     expose:
       - "4442"
       - "4443"
@@ -96,9 +94,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.playwright-hub
-    ports:
-      - "4000:4000"
-      - "4001:4001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4001/health', timeout=2).read()"]
       interval: 5s
@@ -213,8 +208,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.console
-    ports:
-      - "8080:80"
     restart: unless-stopped
     # Startup order only (no health gate): the console resolves backends
     # via variable + resolver at request time and retries, so strict
