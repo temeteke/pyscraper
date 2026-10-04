@@ -603,8 +603,8 @@ files and creates the external `traefik` Docker network when needed. The
 Traefik instance itself must also be attached to that network.
 
 The default console URL is `http://pyscraper.localhost/`. Set
-`TRAEFIK_HOST_SUFFIX=user.localhost` in a repository-root `.env` file to
-use `http://pyscraper.user.localhost/` on a shared machine. Selenium and
+`TRAEFIK_HOST_SUFFIX=dev.localhost` in a repository-root `.env` file to
+use `http://pyscraper.dev.localhost/` with a distinct local hostname namespace. Selenium and
 Playwright Hub ports are intentionally not published to the host; add a
 local override only in environments that require direct host access.
 
