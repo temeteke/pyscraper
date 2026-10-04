@@ -8,6 +8,8 @@ tag.
 
 ## [Unreleased]
 
+## [3.4.0]
+
 ### Added
 
 - Common error base `PyscraperError`: `WebPageError`, `WebFileError`, and
