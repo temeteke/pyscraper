@@ -1121,9 +1121,9 @@ class TestWebPagePlaywrightIntegration:
       docker compose up -d playwright-hub playwright-chromium playwright-firefox playwright-webkit
       pytest tests/test_webpage_playwright.py -m integration -k Playwright -v
 
-    Manual checks (not automated here): Hub registry at
-    ``http://localhost:4001/health`` and the console at
-    ``http://localhost:8080/``.
+    Manual checks (not automated here): Hub registry from inside the Compose
+    network at ``http://playwright-hub:4001/health`` and the console through
+    Traefik at ``http://pyscraper.localhost/``.
     """
 
     TARGET = "https://temeteke.github.io/pyscraper/tests/testdata/test.html"
