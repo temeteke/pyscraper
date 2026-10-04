@@ -62,6 +62,22 @@ contract is covered by tests). Neither call retries automatically on failure.
   `PyscraperError`), so a retry loop catches one base type. See the Error
   model in [architecture.md](architecture.md).
 
+## Recommended pattern
+
+`exists()` answers reachability only (first resource, 4xx maps to
+`False`). It cannot distinguish "unreachable" from "broken playlist":
+an empty or undecodable playlist also yields `False`. Call `download()`
+to surface the real cause as `HlsFileError` / `WebFileError`:
+
+```python
+if not hls_file.exists():
+    ...  # unreachable or client error; skip quietly
+try:
+    hls_file.download()
+except HlsFileError:
+    ...  # broken playlist or merge failure; inspect scratch files
+```
+
 ## `temp_directory` safety guard
 
 `HlsFile.download()` removes `temp_directory` with `shutil.rmtree`, so a
