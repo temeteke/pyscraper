@@ -78,10 +78,10 @@ Prebuilt images are published to Docker Hub and GHCR on `vX.Y.Z` tag
 pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags),
 on a weekly schedule, or manually via `workflow_dispatch`. This includes
 the browser console and both session managers, so
-`docker compose pull && docker compose up -d` runs the whole stack from
-published images.
+`docker compose pull && make up` runs the whole stack from published images
+and exposes the browser console through the local Traefik instance.
 See [Operations Guide](docs/operations.md) for the image table, tag
-semantics, `docker compose` usage, and console configuration.
+semantics, Compose/Traefik usage, and console configuration.
 
 ## Documentation
 
