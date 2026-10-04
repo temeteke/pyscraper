@@ -184,7 +184,7 @@ Headed Playwright browsers run under Xvfb with x11vnc + noVNC bundled in
 every node image; the Selenium nodes ship their own noVNC on the same
 port. A single `console` service (dedicated `Dockerfile.console` image,
 published as `temeteke/pyscraper-console`) is the unified entry point
-at `http://localhost:8080/`. The console is registry-driven: at start
+at `http://pyscraper.localhost/`. The console is registry-driven: at start
 `console/entrypoint.sh` reads the target registry (`console/config.yaml`),
 validates it, and renders the nginx config and the UI's target list from
 it, resolving the DNS resolver from `/etc/resolv.conf` so the same image
@@ -456,8 +456,8 @@ pyscraper client code:
   nodes self-register with retries and the Hub is stateless, so all
   recover without restarts.
 - No authentication (closed compose network, local dev use only). The
-  console binds `8080` on all interfaces; on shared hosts bind it to
-  localhost or keep it behind a firewall.
+  console is not published directly on a host port; access it through the
+  local Traefik route.
 
 ### Console configuration
 
@@ -597,7 +597,16 @@ reloaded in place.
 ## Docker
 
 You can use Docker to set up the development environment and run the application.
-The repository includes a `compose.yaml` file for easy setup.
+The repository includes a `compose.yaml` file for the stack and a
+`compose.traefik.yaml` overlay for local routing. The Makefile combines both
+files and creates the external `traefik` Docker network when needed. The
+Traefik instance itself must also be attached to that network.
+
+The default console URL is `http://pyscraper.localhost/`. Set
+`TRAEFIK_HOST_SUFFIX=user.localhost` in a repository-root `.env` file to
+use `http://pyscraper.user.localhost/` on a shared machine. Selenium and
+Playwright Hub ports are intentionally not published to the host; add a
+local override only in environments that require direct host access.
 
 ### Quick start (pull prebuilt images)
 
@@ -654,12 +663,12 @@ Notes:
 ```sh
 # Fastest: pull published images, no local build
 docker compose pull
-docker compose up -d
+make up
 ```
 
 ### Build locally
 
 ```sh
-docker compose build
-docker compose up
+make build
+make up
 ```
