@@ -53,7 +53,7 @@ docker compose config --quiet    # validate compose files
   profile host); never mix the two ownership models.
 - Hub is fail-closed: missing/invalid/unknown launch headers are rejected
   (`1011 "no node available"`), never routed to another browser.
-- Console at `http://localhost:8080/` (dedicated `Dockerfile.console`
+- Console at `http://pyscraper.localhost/` (dedicated `Dockerfile.console`
   image, published as `temeteke/pyscraper-console`): `/` tile overview
   plus `/view/<id>` single views and `/vnc/<id>/` raw noVNC per registry
   entry, and `/api/` proxied to the session managers
