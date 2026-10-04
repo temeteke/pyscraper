@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -9,12 +10,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import lxml.html
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from pyscraper.webpage import (
     WebPage,
+    WebPageBrowserError,
     WebPageElement,
     WebPageError,
-    WebPageNoSuchElementError,
+    WebPageTimeoutError,
     _get_env_anycase,
     configure_no_proxy_for_remote,
     dump_html,
@@ -24,6 +28,28 @@ from pyscraper.webpage import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _translate_playwright_error(e):
+    """Translate a Playwright failure into the matching ``WebPage*`` error."""
+    # Type check (not message match): TimeoutError subclasses Error.
+    if isinstance(e, PlaywrightTimeoutError):
+        return WebPageTimeoutError(e)
+    return WebPageBrowserError(e)
+
+
+def _wrap_playwright_errors(func):
+    """Decorate a page operation with ``WebPage*`` translation."""
+
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        self._ensure_open()
+        try:
+            return func(self, *args, **kwargs)
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
+
+    return wrapper
 
 
 @dataclass
@@ -71,7 +97,10 @@ class PlaywrightWebPageElement(WebPageElement):
         return self._locator.inner_text()
 
     def wait(self, xpath, timeout=10):
-        self._locator.page.wait_for_selector(f"xpath={xpath}", timeout=timeout * 1000)
+        try:
+            self._locator.page.wait_for_selector(f"xpath={xpath}", timeout=timeout * 1000)
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     def get(self, xpath, timeout=0):
         if timeout:
@@ -84,10 +113,16 @@ class PlaywrightWebPageElement(WebPageElement):
         kwargs = {}
         if timeout:
             kwargs["timeout"] = timeout * 1000
-        self._locator.click(**kwargs)
+        try:
+            self._locator.click(**kwargs)
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     def mouse_over(self):
-        self._locator.hover()
+        try:
+            self._locator.hover()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     def scroll(self, block="start", inline="nearest"):
         self._locator.scroll_into_view_if_needed()
@@ -196,7 +231,10 @@ class WebPagePlaywright(WebPage, ABC):
 
     def wait(self, xpath, timeout=10):
         self._ensure_open()
-        self._page.wait_for_selector(f"xpath={xpath}", timeout=timeout * 1000)
+        try:
+            self._page.wait_for_selector(f"xpath={xpath}", timeout=timeout * 1000)
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     def get(self, xpath, timeout=0):
         self._ensure_open()
@@ -210,11 +248,11 @@ class WebPagePlaywright(WebPage, ABC):
         try:
             locator = self._page.locator(f"xpath={xpath}")
             locator.click(timeout=timeout * 1000)
-        except Exception as e:
-            raise WebPageNoSuchElementError from e
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
+    @_wrap_playwright_errors
     def move_to(self, xpath):
-        self._ensure_open()
         self._page.locator(f"xpath={xpath}").hover()
 
     def switch_to_frame(self, xpath):
@@ -228,28 +266,28 @@ class WebPagePlaywright(WebPage, ABC):
         self._page = frame
         return src
 
+    @_wrap_playwright_errors
     def go(self, url, params: dict | None = None):
-        self._ensure_open()
         self._page.goto(merge_url_params(url, params))
 
+    @_wrap_playwright_errors
     def forward(self):
-        self._ensure_open()
         self._page.go_forward()
 
+    @_wrap_playwright_errors
     def back(self):
-        self._ensure_open()
         self._page.go_back()
 
+    @_wrap_playwright_errors
     def refresh(self):
-        self._ensure_open()
         self._page.reload()
 
+    @_wrap_playwright_errors
     def execute_script(self, script):
-        self._ensure_open()
         return self._page.evaluate(script)
 
+    @_wrap_playwright_errors
     def execute_async_script(self, script):
-        self._ensure_open()
         return self._page.evaluate_async(script)
 
     def dump(self, filestem=None):
@@ -327,10 +365,24 @@ class WebPagePlaywright(WebPage, ABC):
                 self._page.goto(self.request_url)
 
             return self
-        except Exception as e:
-            logger.error(e)
+        except PlaywrightError as e:
+            self._abort_open()
+            raise _translate_playwright_error(e) from e
+
+    def _abort_open(self):
+        """Release partial state after a failed ``open()`` without raising."""
+        # close() itself can raise when handles are half-initialized;
+        # swallow those so the original failure keeps its traceback.
+        try:
             self.close()
-            raise
+        except Exception:
+            logger.debug("Failed to clean up after open() failure", exc_info=True)
+        finally:
+            self._playwright = None
+            self._browser = None
+            self._context = None
+            self._page = None
+            self._persistent = False
 
     def close(self):
         # Ownership model: a local persistent context

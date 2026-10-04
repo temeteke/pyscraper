@@ -10,6 +10,7 @@ import requests
 import urllib3.exceptions
 from tqdm import tqdm
 
+from pyscraper.errors import PyscraperError
 from pyscraper.requests import RequestsMixin
 from pyscraper.utils import get_filename_from_url
 
@@ -182,28 +183,40 @@ class FileIOBase:
         return self.position
 
 
-class WebFileError(Exception):
-    pass
+class WebFileError(PyscraperError):
+    """Base class for WebFile failures.
+
+    ``status_code`` carries the HTTP status when the failure originates
+    from an HTTP response (see ``open_response``), otherwise None.
+    """
 
 
 class WebFileConnectionError(WebFileError):
-    pass
+    """A connection-level failure while requesting or reading a file."""
 
 
 class WebFileTimeoutError(WebFileError):
-    pass
+    """A request or read timed out."""
 
 
 class WebFileClientError(WebFileError):
-    pass
+    """The server returned a 4xx client-error status.
+
+    Attributes:
+        status_code: The HTTP status code from the response.
+    """
 
 
 class WebFileServerError(WebFileError):
-    pass
+    """The server returned a 5xx server-error status.
+
+    Attributes:
+        status_code: The HTTP status code from the response.
+    """
 
 
 class WebFileSeekError(WebFileError):
-    pass
+    """A range-request seek was refused or is out of range."""
 
 
 class WebFileMixin:
@@ -397,12 +410,15 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.logger.debug("Request Headers: " + str(self.session.headers))
 
         # Make a GET request to the URL
+        # Order matters: ConnectionError/Timeout/HTTPError subclass RequestException.
         try:
             self.response = self.session.get(self.request_url, stream=True, timeout=self.timeout)
         except requests.exceptions.ConnectionError as e:
             raise WebFileConnectionError(e) from e
         except requests.exceptions.Timeout as e:
             raise WebFileTimeoutError(e) from e
+        except requests.exceptions.RequestException as e:
+            raise WebFileError(e) from e
 
         self.logger.debug("Response Headers: " + str(self.response.headers))
 
@@ -410,12 +426,13 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             self.response.raise_for_status()
         except requests.exceptions.HTTPError as e:
             self.close()
-            if 400 <= e.response.status_code < 500:
-                raise WebFileClientError(e) from e
-            elif 500 <= e.response.status_code < 600:
-                raise WebFileServerError(e) from e
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code is not None and 400 <= status_code < 500:
+                raise WebFileClientError(e, status_code=status_code) from e
+            elif status_code is not None and 500 <= status_code < 600:
+                raise WebFileServerError(e, status_code=status_code) from e
             else:
-                raise WebFileError(e) from e
+                raise WebFileError(e, status_code=status_code) from e
 
         self.response.raw.decode_content = True
 
@@ -444,6 +461,8 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
             raise WebFileConnectionError(e) from e
         except urllib3.exceptions.ReadTimeoutError as e:
             raise WebFileTimeoutError(e) from e
+        except urllib3.exceptions.HTTPError as e:
+            raise WebFileConnectionError(e) from e
         return chunk
 
     def seek(self, offset: int):

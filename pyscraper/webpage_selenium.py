@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -21,9 +22,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from pyscraper.webpage import (
     WebPage,
+    WebPageBrowserError,
+    WebPageClickInterceptedError,
     WebPageElement,
     WebPageError,
     WebPageNoSuchElementError,
+    WebPageStaleElementReferenceError,
     WebPageTimeoutError,
     _get_env_anycase,
     configure_no_proxy_for_remote,
@@ -94,12 +98,40 @@ def _proxy_from_env():
     return proxy.Proxy(proxy_dict)
 
 
+def _translate_webdriver_error(e):
+    """Translate a Selenium failure into the matching ``WebPage*`` error."""
+    # Order matters: all branches below subclass WebDriverException.
+    if isinstance(e, selenium.common.exceptions.NoSuchElementException):
+        return WebPageNoSuchElementError(e)
+    if isinstance(e, selenium.common.exceptions.TimeoutException):
+        return WebPageTimeoutError(e)
+    if isinstance(e, selenium.common.exceptions.ElementClickInterceptedException):
+        return WebPageClickInterceptedError(e)
+    if isinstance(e, selenium.common.exceptions.StaleElementReferenceException):
+        return WebPageStaleElementReferenceError(e)
+    return WebPageBrowserError(e)
+
+
+def _wrap_webdriver_errors(func):
+    """Decorate a no-argument driver operation with ``WebPage*`` translation."""
+
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        self._ensure_open()
+        try:
+            return func(self, *args, **kwargs)
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
+
+    return wrapper
+
+
 def _wait_until(search_context, condition, timeout):
     """Wait for a Selenium condition, translating timeout errors."""
     try:
         return WebDriverWait(search_context, timeout).until(condition)
     except selenium.common.exceptions.TimeoutException as e:
-        raise WebPageTimeoutError from e
+        raise WebPageTimeoutError(e) from e
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -136,21 +168,34 @@ class SeleniumWebPageElement(WebPageElement):
     def click(self, timeout=0):
         if timeout:
             _wait_until(self.element, EC.element_to_be_clickable(self.element), timeout)
-        self.element.click()
+        try:
+            self.element.click()
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     def mouse_over(self):
-        actions = ActionChains(self.element.parent)
-        actions.move_to_element(self.element)
-        actions.perform()
+        try:
+            actions = ActionChains(self.element.parent)
+            actions.move_to_element(self.element)
+            actions.perform()
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     def scroll(self, block="start", inline="nearest"):
-        self.element.parent.execute_script(
-            f"arguments[0].scrollIntoView({{block: '{block}', inline: '{inline}'}});", self.element
-        )
+        try:
+            self.element.parent.execute_script(
+                f"arguments[0].scrollIntoView({{block: '{block}', inline: '{inline}'}});",
+                self.element,
+            )
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     @contextlib.contextmanager
     def switch(self):
-        self.element.parent.switch_to.frame(self.element)
+        try:
+            self.element.parent.switch_to.frame(self.element)
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
         try:
             yield
         finally:
@@ -275,44 +320,44 @@ class WebPageSelenium(WebPage, ABC):
         try:
             element = self.driver.find_element(By.XPATH, xpath)
             WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable(element)).click()
-        except selenium.common.exceptions.NoSuchElementException as e:
-            raise WebPageNoSuchElementError from e
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
+    @_wrap_webdriver_errors
     def move_to(self, xpath):
-        self._ensure_open()
         actions = ActionChains(self.driver)
         actions.move_to_element(self.driver.find_element(By.XPATH, xpath))
         actions.perform()
 
+    @_wrap_webdriver_errors
     def switch_to_frame(self, xpath):
-        self._ensure_open()
         iframe = self.driver.find_element(By.XPATH, xpath)
         iframe_url = iframe.get_attribute("src")
         self.driver.switch_to.frame(iframe)
         return iframe_url
 
+    @_wrap_webdriver_errors
     def go(self, url, params: dict | None = None):
-        self._ensure_open()
         self.driver.get(merge_url_params(url, params))
 
+    @_wrap_webdriver_errors
     def forward(self):
-        self._ensure_open()
         self.driver.forward()
 
+    @_wrap_webdriver_errors
     def back(self):
-        self._ensure_open()
         self.driver.back()
 
+    @_wrap_webdriver_errors
     def refresh(self):
-        self._ensure_open()
         self.driver.refresh()
 
+    @_wrap_webdriver_errors
     def execute_script(self, *args, **kwargs):
-        self._ensure_open()
         return self.driver.execute_script(*args, **kwargs)
 
+    @_wrap_webdriver_errors
     def execute_async_script(self, *args, **kwargs):
-        self._ensure_open()
         return self.driver.execute_async_script(*args, **kwargs)
 
     def dump(self, filestem=None):
@@ -333,10 +378,9 @@ class WebPageSelenium(WebPage, ABC):
         return files
 
     def open(self):
-        self.driver = self._create_driver()
-
         logger.debug("Getting {}".format(self.request_url))
         try:
+            self.driver = self._create_driver()
             self.driver.get(self.request_url)
             if self.request_cookies:
                 for name, value in self.request_cookies.items():
@@ -347,9 +391,20 @@ class WebPageSelenium(WebPage, ABC):
                 self.driver.get(self.request_url)
             return self
         except selenium.common.exceptions.WebDriverException as e:
-            logger.error(e)
+            self._abort_open()
+            raise _translate_webdriver_error(e) from e
+
+    def _abort_open(self):
+        """Release partial state after a failed ``open()`` without raising."""
+        # close() itself can raise when the driver is half-initialized;
+        # swallow that so the original failure keeps its traceback, and
+        # always drop the handle so later calls see a closed page.
+        try:
             self.close()
-            raise
+        except Exception:
+            logger.debug("Failed to clean up after open() failure", exc_info=True)
+        finally:
+            self.driver = None
 
     def close(self):
         if self.driver is not None:

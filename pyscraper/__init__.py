@@ -1,6 +1,7 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from .constants import HEADERS
+from .errors import PyscraperError
 from .hlsfile import HlsFile, HlsFileError
 from .webfile import (
     WebFile,
@@ -12,9 +13,14 @@ from .webfile import (
     WebFileTimeoutError,
 )
 from .webpage import (
+    WebPageBrowserError,
+    WebPageClickInterceptedError,
+    WebPageConnectionError,
     WebPageError,
     WebPageNoSuchElementError,
+    WebPageStaleElementReferenceError,
     WebPageTimeoutError,
+    WebPageWebDriverError,
 )
 from .webpage_curl import WebPageCurl
 from .webpage_playwright import (
@@ -52,6 +58,12 @@ __all__ = [
     "WebPageError",
     "WebPageTimeoutError",
     "WebPageNoSuchElementError",
+    "WebPageClickInterceptedError",
+    "WebPageStaleElementReferenceError",
+    "WebPageBrowserError",
+    "WebPageWebDriverError",
+    "WebPageConnectionError",
+    "PyscraperError",
     "WebFile",
     "WebFileError",
     "WebFileConnectionError",

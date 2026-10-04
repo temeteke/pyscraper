@@ -11,6 +11,7 @@ import ffmpy
 import m3u8
 from fake_useragent import UserAgent  # noqa: F401 -- patched by tests
 
+from pyscraper.errors import PyscraperError
 from pyscraper.requests import RequestsMixin
 from pyscraper.utils import get_filename_from_url
 from pyscraper.webfile import (
@@ -61,8 +62,14 @@ def _validate_temp_directory(temp_directory, filepath):
     return Path(temp_directory)
 
 
-class HlsFileError(Exception):
-    pass
+class HlsFileError(PyscraperError):
+    """Base class for HLS failures (e.g. encrypted streams).
+
+    ``status_code`` is None for HLS-level failures. Segment download
+    failures propagate as ``WebFile*`` errors carrying their own
+    ``status_code``. No automatic transient/permanent classification
+    is performed.
+    """
 
 
 class HlsFileMixin(WebFileMixin):
@@ -112,7 +119,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 headers=self.request_headers,
                 cookies=self.request_cookies,
             ) as wf:
-                content = wf.read().decode()
+                try:
+                    content = wf.read().decode()
+                except UnicodeDecodeError as e:
+                    raise HlsFileError(e) from e
                 base_uri = wf.response.url
                 self._base_query_string = urlparse(base_uri).query
                 m3u8_obj = m3u8.loads(content, uri=base_uri)
@@ -381,7 +391,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
             inputs={str(m3u8_file): "-allowed_extensions ALL -extension_picky 0"},
             outputs={str(temp_file): "-c copy"},
         )
-        ff.run()
+        try:
+            ff.run()
+        except (ffmpy.FFRuntimeError, ffmpy.FFExecutableNotFoundError) as e:
+            raise HlsFileError(e) from e
 
     def download(
         self,

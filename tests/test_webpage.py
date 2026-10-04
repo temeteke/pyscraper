@@ -929,9 +929,9 @@ class TestSeleniumWaits:
         page.driver = mocker.Mock()
         timeout = TimeoutException("not clickable")
         mocker.patch("pyscraper.webpage_selenium.WebDriverWait.until", side_effect=timeout)
-        with pytest.raises(TimeoutException) as exc:
+        with pytest.raises(WebPageTimeoutError) as exc:
             page.click("//a", timeout=0)
-        assert exc.value is timeout
+        assert exc.value.__cause__ is timeout
         page.driver.find_element.return_value.click.assert_not_called()
 
 

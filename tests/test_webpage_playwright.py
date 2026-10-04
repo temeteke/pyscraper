@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pyscraper.webpage import (
+    WebPageBrowserError,
     WebPageError,
-    WebPageNoSuchElementError,
 )
 from pyscraper.webpage_playwright import (
     CaptureSession,
@@ -337,11 +337,13 @@ class TestWebPagePlaywrightChromium:
         page_mock.locator.assert_called_with("xpath=//a[@id='link']")
 
     def test_click_no_element(self, wp, mock_pw):
+        from playwright.sync_api import Error as PlaywrightError
+
         page_mock = mock_pw[0]
         empty_loc = MagicMock()
-        empty_loc.click.side_effect = Exception("not found")
+        empty_loc.click.side_effect = PlaywrightError("not found")
         page_mock.locator.side_effect = lambda sel: empty_loc
-        with pytest.raises(WebPageNoSuchElementError):
+        with pytest.raises(WebPageBrowserError):
             wp.click("//nonexistent")
 
     def test_move_to(self, wp, mock_pw):

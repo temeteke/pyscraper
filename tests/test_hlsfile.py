@@ -236,17 +236,22 @@ video002.ts
     def test_download_preserves_scratch_files_on_failure(
         self, url, tmp_path, mocker, failure_stage
     ):
+        import ffmpy
+
         hls = HlsFile(url)
         scratch = tmp_path / "scratch"
-        failure = RuntimeError("download failed")
         ffmpeg = mocker.patch("pyscraper.hlsfile.ffmpy.FFmpeg")
         if failure_stage == "resource":
+            failure = RuntimeError("download failed")
             mocker.patch("pyscraper.hlsfile.WebFile.download", side_effect=failure)
+            expected = RuntimeError
         else:
+            failure = ffmpy.FFRuntimeError("ffmpeg", "", "boom", 1)
             ffmpeg.return_value.run.side_effect = failure
-        with pytest.raises(RuntimeError) as exc:
+            expected = HlsFileError
+        with pytest.raises(expected) as exc:
             hls.download(directory=tmp_path, temp_directory=scratch)
-        assert exc.value is failure
+        assert exc.value is failure or exc.value.__cause__ is failure
         assert (scratch / "video.m3u8").exists()
         assert not hls.filepath.exists()
         if failure_stage == "resource":

@@ -1,9 +1,15 @@
 import logging
 
 import lxml.html
+import requests
 
 from pyscraper.requests import RequestsMixin
-from pyscraper.webpage import WebPage, WebPageError
+from pyscraper.webpage import (
+    WebPage,
+    WebPageConnectionError,
+    WebPageError,
+    WebPageTimeoutError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +86,17 @@ class WebPageRequests(RequestsMixin, WebPage):
         logger.debug("Getting {}".format(self.request_url))
         logger.debug("Request Headers: " + str(self.session.headers))
 
-        self.response = self.session.get(self.request_url, timeout=self.timeout)
+        # Order matters: ConnectionError/Timeout subclass RequestException.
+        # Status errors are intentionally not raised here (no raise_for_status):
+        # a non-2xx response is still a successful fetch at this layer.
+        try:
+            self.response = self.session.get(self.request_url, timeout=self.timeout)
+        except requests.exceptions.ConnectionError as e:
+            raise WebPageConnectionError(e) from e
+        except requests.exceptions.Timeout as e:
+            raise WebPageTimeoutError(e) from e
+        except requests.exceptions.RequestException as e:
+            raise WebPageError(e) from e
 
         logger.debug("Response Headers: " + str(self.response.headers))
 

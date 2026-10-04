@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import lxml.html
 from retry import retry
 
+from pyscraper.errors import PyscraperError
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,16 +103,44 @@ def iter_scroll_positions(scroll_height, viewport_height):
         scroll += step
 
 
-class WebPageError(Exception):
-    pass
+class WebPageError(PyscraperError):
+    """Base class for WebPage failures.
+
+    ``status_code`` defaults to None: browser interaction failures do not
+    originate from an HTTP response.
+    """
 
 
 class WebPageTimeoutError(WebPageError):
-    pass
+    """A wait for an element or a clickable state timed out."""
 
 
 class WebPageNoSuchElementError(WebPageError):
-    pass
+    """An element referenced by XPath could not be found."""
+
+
+class WebPageClickInterceptedError(WebPageError):
+    """A click was intercepted by another element (e.g. an overlay)."""
+
+
+class WebPageStaleElementReferenceError(WebPageError):
+    """A referenced element is no longer attached to the DOM."""
+
+
+class WebPageBrowserError(WebPageError):
+    """Any other browser automation failure, wrapped with its cause."""
+
+
+# Backward-compatible alias: the generic browser failure was originally
+# named after Selenium's WebDriver.
+WebPageWebDriverError = WebPageBrowserError
+
+
+class WebPageConnectionError(WebPageError):
+    """A connection-level failure while fetching a page.
+
+    ``status_code`` is None: no HTTP response was received.
+    """
 
 
 class WebPageElement:
