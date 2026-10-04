@@ -1,0 +1,15 @@
+services:
+  console:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.pyscraper.rule: "Host(`pyscraper.${TRAEFIK_HOST_SUFFIX:-localhost}`)"
+      traefik.http.routers.pyscraper.service: pyscraper
+      traefik.http.services.pyscraper.loadbalancer.server.port: "80"
+      traefik.docker.network: traefik
+    networks:
+      - default
+      - traefik
+
+networks:
+  traefik:
+    external: true
