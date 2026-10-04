@@ -10,6 +10,7 @@ from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from urllib.parse import urlparse
 
+import lxml.etree
 import lxml.html
 import selenium.common.exceptions
 from retry import retry
@@ -113,7 +114,7 @@ def _translate_webdriver_error(e):
 
 
 def _wrap_webdriver_errors(func):
-    """Decorate a no-argument driver operation with ``WebPage*`` translation."""
+    """Decorate a driver operation with ``WebPage*`` translation."""
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
@@ -127,11 +128,13 @@ def _wrap_webdriver_errors(func):
 
 
 def _wait_until(search_context, condition, timeout):
-    """Wait for a Selenium condition, translating timeout errors."""
+    """Wait for a Selenium condition, translating automation errors."""
     try:
         return WebDriverWait(search_context, timeout).until(condition)
     except selenium.common.exceptions.TimeoutException as e:
         raise WebPageTimeoutError(e) from e
+    except selenium.common.exceptions.WebDriverException as e:
+        raise _translate_webdriver_error(e) from e
 
 
 class SeleniumWebPageElement(WebPageElement):
@@ -140,19 +143,33 @@ class SeleniumWebPageElement(WebPageElement):
 
     @property
     def lxml_html(self):
-        return lxml.html.fromstring(self.html)
+        try:
+            return lxml.html.fromstring(self.html)
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
+        except lxml.etree.ParserError as e:
+            raise WebPageError(e) from e
 
     @property
     def html(self):
-        return self.element.get_attribute("outerHTML")
+        try:
+            return self.element.get_attribute("outerHTML")
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     @property
     def inner_html(self):
-        return self.element.get_attribute("innerHTML")
+        try:
+            return self.element.get_attribute("innerHTML")
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     @property
     def inner_text(self):
-        return self.element.get_attribute("innerText")
+        try:
+            return self.element.get_attribute("innerText")
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     def wait(self, xpath, timeout=10):
         _wait_until(self.element, EC.presence_of_element_located((By.XPATH, xpath)), timeout)
@@ -160,10 +177,11 @@ class SeleniumWebPageElement(WebPageElement):
     def get(self, xpath, timeout=0):
         if timeout:
             self.wait(xpath, timeout)
-        return [
-            SeleniumWebPageElement(element)
-            for element in self.element.find_elements(By.XPATH, xpath)
-        ]
+        try:
+            elements = self.element.find_elements(By.XPATH, xpath)
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
+        return [SeleniumWebPageElement(element) for element in elements]
 
     def click(self, timeout=0):
         if timeout:
@@ -199,7 +217,10 @@ class SeleniumWebPageElement(WebPageElement):
         try:
             yield
         finally:
-            self.element.parent.switch_to.parent_frame()
+            try:
+                self.element.parent.switch_to.parent_frame()
+            except selenium.common.exceptions.WebDriverException as e:
+                raise _translate_webdriver_error(e) from e
 
 
 class WebPageSelenium(WebPage, ABC):
@@ -255,8 +276,10 @@ class WebPageSelenium(WebPage, ABC):
     def url(self):
         if self.driver is None:
             return self.request_url
-        else:
+        try:
             return self.driver.current_url
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     @url.setter
     def url(self, url):
@@ -268,19 +291,21 @@ class WebPageSelenium(WebPage, ABC):
 
     @property
     @retry(RemoteDisconnected, tries=5, delay=1, backoff=2, jitter=(1, 5), logger=logger)
+    @_wrap_webdriver_errors
     def html(self):
-        self._ensure_open()
         return self.driver.page_source
 
     @property
     def cookies(self):
         if self.driver is None:
             return self.request_cookies
-        else:
+        try:
             cookies = {}
             for cookie in self.driver.get_cookies():
                 cookies[cookie["name"]] = cookie["value"]
             return cookies
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     @cookies.setter
     def cookies(self, cookies):
@@ -292,15 +317,22 @@ class WebPageSelenium(WebPage, ABC):
 
     @property
     def user_agent(self):
-        if self.driver is not None:
+        if self.driver is None:
+            return None
+        try:
             return self.driver.execute_script("return navigator.userAgent")
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     def set_cookies_from_file(self, cookies_file):
         self._ensure_open()
         cookies = MozillaCookieJar(cookies_file)
         cookies.load()
-        for cookie in cookies:
-            self.driver.add_cookie(cookie.__dict__)
+        try:
+            for cookie in cookies:
+                self.driver.add_cookie(cookie.__dict__)
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
 
     def wait(self, xpath, timeout=10):
         self._ensure_open()
@@ -310,10 +342,11 @@ class WebPageSelenium(WebPage, ABC):
         self._ensure_open()
         if timeout:
             self.wait(xpath, timeout)
-        return [
-            SeleniumWebPageElement(element)
-            for element in self.driver.find_elements(By.XPATH, xpath)
-        ]
+        try:
+            elements = self.driver.find_elements(By.XPATH, xpath)
+        except selenium.common.exceptions.WebDriverException as e:
+            raise _translate_webdriver_error(e) from e
+        return [SeleniumWebPageElement(element) for element in elements]
 
     def click(self, xpath, timeout=10):
         self._ensure_open()
@@ -360,8 +393,8 @@ class WebPageSelenium(WebPage, ABC):
     def execute_async_script(self, *args, **kwargs):
         return self.driver.execute_async_script(*args, **kwargs)
 
+    @_wrap_webdriver_errors
     def dump(self, filestem=None):
-        self._ensure_open()
         filepath = dump_html(self.html, filestem)
         files = [filepath]
         stem_path = filepath.with_suffix("")

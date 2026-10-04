@@ -9,6 +9,7 @@ from abc import ABC
 from dataclasses import dataclass
 from pathlib import Path
 
+import lxml.etree
 import lxml.html
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -82,19 +83,33 @@ class PlaywrightWebPageElement(WebPageElement):
 
     @property
     def lxml_html(self):
-        return lxml.html.fromstring(self.html)
+        try:
+            return lxml.html.fromstring(self.html)
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
+        except lxml.etree.ParserError as e:
+            raise WebPageError(e) from e
 
     @property
     def html(self):
-        return self._locator.evaluate("el => el.outerHTML")
+        try:
+            return self._locator.evaluate("el => el.outerHTML")
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     @property
     def inner_html(self):
-        return self._locator.inner_html()
+        try:
+            return self._locator.inner_html()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     @property
     def inner_text(self):
-        return self._locator.inner_text()
+        try:
+            return self._locator.inner_text()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     def wait(self, xpath, timeout=10):
         try:
@@ -105,8 +120,11 @@ class PlaywrightWebPageElement(WebPageElement):
     def get(self, xpath, timeout=0):
         if timeout:
             self.wait(xpath, timeout)
-        popup_page = self._page or self._locator.page
-        locators = self._locator.locator(f"xpath={xpath}").all()
+        try:
+            popup_page = self._page or self._locator.page
+            locators = self._locator.locator(f"xpath={xpath}").all()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
         return [PlaywrightWebPageElement(loc, page=popup_page) for loc in locators]
 
     def click(self, timeout=0):
@@ -125,12 +143,18 @@ class PlaywrightWebPageElement(WebPageElement):
             raise _translate_playwright_error(e) from e
 
     def scroll(self, block="start", inline="nearest"):
-        self._locator.scroll_into_view_if_needed()
+        try:
+            self._locator.scroll_into_view_if_needed()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     @contextlib.contextmanager
     def switch(self):
-        handle = self._locator.element_handle()
-        frame = handle.content_frame()
+        try:
+            handle = self._locator.element_handle()
+            frame = handle.content_frame()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
         if not frame:
             raise WebPageError("Element is not an iframe")
         original_page = self._page
@@ -194,7 +218,10 @@ class WebPagePlaywright(WebPage, ABC):
     def url(self):
         if self._page is None:
             return self.request_url
-        return self._page.url
+        try:
+            return self._page.url
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     @url.setter
     def url(self, url):
@@ -206,16 +233,22 @@ class WebPagePlaywright(WebPage, ABC):
     @property
     def html(self):
         self._ensure_open()
-        return self._page.content()
+        try:
+            return self._page.content()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     @property
     def cookies(self):
         if self._page is None:
             return self._cookies
-        cookies = {}
-        for c in self._context.cookies():
-            cookies[c["name"]] = c["value"]
-        return cookies
+        try:
+            cookies = {}
+            for c in self._context.cookies():
+                cookies[c["name"]] = c["value"]
+            return cookies
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     @cookies.setter
     def cookies(self, cookies):
@@ -227,7 +260,10 @@ class WebPagePlaywright(WebPage, ABC):
     @property
     def user_agent(self):
         self._ensure_open()
-        return self._page.evaluate("navigator.userAgent")
+        try:
+            return self._page.evaluate("navigator.userAgent")
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
 
     def wait(self, xpath, timeout=10):
         self._ensure_open()
@@ -240,7 +276,10 @@ class WebPagePlaywright(WebPage, ABC):
         self._ensure_open()
         if timeout:
             self.wait(xpath, timeout)
-        locators = self._page.locator(f"xpath={xpath}").all()
+        try:
+            locators = self._page.locator(f"xpath={xpath}").all()
+        except PlaywrightError as e:
+            raise _translate_playwright_error(e) from e
         return [PlaywrightWebPageElement(loc, page=self._page) for loc in locators]
 
     def click(self, xpath, timeout=10):
@@ -255,8 +294,8 @@ class WebPagePlaywright(WebPage, ABC):
     def move_to(self, xpath):
         self._page.locator(f"xpath={xpath}").hover()
 
+    @_wrap_playwright_errors
     def switch_to_frame(self, xpath):
-        self._ensure_open()
         locator = self._page.locator(f"xpath={xpath}")
         src = locator.get_attribute("src")
         handle = locator.element_handle()
@@ -290,8 +329,8 @@ class WebPagePlaywright(WebPage, ABC):
     def execute_async_script(self, script):
         return self._page.evaluate_async(script)
 
+    @_wrap_playwright_errors
     def dump(self, filestem=None):
-        self._ensure_open()
         filepath = dump_html(self.html, filestem)
         files = [filepath]
         stem_path = filepath.with_suffix("")

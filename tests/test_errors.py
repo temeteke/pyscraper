@@ -170,21 +170,70 @@ class TestSeleniumClickTranslation:
         failure = selenium.common.exceptions.WebDriverException("gone")
         if method == "move_to":
             mocker.patch.object(ActionChains, "move_to_element", side_effect=failure)
-            call = lambda: page.move_to("//a")  # noqa: E731
+
+            def call():
+                page.move_to("//a")
         elif method == "go":
             page.driver.get.side_effect = failure
-            call = lambda: page.go("https://example.com")  # noqa: E731
+
+            def call():
+                page.go("https://example.com")
         elif method == "forward":
             page.driver.forward.side_effect = failure
-            call = lambda: page.forward()  # noqa: E731
+
+            def call():
+                page.forward()
         elif method == "back":
             page.driver.back.side_effect = failure
-            call = lambda: page.back()  # noqa: E731
+
+            def call():
+                page.back()
         else:
             page.driver.refresh.side_effect = failure
-            call = lambda: page.refresh()  # noqa: E731
+
+            def call():
+                page.refresh()
+
         with pytest.raises(WebPageBrowserError) as exc:
             call()
+        assert exc.value.__cause__ is failure
+
+    @pytest.mark.parametrize("prop", ["url", "html", "cookies", "user_agent"])
+    def test_property_translates(self, mocker, prop):
+        page = WebPageSeleniumFirefox("https://example.com")
+        page.driver = mocker.Mock()
+        failure = selenium.common.exceptions.WebDriverException("crashed")
+        if prop == "url":
+            mocker.patch.object(
+                type(page.driver),
+                "current_url",
+                new_callable=mocker.PropertyMock,
+                side_effect=failure,
+                create=True,
+            )
+        elif prop == "html":
+            mocker.patch.object(
+                type(page.driver),
+                "page_source",
+                new_callable=mocker.PropertyMock,
+                side_effect=failure,
+                create=True,
+            )
+        elif prop == "cookies":
+            page.driver.get_cookies.side_effect = failure
+        else:
+            page.driver.execute_script.side_effect = failure
+        with pytest.raises(WebPageBrowserError) as exc:
+            getattr(page, prop)
+        assert exc.value.__cause__ is failure
+
+    def test_element_property_translates(self, mocker):
+        element = mocker.Mock()
+        failure = selenium.common.exceptions.StaleElementReferenceException("gone")
+        element.get_attribute.side_effect = failure
+        wrapped = SeleniumWebPageElement(element)
+        with pytest.raises(WebPageStaleElementReferenceError) as exc:
+            _ = wrapped.html
         assert exc.value.__cause__ is failure
 
 
@@ -239,10 +288,10 @@ class TestStatusCode:
                 pass
         assert exc.value.__cause__ is failure
 
-    def test_read_residue_wraps_as_connection_error(self, mock_http_response):
+    def test_read_residue_wraps_as_connection_error(self, mocker, mock_http_response):
         response = mock_http_response(200, b"x" * 16)
         failure = urllib3.exceptions.ClosedPoolError("pool", "closed")
-        response.raw.read = pytest.importorskip("unittest.mock").Mock(side_effect=failure)
+        response.raw.read = mocker.Mock(side_effect=failure)
         wf = WebFile("https://example.com/file")
         wf.response = response
         with pytest.raises(WebFileConnectionError) as exc:
@@ -293,6 +342,59 @@ class TestPlaywrightTranslation:
             page.open()
         assert exc.value.__cause__ is failure
 
+    @pytest.mark.parametrize("prop", ["url", "html", "cookies", "user_agent"])
+    def test_property_translates(self, mocker, prop):
+        from playwright.sync_api import Error as PlaywrightError
+
+        from pyscraper.webpage_playwright import WebPagePlaywrightChromium
+
+        page = WebPagePlaywrightChromium("https://example.com")
+        page._page = mocker.Mock()
+        page._context = mocker.Mock()
+        failure = PlaywrightError("crashed")
+        if prop == "url":
+            mocker.patch.object(
+                type(page._page),
+                "url",
+                new_callable=mocker.PropertyMock,
+                side_effect=failure,
+                create=True,
+            )
+        elif prop == "html":
+            page._page.content.side_effect = failure
+        elif prop == "cookies":
+            page._context.cookies.side_effect = failure
+        else:
+            page._page.evaluate.side_effect = failure
+        with pytest.raises(WebPageBrowserError) as exc:
+            getattr(page, prop)
+        assert exc.value.__cause__ is failure
+
+    def test_switch_to_frame_translates(self, mocker):
+        from playwright.sync_api import Error as PlaywrightError
+
+        from pyscraper.webpage_playwright import WebPagePlaywrightChromium
+
+        page = WebPagePlaywrightChromium("https://example.com")
+        page._page = mocker.Mock()
+        failure = PlaywrightError("crashed")
+        page._page.locator.return_value.get_attribute.side_effect = failure
+        with pytest.raises(WebPageBrowserError) as exc:
+            page.switch_to_frame("//iframe")
+        assert exc.value.__cause__ is failure
+
+    def test_element_property_translates(self, mocker):
+        from playwright.sync_api import Error as PlaywrightError
+
+        from pyscraper.webpage_playwright import PlaywrightWebPageElement
+
+        locator = mocker.Mock()
+        failure = PlaywrightError("detached")
+        locator.evaluate.side_effect = failure
+        with pytest.raises(WebPageBrowserError) as exc:
+            _ = PlaywrightWebPageElement(locator).html
+        assert exc.value.__cause__ is failure
+
 
 class TestRequestsCurlTranslation:
     @pytest.mark.parametrize(
@@ -330,6 +432,24 @@ class TestRequestsCurlTranslation:
             _ = WebPageCurl("https://example.com").html
         assert exc.value.__cause__ is failure
 
+    def test_curl_decode_failure(self, mocker):
+        result = mocker.Mock()
+        result.stdout = b"\xff\xfe invalid"
+        mocker.patch("pyscraper.webpage_curl.subprocess.run", return_value=result)
+        with pytest.raises(WebPageError) as exc:
+            _ = WebPageCurl("https://example.com").html
+        assert isinstance(exc.value.__cause__, UnicodeDecodeError)
+
+    def test_curl_unknown_encoding(self, mocker):
+        result = mocker.Mock()
+        result.stdout = b"<html></html>"
+        mocker.patch("pyscraper.webpage_curl.subprocess.run", return_value=result)
+        page = WebPageCurl("https://example.com")
+        page.encoding = "unknown-encoding-xyz"
+        with pytest.raises(WebPageError) as exc:
+            _ = page.html
+        assert isinstance(exc.value.__cause__, LookupError)
+
 
 class TestHlsTranslation:
     def test_playlist_decode_failure(self, mocker, mock_http_response):
@@ -360,3 +480,43 @@ class TestHlsTranslation:
             hls._merge_resources(tmp_path / "in.m3u8", tmp_path / "out.mp4")
         assert exc.value.__cause__ is failure
         assert str(exc.value)
+
+    def test_empty_playlist(self, mocker, mock_http_response):
+        response = mock_http_response(
+            200,
+            b"#EXTM3U\n",
+            {"Content-Type": "application/vnd.apple.mpegurl"},
+            "https://example.com/empty.m3u8",
+        )
+        session = mocker.Mock()
+        session.headers = {}
+        session.cookies = {}
+        session.get.return_value = response
+        hls = HlsFile("https://example.com/empty.m3u8", session=session)
+        with pytest.raises(HlsFileError, match="Empty playlist"):
+            _ = hls.m3u8_obj
+
+    def test_empty_playlist_exists_false(self, mocker, mock_http_response):
+        response = mock_http_response(
+            200,
+            b"#EXTM3U\n",
+            {"Content-Type": "application/vnd.apple.mpegurl"},
+            "https://example.com/empty.m3u8",
+        )
+        session = mocker.Mock()
+        session.headers = {}
+        session.cookies = {}
+        session.get.return_value = response
+        hls = HlsFile("https://example.com/empty.m3u8", session=session)
+        assert hls.exists() is False
+
+    def test_lxml_parse_failure(self, mocker):
+        import lxml.etree
+
+        element = mocker.Mock()
+        failure = lxml.etree.ParserError("empty")
+        mocker.patch("lxml.html.fromstring", side_effect=failure)
+        wrapped = SeleniumWebPageElement(element)
+        with pytest.raises(WebPageError) as exc:
+            _ = wrapped.lxml_html
+        assert exc.value.__cause__ is failure

@@ -45,6 +45,23 @@ hls_file.download(temp_directory="scratch")
 hls_file.unlink(temp_directory="scratch")
 ```
 
+## Failures and retrying
+
+A failed `download()` leaves its scratch files behind so the failure can be
+inspected: `WebFile` keeps the `<filepath>.part` partial file, and `HlsFile`
+keeps the `temp_directory` segment/playlist tree (its scratch-preservation
+contract is covered by tests). Neither call retries automatically on failure.
+
+- `WebFile.download()` resumes from an existing `.part` file when the server
+  supports range requests; otherwise the partial file is discarded and the
+  transfer restarts.
+- `HlsFile.download()` always re-downloads its resources into the resolved
+  `temp_directory`. To retry, call `download()` again with the same arguments;
+  a stale `temp_directory` from a prior failure is reused, not duplicated.
+- Failures surface as `WebFileError` / `HlsFileError` (both under
+  `PyscraperError`), so a retry loop catches one base type. See the Error
+  model in [architecture.md](architecture.md).
+
 ## `temp_directory` safety guard
 
 `HlsFile.download()` removes `temp_directory` with `shutil.rmtree`, so a

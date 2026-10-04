@@ -130,8 +130,10 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
                 best = sorted(m3u8_obj.playlists, key=lambda x: x.stream_info.bandwidth)[-1]
                 variant_url = _apply_base_query_string(best.absolute_uri, self._base_query_string)
                 return get_best_playlist(variant_url)
-            else:
+            elif m3u8_obj.segments:
                 return m3u8_obj
+            else:
+                raise HlsFileError(f"Empty playlist: {url}")
 
         return get_best_playlist(self.url)
 
@@ -489,6 +491,8 @@ class HlsFile(HlsFileMixin, RequestsMixin, FileIOBase):
         try:
             return self.web_files[0].exists()
         except IndexError:
+            return False
+        except HlsFileError:
             return False
         except WebFileClientError:
             return False

@@ -2,7 +2,7 @@ import logging
 import subprocess
 from functools import cached_property
 
-from pyscraper.webpage import WebPage, WebPageConnectionError
+from pyscraper.webpage import WebPage, WebPageConnectionError, WebPageError
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,8 @@ class WebPageCurl(WebPage):
             ).stdout.decode(self.encoding or "utf-8")
         except (subprocess.CalledProcessError, OSError) as e:
             raise WebPageConnectionError(e) from e
+        except (UnicodeDecodeError, LookupError) as e:
+            raise WebPageError(e) from e
 
     @WebPage.url.setter
     def url(self, value):

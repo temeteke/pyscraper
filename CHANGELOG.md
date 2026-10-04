@@ -19,6 +19,9 @@ tag.
   Playwright failures) and `WebPageConnectionError` (page fetch connection
   failures). `WebPageWebDriverError` remains as an alias of
   `WebPageBrowserError`; existing `except WebPageWebDriverError` keeps working.
+- Empty HLS playlists now raise `HlsFileError` instead of succeeding with
+  no segments (HTTP failures such as 404 still surface as the inner
+  `WebFile*` error).
 - `status_code` on errors: HTTP-origin failures (client/server errors)
   carry the HTTP status; non-HTTP failures leave it as `None`. No
   transient/permanent classification is performed.
@@ -32,14 +35,18 @@ tag.
   exceptions from these paths need to catch `WebPageError` instead.
 - Browser and fetch coverage extended to the public boundary: Selenium
   driver creation (`open()` now includes `_create_driver`), navigation /
-  script operations, Playwright `click` / `open` (Timeout is now
+  script operations, property reads (`html` / `cookies` / `user_agent` /
+  `url`) and `dump`, Playwright `click` / `open` (Timeout is now
   distinguished from other `Error`s instead of a blanket
-  `NoSuchElement`), `WebPageRequests` / `WebPageCurl` connection failures,
-  `requests` / `urllib3` residue in `WebFile`, and playlist decode /
-  ffmpeg merge failures in `HlsFile`. Invalid URLs and redirect loops are
-  wrapped too, so `except ValueError` is no longer needed for fetch
-  failures. Library code raises without `logger.error` prefix; logging
-  stays with the caller.
+  `NoSuchElement`) plus the same property/`dump`/`switch_to_frame`
+  coverage, `WebPageRequests` / `WebPageCurl` connection failures (Curl
+  decode failures surface as `WebPageError`), `requests` / `urllib3`
+  residue in `WebFile`, and playlist decode / ffmpeg merge failures in
+  `HlsFile`. Invalid URLs and redirect loops are wrapped too, so
+  `except ValueError` is no longer needed for fetch failures. Library
+  code raises without `logger.error` prefix; logging stays with the
+  caller. Failed `download()` calls keep their scratch files for
+  inspection (see the retry notes in `docs/downloading.md`).
 - `WebPageRequests` still has no `raise_for_status`: non-2xx responses
   remain successful fetches. Deliberately not wrapped: programmer errors,
   local filesystem failures, and the `RemoteDisconnected` retry policy

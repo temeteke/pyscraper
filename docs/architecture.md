@@ -155,22 +155,30 @@ that `WebPageWebDriverError` is now an alias of the unified generic
 `WebPageBrowserError`.
 
 - Browser backends translate automation failures into `WebPage*` errors
-  at the public boundary (`open`, `click`, `wait`, navigation, scripts):
-  `NoSuchElement` / `Timeout` where applicable, click interception and
-  stale references (Selenium), and anything else as `WebPageBrowserError`.
-  Playwright `TimeoutError` maps to `WebPageTimeoutError` by type, never
-  by message. Callers catch `WebPageError` without naming Selenium or
-  Playwright exceptions. The original cause is preserved via `__cause__`
-  and the message is kept (`raise X(e) from e`).
+  at the public boundary (`open`, `click`, `wait`, navigation, scripts,
+  property reads such as `html` / `cookies` / `user_agent` / `url`, and
+  `dump`): `NoSuchElement` / `Timeout` where applicable, click
+  interception and stale references (Selenium), and anything else as
+  `WebPageBrowserError`. Playwright `TimeoutError` maps to
+  `WebPageTimeoutError` by type, never by message. Callers catch
+  `WebPageError` without naming Selenium or Playwright exceptions. The
+  original cause is preserved via `__cause__` and the message is kept
+  (`raise X(e) from e`).
 - HTTP backends translate connection failures into `WebPageConnectionError`
   (`WebPageRequests`, `WebPageCurl`) without changing success semantics:
   `WebPageRequests` still has no `raise_for_status`, so non-2xx responses
   remain successful fetches. Invalid URLs and redirect loops are wrapped
-  too, so no `except ValueError` is needed for fetch failures.
+  too, so no `except ValueError` is needed for fetch failures. Curl
+  decode failures surface as `WebPageError`.
 - `WebFile` maps `requests` / `urllib3` residue to `WebFile*` errors the
   same way, and `HlsFile` maps playlist decode and ffmpeg merge failures
-  to `HlsFileError`. Segment download failures propagate as `WebFile*`
-  errors carrying their own `status_code`.
+  to `HlsFileError`. An HTTP 200 response with an empty playlist also
+  raises `HlsFileError` (HTTP failures such as 404 still surface as the
+  inner `WebFile*` error). Segment download failures propagate as
+  `WebFile*` errors carrying their own `status_code`.
+- There is no `WebPage.exists()`: reachability checks belong to
+  `WebFile.exists()` / `HlsFile.exists()` (first resource only, 4xx maps
+  to `False`). For page fetches, inspect the backend response directly.
 - HTTP-origin failures carry `status_code` on the exception (client and
   server errors). Non-HTTP failures (browser interaction, connection
   errors, timeouts, HLS-level errors) leave it as `None`.
