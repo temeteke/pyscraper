@@ -1,13 +1,13 @@
 services:
-  # Update this to the name of the service you want to work with in your docker-compose.yml file
-  dev:
+  # Update this to the name of the service you want to work with in your compose.yaml file
+  workspace:
     # Use the same non-root user for the container and VS Code processes.
     # Dev Containers matches this user's UID/GID to the local user on Linux.
     user: vscode
 
     # Uncomment if you want to override the service's Dockerfile to one in the .devcontainer
     # folder. Note that the path of the Dockerfile and context is relative to the *primary*
-    # docker-compose.yml file (the first in the devcontainer.json "dockerComposeFile"
+    # compose.yaml file (the first in the devcontainer.json "dockerComposeFile"
     # array). The sample below assumes your primary file is in the root of your project.
     #
     build:

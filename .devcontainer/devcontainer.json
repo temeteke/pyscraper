@@ -1,20 +1,21 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/docker-existing-docker-compose
-// The dev service and VS Code both run as the image's vscode user.
+// The workspace service and VS Code both run as the image's vscode user.
 {
 	// Update the 'dockerComposeFile' list if you have more compose files or use different names.
-	// The .devcontainer/docker-compose.yml file contains any overrides you need/want to make.
+	// The .devcontainer/compose.yaml file contains any overrides you need/want to make.
 	"dockerComposeFile": [
 		"../compose.yaml",
-		"docker-compose.yml"
+		"../compose.traefik.yaml",
+		"compose.yaml"
 	],
 
 	// The 'service' property is the name of the service for the container that VS Code should
-	// use. Update this value and .devcontainer/docker-compose.yml to the real service name.
-	"service": "dev",
+	// use. Update this value and .devcontainer/compose.yaml to the real service name.
+	"service": "workspace",
 
 	// The optional 'workspaceFolder' property is the path VS Code should open by default when
-	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
+	// connected. This is typically a file mount in .devcontainer/compose.yaml
 	"workspaceFolder": "/workspace",
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.

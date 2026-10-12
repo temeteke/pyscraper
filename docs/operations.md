@@ -600,7 +600,10 @@ You can use Docker to set up the development environment and run the application
 The repository includes a `compose.yaml` file for the stack and a
 `compose.traefik.yaml` overlay for local routing. The Makefile combines both
 files and creates the external `traefik` Docker network when needed. The
-Traefik instance itself must also be attached to that network.
+Traefik instance itself must also be attached to that network. For Dev
+Container operation the Makefile adds the `.devcontainer/compose.yaml`
+overlay (the `workspace` service); use the `devcontainer-*` Make targets to
+manage that three-file stack.
 
 The default console URL is `http://pyscraper.localhost/`. Set
 `TRAEFIK_HOST_SUFFIX=dev.localhost` in a repository-root `.env` file to
