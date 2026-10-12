@@ -525,8 +525,11 @@ class TestNodeTTL:
 
     def test_boundary_not_pruned_without_advance(self, hub, monkeypatch):
         # Entries exactly at the TTL boundary survive until time advances.
+        # Anchor all reads to a fixed clock: real monotonic time would
+        # make the exact-boundary probe flaky (float overshoot past TTL).
         self._register(hub)
         now = hub.NODES["webkit"]["last_seen"]
+        monkeypatch.setattr(hub, "_now", lambda: now)
         assert hub._select_node({"browser": "webkit"}) is not None
         monkeypatch.setattr(hub, "_now", lambda: now + hub.NODE_TTL)
         assert hub._select_node({"browser": "webkit"}) is not None
