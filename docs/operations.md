@@ -128,9 +128,11 @@ and proxy env (`HTTPS_PROXY`/`HTTP_PROXY`) are set, the env wins.
 ### Remote browsers via the Hub
 
 Two-port Hub: `4000` = websocket relay, `4001` = HTTP node registry at
-`/register`/`/nodes` (health at `/health`). `/nodes` returns
-`{"nodes": [{"name", "browser", "ws_endpoint"}]}`. The Hub does not
-inspect the websocket path -- any path works:
+`/register`/`/unregister`/`/nodes` (health at `/health`). `/nodes`
+returns `{"nodes": [{"name", "browser", "ws_endpoint"}]}` and `/health`
+returns `{"status": "ok", "nodes": <count>, "browsers": {<browser>:
+<count>}}`. The Hub does not inspect the websocket path -- any path
+works:
 
 - Set `PLAYWRIGHT_CHROMIUM_URL=ws://playwright-hub:4000/ws` (and the
   `PLAYWRIGHT_FIREFOX_URL` / `PLAYWRIGHT_WEBKIT_URL` equivalents) to
@@ -150,11 +152,30 @@ inspect the websocket path -- any path works:
 - Nodes are stateless (`servers/playwright_node.py` runs
   `launch-server` headed under Xvfb for every browser with
   `PLAYWRIGHT_BROWSER` / `PLAYWRIGHT_PORT` / `PLAYWRIGHT_NODE_NAME` /
-  `PLAYWRIGHT_ADVERTISE_HOST` / `PLAYWRIGHT_HUB_URL`). The node waits up
+  `PLAYWRIGHT_ADVERTISE_HOST` / `PLAYWRIGHT_HUB_URL` /
+  `PLAYWRIGHT_HUB_REGISTER_INTERVAL`). The node waits up
   to `60`s (`LAUNCH_WAIT_TIMEOUT`, fixed) for `launch-server` to print
-  its WS endpoint, then fails fast. Proxy env
-  (`HTTPS_PROXY` preferred, `NO_PROXY` as bypass) is applied both when
-  the node starts and when the client creates its context.
+  its WS endpoint, then fails fast. Registration is a heartbeat: the
+  node registers immediately, then re-sends the same `/register`
+  payload every   `PLAYWRIGHT_HUB_REGISTER_INTERVAL` (default `10`s) on a
+  background thread, forever. The first registration retries; periodic
+  beats are single-attempt (the interval itself is the retry), so each
+  beat stays well below the Hub TTL. Failures only log and continue,
+  so a node started while the Hub is down registers once the Hub is
+  reachable, and a Hub restart needs no node restart. An empty
+  `PLAYWRIGHT_HUB_URL` disables registration; Hub traffic bypasses
+  proxy env. Proxy env (`HTTPS_PROXY` preferred, `NO_PROXY` as
+  bypass) is applied both when the node starts and when the client
+  creates its context.
+- The Hub prunes node entries not re-registered within
+  `PLAYWRIGHT_HUB_NODE_TTL` (default `30`s), so a node that dies
+  without `/unregister` stops receiving sessions. Pruning is lazy:
+  stale entries are dropped on the next registry access (select,
+  `/nodes`, `/health`). Keep `PLAYWRIGHT_HUB_NODE_TTL` at or above 3x
+  the node interval so two missed beats never prune a live node.
+  Both values require a restart to apply. Shutdown is ordered: the
+  node joins its heartbeat thread before sending `/unregister`, so no
+  registration can land after it and resurrect a dead entry.
 - Display size: the noVNC desktop is the Xvfb screen, sized by
   `PLAYWRIGHT_SCREEN_WIDTH` / `PLAYWRIGHT_SCREEN_HEIGHT` (default
   `1280`/`720`, positive integers, fail fast; restart the node to
@@ -453,8 +474,8 @@ pyscraper client code:
   merges both streams.
 - Restart policies: `console` and both session managers use
   `restart: unless-stopped`. The Hub and nodes have none by design --
-  nodes self-register with retries and the Hub is stateless, so all
-  recover without restarts.
+  nodes re-register on a heartbeat and the Hub prunes stale entries, so
+  all recover without restarts.
 - No authentication (closed compose network, local dev use only). The
   console is not published directly on a host port; access it through the
   local Traefik route.

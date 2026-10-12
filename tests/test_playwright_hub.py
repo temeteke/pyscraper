@@ -17,7 +17,11 @@ HUB_PATH = Path(__file__).resolve().parent.parent / "servers" / "playwright_hub.
 
 def _load_hub(monkeypatch, env=None):
     """Load playwright_hub without executing the __main__ block."""
-    for key in ("PLAYWRIGHT_HUB_PORT", "PLAYWRIGHT_NODE_CONNECT_TIMEOUT"):
+    for key in (
+        "PLAYWRIGHT_HUB_PORT",
+        "PLAYWRIGHT_NODE_CONNECT_TIMEOUT",
+        "PLAYWRIGHT_HUB_NODE_TTL",
+    ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("PLAYWRIGHT_HUB_PORT", "14000")
     for key, value in (env or {}).items():
@@ -32,10 +36,19 @@ def _load_hub(monkeypatch, env=None):
 def hub(monkeypatch):
     module = _load_hub(monkeypatch)
     module.NODES.clear()
+    now = module._now()
     module.NODES.update(
         {
-            "chromium": {"browser": "chromium", "ws_endpoint": "ws://chromium:3000/abc"},
-            "firefox": {"browser": "firefox", "ws_endpoint": "ws://firefox:3000/def"},
+            "chromium": {
+                "browser": "chromium",
+                "ws_endpoint": "ws://chromium:3000/abc",
+                "last_seen": now,
+            },
+            "firefox": {
+                "browser": "firefox",
+                "ws_endpoint": "ws://firefox:3000/def",
+                "last_seen": now,
+            },
         }
     )
     return module
@@ -81,8 +94,23 @@ class TestSelectNode:
 
 class TestRegistry:
     def test_register_shape(self, hub):
-        # Registered entries carry name/browser/ws_endpoint only (no profile).
-        assert set(hub.NODES["chromium"]) == {"browser", "ws_endpoint"}
+        # Public snapshots carry name/browser/ws_endpoint only: last_seen
+        # is internal and never exposed to relay clients.
+        assert set(hub._public_snapshot()["chromium"]) == {"browser", "ws_endpoint"}
+
+    def test_register_records_last_seen(self, hub):
+        before = hub._now()
+        code = _make_registry_request(
+            hub,
+            "/register",
+            {
+                "name": "webkit",
+                "browser": "webkit",
+                "ws_endpoint": "ws://webkit:3000/x",
+            },
+        )
+        assert code == 200
+        assert before <= hub.NODES["webkit"]["last_seen"] <= hub._now()
 
     def test_relay_rejects_without_node(self, hub):
         # _relay closes with 1011 when selection fails; covered via _select_node.
@@ -228,7 +256,11 @@ class TestRegisterValidation:
         assert code == 400
 
     def test_unregister_stripped_name(self, hub):
-        hub.NODES["temp"] = {"browser": "chromium", "ws_endpoint": "ws://x:3000/y"}
+        hub.NODES["temp"] = {
+            "browser": "chromium",
+            "ws_endpoint": "ws://x:3000/y",
+            "last_seen": hub._now(),
+        }
         code = _make_registry_request(hub, "/unregister", {"name": " temp "})
         assert code == 200
         assert "temp" not in hub.NODES
@@ -322,7 +354,11 @@ class TestRelay:
         assert node["browser"] == "firefox"
 
     def test_relay_bad_endpoint_scheme_1011(self, hub):
-        hub.NODES["broken"] = {"browser": "chromium", "ws_endpoint": "http://x:3000/"}
+        hub.NODES["broken"] = {
+            "browser": "chromium",
+            "ws_endpoint": "http://x:3000/",
+            "last_seen": hub._now(),
+        }
         ws = _make_client_ws(json.dumps({"node": "broken"}))
         self._run(hub, ws)
         ws.close.assert_called_once_with(1011, "node endpoint unavailable")
@@ -365,6 +401,7 @@ class TestRelay:
         hub.NODES["evil"] = {
             "browser": "chromium",
             "ws_endpoint": "ws://x:3000/a\nb",
+            "last_seen": hub._now(),
         }
         ws = _make_client_ws(json.dumps({"node": "evil"}))
         with patch.object(hub.websockets, "connect", side_effect=OSError("refused")):
@@ -421,3 +458,127 @@ class TestRelay:
             handler.wfile = io.BytesIO()
             handler.do_GET()
             assert codes == [200], path
+
+
+def _get_json(hub, path):
+    import io
+
+    handler = hub._RegistryHandler.__new__(hub._RegistryHandler)
+    handler.path = path
+    codes = []
+    handler.send_response = lambda c: codes.append(c)
+    handler.send_header = lambda k, v: None
+    handler.end_headers = lambda: None
+    out = io.BytesIO()
+    handler.wfile = out
+    handler.do_GET()
+    assert codes == [200]
+    return json.loads(out.getvalue())
+
+
+class TestNodeTTL:
+    def _register(self, hub, name="webkit", **overrides):
+        payload = {
+            "name": name,
+            "browser": "webkit",
+            "ws_endpoint": "ws://webkit:3000/x",
+        }
+        payload.update(overrides)
+        assert _make_registry_request(hub, "/register", payload) == 200
+
+    def test_defaults(self, monkeypatch):
+        module = _load_hub(monkeypatch)
+        assert module.NODE_TTL == 30
+
+    def test_valid_ttl_env(self, monkeypatch):
+        module = _load_hub(monkeypatch, env={"PLAYWRIGHT_HUB_NODE_TTL": "5"})
+        assert module.NODE_TTL == 5
+
+    def test_invalid_ttl_falls_back(self, monkeypatch, capsys):
+        for bad in ("bogus", "0", "-5"):
+            module = _load_hub(monkeypatch, env={"PLAYWRIGHT_HUB_NODE_TTL": bad})
+            assert module.NODE_TTL == 30
+        assert "invalid PLAYWRIGHT_HUB_NODE_TTL" in capsys.readouterr().err
+
+    def test_stale_node_excluded_from_selection(self, hub):
+        self._register(hub)
+        hub.NODES["webkit"]["last_seen"] = hub._now() - hub.NODE_TTL - 1
+        assert hub._select_node({"browser": "webkit"}) is None
+
+    def test_stale_node_pruned_from_nodes_listing(self, hub):
+        self._register(hub)
+        hub.NODES["webkit"]["last_seen"] = hub._now() - hub.NODE_TTL - 1
+        names = {n["name"] for n in _get_json(hub, "/nodes")["nodes"]}
+        assert names == {"chromium", "firefox"}
+        assert "webkit" not in hub.NODES
+
+    def test_stale_node_excluded_from_health(self, hub):
+        body = _get_json(hub, "/health")
+        assert body == {
+            "status": "ok",
+            "nodes": 2,
+            "browsers": {"chromium": 1, "firefox": 1},
+        }
+        hub.NODES["chromium"]["last_seen"] = hub._now() - hub.NODE_TTL - 1
+        body = _get_json(hub, "/health")
+        assert body == {"status": "ok", "nodes": 1, "browsers": {"firefox": 1}}
+
+    def test_boundary_not_pruned_without_advance(self, hub, monkeypatch):
+        # Entries exactly at the TTL boundary survive until time advances.
+        self._register(hub)
+        now = hub.NODES["webkit"]["last_seen"]
+        assert hub._select_node({"browser": "webkit"}) is not None
+        monkeypatch.setattr(hub, "_now", lambda: now + hub.NODE_TTL)
+        assert hub._select_node({"browser": "webkit"}) is not None
+        assert "webkit" in hub.NODES
+        monkeypatch.setattr(hub, "_now", lambda: now + hub.NODE_TTL + 1)
+        assert hub._select_node({"browser": "webkit"}) is None
+
+    def test_reregister_revives_stale_node(self, hub):
+        self._register(hub)
+        hub.NODES["webkit"]["last_seen"] = hub._now() - hub.NODE_TTL - 1
+        assert hub._select_node({"browser": "webkit"}) is None
+        self._register(hub, ws_endpoint="ws://webkit:3000/y")
+        node = hub._select_node({"browser": "webkit"})
+        assert node["ws_endpoint"] == "ws://webkit:3000/y"
+
+    def test_reregister_updates_endpoint(self, hub):
+        self._register(hub)
+        self._register(hub, ws_endpoint="ws://webkit:3000/rotated")
+        assert hub.NODES["webkit"]["ws_endpoint"] == "ws://webkit:3000/rotated"
+
+    def test_legacy_entry_without_last_seen_stamped_then_expires(self, hub, monkeypatch):
+        # Entries predating last_seen (e.g. in-memory state across a hot
+        # reload) are kept on first sight but stamped, so TTL applies
+        # from then on instead of living forever.
+        hub.NODES["legacy"] = {"browser": "webkit", "ws_endpoint": "ws://x:3000/y"}
+        first = hub._now()
+        assert hub._select_node({"node": "legacy"}) is not None
+        stamped = hub.NODES["legacy"]["last_seen"]
+        assert first <= stamped <= hub._now()
+        monkeypatch.setattr(hub, "_now", lambda: stamped + hub.NODE_TTL + 1)
+        assert hub._select_node({"node": "legacy"}) is None
+
+    def test_nodes_wire_hides_last_seen(self, hub):
+        self._register(hub)
+        nodes = _get_json(hub, "/nodes")["nodes"]
+        assert nodes
+        assert all(set(n) == {"name", "browser", "ws_endpoint"} for n in nodes)
+
+    def test_prune_logs_after_lock_release(self, hub, capsys):
+        # Pruning reports stale nodes without holding _LOCK during I/O.
+        self._register(hub)
+        capsys.readouterr()  # drain the /register log above
+        hub.NODES["webkit"]["last_seen"] = hub._now() - hub.NODE_TTL - 1
+        assert hub._LOCK.acquire(blocking=False)
+        try:
+            expired = hub._prune_expired()
+        finally:
+            hub._LOCK.release()
+        assert expired == ["webkit"]
+        assert capsys.readouterr().out == ""  # no logging while locked
+
+    def test_select_prunes_dead_browser(self, hub):
+        hub.NODES["chromium"]["last_seen"] = hub._now() - hub.NODE_TTL - 1
+        assert hub._select_node({"browser": "chromium"}) is None
+        assert "chromium" not in hub.NODES

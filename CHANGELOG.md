@@ -8,6 +8,23 @@ tag.
 
 ## [Unreleased]
 
+### Added
+
+- Resilient Hub node registration: nodes re-register with the Hub on a
+  heartbeat (`PLAYWRIGHT_HUB_REGISTER_INTERVAL`, default `10`s) instead
+  of registering once, so a node started while the Hub is down appears
+  once the Hub is reachable, and a Hub restart needs no node restart.
+  The first registration retries; periodic beats are single-attempt
+  (the interval itself is the retry). Shutdown joins the heartbeat
+  thread before `/unregister` so no registration lands after it.
+- Hub node TTL (`PLAYWRIGHT_HUB_NODE_TTL`, default `30`s): entries not
+  re-registered within the TTL are pruned from relay selection,
+  `/nodes`, and `/health`, so a node that dies without `/unregister`
+  stops receiving sessions. Keep the TTL at or above 3x the node
+  interval; both values require a restart to apply.
+- `GET /health` now also reports `{"nodes": <count>, "browsers":
+  {<browser>: <count>}}` alongside `status`.
+
 ## [3.4.0]
 
 ### Added

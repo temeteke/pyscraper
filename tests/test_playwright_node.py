@@ -27,6 +27,7 @@ def _load_server(monkeypatch, env=None):
         "PLAYWRIGHT_NODE_NAME",
         "PLAYWRIGHT_ADVERTISE_HOST",
         "PLAYWRIGHT_HUB_URL",
+        "PLAYWRIGHT_HUB_REGISTER_INTERVAL",
         "PLAYWRIGHT_SCREEN_WIDTH",
         "PLAYWRIGHT_SCREEN_HEIGHT",
         "HTTPS_PROXY",
@@ -321,17 +322,23 @@ class TestPlainNodeLaunchWait:
         import os
         from unittest.mock import patch
 
-        server = _load_server(monkeypatch, {"PLAYWRIGHT_ADVERTISE_HOST": "pw-chromium-node"})
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_ADVERTISE_HOST": "pw-chromium-node",
+                "PLAYWRIGHT_HUB_URL": "http://hub:4001",
+            },
+        )
         r, w = os.pipe()
         os.write(w, b"WS_ENDPOINT=ws://0.0.0.0:3000/abc\n")
         os.close(w)
         registered = []
-        monkeypatch.setattr(server, "_register", registered.append)
+        monkeypatch.setattr(server, "_register", lambda *a, **k: registered.append((a, k)))
         monkeypatch.setattr(server, "_unregister", lambda: None)
         with open(r, "r") as stdout:
             with patch.object(server.subprocess, "Popen", return_value=self._fake_proc(stdout)):
                 server._plain_node()
-        assert registered == ["ws://pw-chromium-node:3000/abc"]
+        assert [c[0][0] for c in registered] == ["ws://pw-chromium-node:3000/abc"]
 
     def test_silent_launch_server_times_out(self, monkeypatch):
         import os
@@ -374,6 +381,266 @@ class TestPlainNodeLaunchWait:
             proc.kill.assert_called_once_with()
         finally:
             os.close(w)
+
+
+class TestHeartbeat:
+    def test_interval_default(self, monkeypatch):
+        server = _load_server(monkeypatch)
+        assert server.REGISTER_INTERVAL == 10
+
+    def test_interval_env(self, monkeypatch):
+        server = _load_server(monkeypatch, {"PLAYWRIGHT_HUB_REGISTER_INTERVAL": "3"})
+        assert server.REGISTER_INTERVAL == 3
+
+    @pytest.mark.parametrize("bad", ["bogus", "0", "-1", ""])
+    def test_invalid_interval_fails_fast(self, monkeypatch, bad):
+        import pytest
+
+        with pytest.raises(SystemExit, match="PLAYWRIGHT_HUB_REGISTER_INTERVAL"):
+            _load_server(monkeypatch, {"PLAYWRIGHT_HUB_REGISTER_INTERVAL": bad})
+
+    def test_disabled_without_hub_url(self, monkeypatch):
+        server = _load_server(monkeypatch, {"PLAYWRIGHT_HUB_URL": ""})
+        assert server._start_heartbeat("ws://x:3000/y") is None
+
+    def test_registers_immediately(self, monkeypatch):
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_HUB_URL": "http://hub:4001",
+                "PLAYWRIGHT_HUB_REGISTER_INTERVAL": "3600",
+            },
+        )
+        calls = []
+        monkeypatch.setattr(server, "_register", lambda *a, **k: calls.append((a, k)))
+        # The first registration is synchronous: it lands before
+        # _start_heartbeat returns (no sleep needed).
+        stop, thread = server._start_heartbeat("ws://node:3000/abc")
+        try:
+            assert [c[0][0] for c in calls] == ["ws://node:3000/abc"]
+            assert calls[0][1] == {"retries": 5}
+        finally:
+            stop.set()
+            thread.join(timeout=5)
+
+    def test_heartbeat_repeats_on_interval(self, monkeypatch):
+        import threading
+        import time
+
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_HUB_URL": "http://hub:4001",
+                "PLAYWRIGHT_BROWSER": "chromium",
+                "PLAYWRIGHT_NODE_NAME": "chromium",
+            },
+        )
+        monkeypatch.setattr(server, "REGISTER_INTERVAL", 0.01)
+        calls = []
+        lock = threading.Lock()
+
+        def _record(endpoint, retries=1):
+            with lock:
+                calls.append(((endpoint,), {"retries": retries}))
+
+        monkeypatch.setattr(server, "_register", _record)
+        stop, thread = server._start_heartbeat("ws://node:3000/abc")
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                with lock:
+                    if len(calls) >= 3:
+                        break
+                time.sleep(0.01)
+            with lock:
+                assert len(calls) >= 3
+                assert {a[0] for (a, _) in calls} == {"ws://node:3000/abc"}
+                # Periodic beats are single-attempt; only the first
+                # synchronous registration retries.
+                assert calls[0][1] == {"retries": 5}
+                assert all(k == {"retries": 1} for (_, k) in calls[1:])
+        finally:
+            stop.set()
+            thread.join(timeout=5)
+
+    def test_heartbeat_survives_register_failure(self, monkeypatch):
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_HUB_URL": "http://hub:4001",
+                "PLAYWRIGHT_HUB_REGISTER_INTERVAL": "3600",
+            },
+        )
+        calls = []
+
+        def _flaky(endpoint, retries=1):
+            calls.append(endpoint)
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(server, "_register", _flaky)
+        # Synchronous first registration must not propagate the failure
+        # to the caller, and must still arm the background thread.
+        stop, thread = server._start_heartbeat("ws://node:3000/abc")
+        try:
+            assert calls == ["ws://node:3000/abc"]
+            assert stop is not None
+        finally:
+            stop.set()
+            thread.join(timeout=5)
+
+    def test_heartbeat_stops_when_signalled(self, monkeypatch):
+        import time
+
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_HUB_URL": "http://hub:4001",
+                "PLAYWRIGHT_HUB_REGISTER_INTERVAL": "3600",
+            },
+        )
+        calls = []
+        monkeypatch.setattr(server, "_register", lambda *a, **k: calls.append((a, k)))
+        stop, thread = server._start_heartbeat("ws://node:3000/abc")
+        assert stop is not None
+        stop.set()
+        thread.join(timeout=5)
+        count = len(calls)
+        time.sleep(0.05)
+        assert len(calls) == count  # no further registrations after stop+join
+
+    def test_register_payload_shape(self, monkeypatch):
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_BROWSER": "firefox",
+                "PLAYWRIGHT_NODE_NAME": "firefox",
+            },
+        )
+        assert server._register_payload("ws://node:3000/abc") == {
+            "name": "firefox",
+            "browser": "firefox",
+            "ws_endpoint": "ws://node:3000/abc",
+        }
+
+    def test_plain_node_starts_and_stops_heartbeat(self, monkeypatch):
+        import os
+        from unittest.mock import patch
+
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_HUB_URL": "http://hub:4001",
+                "PLAYWRIGHT_ADVERTISE_HOST": "pw-chromium-node",
+            },
+        )
+        r, w = os.pipe()
+        os.write(w, b"WS_ENDPOINT=ws://0.0.0.0:3000/abc\n")
+        os.close(w)
+        registered = []
+        monkeypatch.setattr(server, "_register", lambda *a, **k: registered.append((a, k)))
+        unregistered = []
+        monkeypatch.setattr(server, "_unregister", lambda: unregistered.append(True))
+        heartbeats = []
+        real_start = server._start_heartbeat
+
+        def _track(endpoint):
+            heartbeat = real_start(endpoint)
+            heartbeats.append(heartbeat)
+            return heartbeat
+
+        monkeypatch.setattr(server, "_start_heartbeat", _track)
+        from unittest.mock import MagicMock
+
+        proc = MagicMock()
+        with open(r, "r") as stdout:
+            proc.stdout = stdout
+            with patch.object(server.subprocess, "Popen", return_value=proc):
+                server._plain_node()
+        assert [c[0][0] for c in registered] == ["ws://pw-chromium-node:3000/abc"]
+        assert unregistered == [True]
+        assert len(heartbeats) == 1
+        stop, thread = heartbeats[0]
+        assert stop.is_set()
+        assert not thread.is_alive()
+
+    def test_shutdown_join_prevents_post_unregister_register(self, monkeypatch):
+        """Regression: no registration may land after /unregister.
+
+        Simulates a beat blocked inside _register while shutdown runs:
+        the stop+join in _plain_node must hold _unregister until the
+        in-flight beat completes.
+        """
+        import threading
+        import time
+
+        server = _load_server(
+            monkeypatch,
+            {
+                "PLAYWRIGHT_HUB_URL": "http://hub:4001",
+                "PLAYWRIGHT_HUB_REGISTER_INTERVAL": "3600",
+            },
+        )
+        entered = threading.Event()
+        release = threading.Event()
+        order = []
+        lock = threading.Lock()
+        calls = []
+
+        def _blocking_register(endpoint, retries=1):
+            with lock:
+                calls.append((endpoint, retries))
+                if len(calls) == 1:
+                    return  # first synchronous beat passes through
+                order.append(("register-start", endpoint))
+            entered.set()
+            assert release.wait(timeout=5)
+            with lock:
+                order.append(("register-done", endpoint))
+
+        monkeypatch.setattr(server, "_register", _blocking_register)
+        monkeypatch.setattr(server, "REGISTER_INTERVAL", 0.01)
+        stop, thread = server._start_heartbeat("ws://node:3000/abc")
+        assert entered.wait(timeout=5)  # a periodic beat is now in flight
+        finished = []
+
+        def _shutdown():
+            stop.set()
+            thread.join(timeout=10)
+            finished.append(True)
+            with lock:
+                order.append(("unregister", None))
+
+        shutdown_thread = threading.Thread(target=_shutdown)
+        shutdown_thread.start()
+        time.sleep(0.05)
+        # While the beat is blocked, shutdown must not have proceeded.
+        with lock:
+            assert ("unregister", None) not in order
+        release.set()
+        shutdown_thread.join(timeout=10)
+        assert finished == [True]
+        with lock:
+            # Strict order: in-flight register completes, then unregister.
+            assert order == [
+                ("register-start", "ws://node:3000/abc"),
+                ("register-done", "ws://node:3000/abc"),
+                ("unregister", None),
+            ]
+
+    def test_register_logged_reports_unexpected_errors(self, monkeypatch, capsys):
+        server = _load_server(
+            monkeypatch,
+            {"PLAYWRIGHT_HUB_URL": "http://hub:4001"},
+        )
+
+        def _broken(endpoint, retries=1):
+            raise ValueError("bad hub url")
+
+        monkeypatch.setattr(server, "_register", _broken)
+        server._register_logged("ws://node:3000/abc", retries=1)
+        err = capsys.readouterr().err
+        assert "hub /register failed" in err
+        assert "bad hub url" in err
 
 
 class TestEnvDefaults:

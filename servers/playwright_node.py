@@ -12,6 +12,8 @@ Environment:
 * ``PLAYWRIGHT_NODE_NAME`` (default ``<browser>-node``)
 * ``PLAYWRIGHT_ADVERTISE_HOST`` (default ``PLAYWRIGHT_NODE_NAME``)
 * ``PLAYWRIGHT_HUB_URL`` (registry base URL; empty disables registration)
+* ``PLAYWRIGHT_HUB_REGISTER_INTERVAL`` (default ``10``, seconds between
+  Hub re-registrations; positive integer, fail fast)
 * ``PLAYWRIGHT_SCREEN_WIDTH`` / ``PLAYWRIGHT_SCREEN_HEIGHT`` (desktop size
   for Xvfb/noVNC, default ``1280``/``720``; must match the entrypoint,
   which fails fast on invalid values)
@@ -23,6 +25,7 @@ import select
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -50,10 +53,22 @@ def _int_env(name, default):
     return result
 
 
+def _positive_int_env(name, default):
+    """Read a positive int env var, failing fast with an explicit error."""
+    try:
+        result = int(os.environ.get(name, str(default)))
+    except ValueError:
+        raise SystemExit(f"[node] invalid {name}: must be a positive integer") from None
+    if result <= 0:
+        raise SystemExit(f"[node] invalid {name}: must be a positive integer")
+    return result
+
+
 PORT = _int_env("PLAYWRIGHT_PORT", 3000)
 NODE_NAME = os.environ.get("PLAYWRIGHT_NODE_NAME", f"{BROWSER}-node")
 ADVERTISE_HOST = os.environ.get("PLAYWRIGHT_ADVERTISE_HOST", NODE_NAME)
 HUB_URL = os.environ.get("PLAYWRIGHT_HUB_URL")
+REGISTER_INTERVAL = _positive_int_env("PLAYWRIGHT_HUB_REGISTER_INTERVAL", 10)
 
 
 def _screen_size():
@@ -126,19 +141,63 @@ def _post(path, payload, retries=5):
                 time.sleep(1 * (attempt + 1))
 
 
-def _register(ws_endpoint):
-    _post(
-        "/register",
-        {
-            "name": NODE_NAME,
-            "browser": BROWSER,
-            "ws_endpoint": ws_endpoint,
-        },
-    )
+def _register(ws_endpoint, retries=5):
+    _post("/register", _register_payload(ws_endpoint), retries=retries)
 
 
 def _unregister():
     _post("/unregister", {"name": NODE_NAME})
+
+
+def _register_payload(ws_endpoint):
+    return {
+        "name": NODE_NAME,
+        "browser": BROWSER,
+        "ws_endpoint": ws_endpoint,
+    }
+
+
+def _register_logged(ws_endpoint, retries=1):
+    """Best-effort registration: failures only log and continue.
+
+    ``_post`` logs ``URLError`` failures itself; anything else (e.g. a
+    malformed HUB_URL raising outside the POST loop) is logged here so
+    a misconfigured heartbeat is never silent.
+    """
+    try:
+        _register(ws_endpoint, retries=retries)
+    except Exception as exc:  # never kill the node or the heartbeat
+        print(f"[node] hub /register failed: {exc!r}", file=sys.stderr, flush=True)
+
+
+def _start_heartbeat(ws_endpoint):
+    """Re-register with the Hub periodically until stopped.
+
+    The first registration is sent synchronously (with retries), then a
+    daemon thread re-sends the same payload every REGISTER_INTERVAL
+    seconds so a Hub that was unreachable at boot (or restarted later)
+    picks the node up without a node restart. Periodic beats are
+    single-attempt: the interval itself is the retry, which keeps each
+    beat (and the shutdown join) bounded well below the Hub TTL.
+    Failures only log and continue. Returns a (stop, thread) tuple: set
+    ``stop`` and ``join`` the thread before unregistering so no
+    registration can land after ``/unregister``. Returns None when
+    registration is disabled (empty HUB_URL).
+    """
+    if not HUB_URL:
+        return None
+    stop = threading.Event()
+    _register_logged(ws_endpoint, retries=5)
+
+    def _loop():
+        while not stop.wait(REGISTER_INTERVAL):
+            if stop.is_set():
+                break
+            _register_logged(ws_endpoint)
+
+    thread = threading.Thread(target=_loop, name="hub-heartbeat", daemon=True)
+    thread.start()
+    return stop, thread
 
 
 def _launch_config():
@@ -284,10 +343,17 @@ def _plain_node():
         os.unlink(config_path)
     except OSError:
         pass
-    _register(ws_endpoint)
+    heartbeat = _start_heartbeat(ws_endpoint)
     try:
         proc.wait()
     finally:
+        if heartbeat is not None:
+            stop, thread = heartbeat
+            stop.set()
+            # Join before unregistering so an in-flight beat cannot
+            # re-create the entry after /unregister (ghost node). The
+            # beat is single-attempt, so bound the wait generously.
+            thread.join(timeout=REGISTER_INTERVAL + 10)
         _unregister()
 
 

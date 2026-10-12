@@ -94,6 +94,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.playwright-hub
+    environment:
+      # Drop node entries not re-registered within this TTL (seconds).
+      # Must stay above the nodes' re-registration interval (default 10s).
+      - PLAYWRIGHT_HUB_NODE_TTL=30
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4001/health', timeout=2).read()"]
       interval: 5s
@@ -114,6 +118,8 @@ services:
       - PLAYWRIGHT_NODE_NAME=chromium
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-chromium
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+      # Re-registration interval (seconds); must stay below the Hub TTL.
+      - PLAYWRIGHT_HUB_REGISTER_INTERVAL=10
       # Desktop size (Xvfb) shown in noVNC (default 1280x720 to match the
       # default 16:9 console tiles); the browser window follows it via
       # explicit launch flags. Override to change, restart to apply:
@@ -128,8 +134,9 @@ services:
       timeout: 3s
       retries: 12
       start_period: 60s
-    # No depends_on: nodes retry Hub registration, so they can start
-    # in any order; launch-server stays usable even if the Hub is down.
+    # No depends_on: nodes re-register with the Hub on an interval, so
+    # they can start in any order and recover from a Hub restart without
+    # a node restart; launch-server stays usable even if the Hub is down.
 
   playwright-firefox:
     image: temeteke/pyscraper-playwright-firefox:latest
@@ -144,6 +151,8 @@ services:
       - PLAYWRIGHT_NODE_NAME=firefox
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-firefox
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+      # Re-registration interval (seconds); must stay below the Hub TTL.
+      - PLAYWRIGHT_HUB_REGISTER_INTERVAL=10
       # Desktop size (Xvfb) shown in noVNC (default 1280x720 to match the
       # default 16:9 console tiles; launch flags only size the startup
       # window, per-page windows follow the session viewport, see
@@ -159,8 +168,9 @@ services:
       timeout: 3s
       retries: 12
       start_period: 90s
-    # No depends_on: nodes retry Hub registration, so they can start
-    # in any order; launch-server stays usable even if the Hub is down.
+    # No depends_on: nodes re-register with the Hub on an interval, so
+    # they can start in any order and recover from a Hub restart without
+    # a node restart; launch-server stays usable even if the Hub is down.
 
   playwright-webkit:
     # WebKit has no official arm64 Linux support; the published image is
@@ -179,6 +189,8 @@ services:
       - PLAYWRIGHT_NODE_NAME=webkit
       - PLAYWRIGHT_ADVERTISE_HOST=playwright-webkit
       - PLAYWRIGHT_HUB_URL=http://playwright-hub:4001
+      # Re-registration interval (seconds); must stay below the Hub TTL.
+      - PLAYWRIGHT_HUB_REGISTER_INTERVAL=10
       # Desktop size (Xvfb) shown in noVNC (default 1280x720 to match the
       # default 16:9 console tiles; the WebKit window follows the session
       # viewport, see operations.md). Override to change, restart to apply:
@@ -193,8 +205,9 @@ services:
       timeout: 3s
       retries: 12
       start_period: 120s
-    # No depends_on: nodes retry Hub registration, so they can start
-    # in any order; launch-server stays usable even if the Hub is down.
+    # No depends_on: nodes re-register with the Hub on an interval, so
+    # they can start in any order and recover from a Hub restart without
+    # a node restart; launch-server stays usable even if the Hub is down.
 
   console:
     # Single entry point: noVNC reverse proxy + UI + session-manager relay

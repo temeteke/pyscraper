@@ -19,6 +19,8 @@ Environment:
 
 * ``PLAYWRIGHT_HUB_PORT`` (default ``4000``; registry on ``PORT+1``)
 * ``PLAYWRIGHT_NODE_CONNECT_TIMEOUT`` (default ``10``, seconds)
+* ``PLAYWRIGHT_HUB_NODE_TTL`` (default ``30``, seconds without a
+  re-registration before a node entry is pruned)
 """
 
 import asyncio
@@ -26,6 +28,7 @@ import json
 import os
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -56,11 +59,59 @@ if not 1 <= PORT <= 65534:
     print("[hub] invalid PLAYWRIGHT_HUB_PORT, using 4000", file=sys.stderr, flush=True)
     PORT = 4000
 REG_PORT = PORT + 1
-NODES = {}  # name -> {"browser": ..., "ws_endpoint": ...}
+NODES = {}  # name -> {"browser": ..., "ws_endpoint": ..., "last_seen": monotonic}
 _LOCK = threading.Lock()
 
 # Timeout for the outbound node websocket dial.
 NODE_CONNECT_TIMEOUT = _int_env("PLAYWRIGHT_NODE_CONNECT_TIMEOUT", 10)
+
+# How long a node entry survives without a re-registration. Nodes
+# re-register on an interval (see the node's PLAYWRIGHT_HUB_REGISTER_INTERVAL),
+# so a Hub that restarts or a node that dies without /unregister converges
+# back: live nodes reappear, dead ones are pruned.
+NODE_TTL = _int_env("PLAYWRIGHT_HUB_NODE_TTL", 30)
+
+
+def _now():
+    return time.monotonic()
+
+
+def _prune_expired(now=None):
+    """Drop node entries not re-registered within NODE_TTL.
+
+    Caller holds _LOCK. Returns the pruned names; the caller logs them
+    after releasing the lock so slow logging never stalls the relay hot
+    path. Entries predating last_seen are stamped on first sight (kept
+    this round) so TTL applies from then on.
+    """
+    if now is None:
+        now = _now()
+    expired = []
+    for name, node in NODES.items():
+        last_seen = node.setdefault("last_seen", now)
+        if now - last_seen > NODE_TTL:
+            expired.append(name)
+    for name in expired:
+        del NODES[name]
+    return expired
+
+
+def _public_snapshot(now=None):
+    """Return {name: {browser, ws_endpoint}} after pruning stale entries."""
+    if now is None:
+        now = _now()
+    with _LOCK:
+        expired = _prune_expired(now)
+        snapshot = {
+            name: {
+                "browser": node["browser"],
+                "ws_endpoint": node["ws_endpoint"],
+            }
+            for name, node in NODES.items()
+        }
+    for name in expired:
+        print(f"[hub] pruned stale node {name!r}", flush=True)
+    return snapshot
 
 
 def _select_node(options):
@@ -74,8 +125,7 @@ def _select_node(options):
     """
     if not isinstance(options, dict):
         return None
-    with _LOCK:
-        snapshot = dict(NODES)
+    snapshot = _public_snapshot()
     name = options.get("node")
     if name is not None:
         if not isinstance(name, str):
@@ -180,10 +230,15 @@ class _RegistryHandler(BaseHTTPRequestHandler):
         # "/health?x=1" or "/nodes/".
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/health":
-            self._send_json({"status": "ok"})
+            snapshot = _public_snapshot()
+            browsers = {}
+            for node in snapshot.values():
+                browser = node["browser"]
+                browsers[browser] = browsers.get(browser, 0) + 1
+            self._send_json({"status": "ok", "nodes": len(snapshot), "browsers": browsers})
         elif path == "/nodes":
-            with _LOCK:
-                self._send_json({"nodes": [{"name": k, **v} for k, v in NODES.items()]})
+            snapshot = _public_snapshot()
+            self._send_json({"nodes": [{"name": k, **v} for k, v in snapshot.items()]})
         else:
             self._send_json({"error": "not found"}, status=404)
 
@@ -214,6 +269,7 @@ class _RegistryHandler(BaseHTTPRequestHandler):
                 NODES[name] = {
                     "browser": browser,
                     "ws_endpoint": ws_endpoint,
+                    "last_seen": _now(),
                 }
             print(f"[hub] registered node {name!r}", flush=True)
             self._send_json({"status": "ok"})
