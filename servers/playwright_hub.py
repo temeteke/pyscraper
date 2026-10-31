@@ -89,7 +89,9 @@ def _prune_expired(now=None):
     expired = []
     for name, node in NODES.items():
         last_seen = node.setdefault("last_seen", now)
-        if now - last_seen > NODE_TTL:
+        # Compare against the computed deadline so the exact boundary stays
+        # stable despite floating-point rounding in ``now - last_seen``.
+        if now > last_seen + NODE_TTL:
             expired.append(name)
     for name in expired:
         del NODES[name]

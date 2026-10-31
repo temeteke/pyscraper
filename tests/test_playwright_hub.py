@@ -537,6 +537,18 @@ class TestNodeTTL:
         monkeypatch.setattr(hub, "_now", lambda: now + hub.NODE_TTL + 1)
         assert hub._select_node({"browser": "webkit"}) is None
 
+    def test_boundary_survives_float_rounding(self, hub, monkeypatch):
+        # (last_seen + NODE_TTL) - last_seen rounds slightly above NODE_TTL
+        # for this timestamp, which previously pruned a node at the boundary.
+        last_seen = 2097134.7602991562
+        hub.NODES["webkit"] = {
+            "browser": "webkit",
+            "ws_endpoint": "ws://webkit:3000/x",
+            "last_seen": last_seen,
+        }
+        monkeypatch.setattr(hub, "_now", lambda: last_seen + hub.NODE_TTL)
+        assert hub._select_node({"browser": "webkit"}) is not None
+
     def test_reregister_revives_stale_node(self, hub):
         self._register(hub)
         hub.NODES["webkit"]["last_seen"] = hub._now() - hub.NODE_TTL - 1
