@@ -1,3 +1,5 @@
+name: pyscraper
+
 services:
   python:
     image: temeteke/pyscraper:latest

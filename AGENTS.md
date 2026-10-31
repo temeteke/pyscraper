@@ -33,14 +33,19 @@ pytest tests/ -m integration -v  # integration only
 pytest tests/ -m "" -v           # all
 pytest tests/test_webfile.py -v  # single file
 pytest --collect-only -q         # test inventory
-docker compose config --quiet    # validate compose files
+docker compose config --quiet    # validate compose files (no daemon required)
 ```
+
+Run Compose lifecycle commands (`up`, `down`, `restart`, `build`) on the Docker
+host. The Make targets enforce this with `guard-host`; the Dev Container is for
+editing and tests, not stack management.
 
 ## Environment variables
 
 - `INTEGRATION_TEST=1` - Force integration tests (alternative to `-m integration`)
 - `SELENIUM_FIREFOX_URL`, `SELENIUM_CHROME_URL` - Selenium Grid URLs
 - `PLAYWRIGHT_CHROMIUM_URL`, `PLAYWRIGHT_FIREFOX_URL`, `PLAYWRIGHT_WEBKIT_URL` - Playwright Hub URLs
+- `PLAYWRIGHT_HUB_WS_URL` - Hub WebSocket URL used by the integration tests (set by the Dev Container)
 - `SELENIUM_FIREFOX_PROFILE`, `SELENIUM_CHROME_PROFILE` - Legacy profile dirs (prefer `profile=`)
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` - Proxy configuration
 

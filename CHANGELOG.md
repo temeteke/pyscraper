@@ -25,6 +25,16 @@ tag.
 - `GET /health` now also reports `{"nodes": <count>, "browsers":
   {<browser>: <count>}}` alongside `status`.
 
+### Changed
+
+- Compose lifecycle targets are host-only. `guard-host` blocks `up`, `down`,
+  `restart`, `build`, and `devcontainer-*` lifecycle operations inside
+  containers. The Dev Container keeps Docker access for `ps`, `ps-all`,
+  `logs`, `config`, and `pull`, and sets `PLAYWRIGHT_HUB_WS_URL` for
+  integration tests.
+- `make` now defaults to `help`; `make rebuild` was removed (use
+  `make build up`). Added `ps-all` and `pull`.
+
 ## [3.4.0]
 
 ### Added

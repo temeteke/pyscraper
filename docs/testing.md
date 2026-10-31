@@ -142,7 +142,12 @@ curl --version
 
 Grid and Hub URLs are configured via environment variables; see
 [operations.md](operations.md) for the full setup (`SELENIUM_*_URL`,
-`PLAYWRIGHT_*_URL`, `docker compose` prerequisites).
+`PLAYWRIGHT_*_URL`). On the host, start the Compose stack with `make up` before
+running integration tests. In the Dev Container, VS Code starts the stack from
+the same Compose files, and `.devcontainer/compose.yaml` provides
+`PLAYWRIGHT_HUB_WS_URL`. On the host without that variable, the tests fall back
+to `docker inspect`; container IPs are reachable on Linux hosts but not through
+Docker Desktop networking.
 
 ---
 

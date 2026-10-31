@@ -623,8 +623,15 @@ The repository includes a `compose.yaml` file for the stack and a
 files and creates the external `traefik` Docker network when needed. The
 Traefik instance itself must also be attached to that network. For Dev
 Container operation the Makefile adds the `.devcontainer/compose.yaml`
-overlay (the `workspace` service); use the `devcontainer-*` Make targets to
-manage that three-file stack.
+overlay (the `workspace` service); use the `devcontainer-*` Make targets from
+the host to manage that three-file stack.
+
+Run Compose lifecycle commands on the host. The Dev Container keeps Docker
+access for reference targets (`ps`, `ps-all`, `logs`, `config`, `pull`) and
+integration-test inspection, but starting or stopping the stack from inside the
+container is not supported. `guard-host` enforces this for the Make targets.
+Inside the Dev Container, `.devcontainer/compose.yaml` sets
+`PLAYWRIGHT_HUB_WS_URL` for integration tests.
 
 The default console URL is `http://pyscraper.localhost/`. Set
 `TRAEFIK_HOST_SUFFIX=dev.localhost` in a repository-root `.env` file to
@@ -676,17 +683,16 @@ Notes:
 - `compose.yaml` references the Docker Hub images, so no login is
   needed for public pulls. Every service published to a registry
   (including the console and both session managers) declares `image:`
-  plus a `build:` section for local development, so
-  `docker compose pull` followed by `docker compose up -d` (without
-  `--build`) runs all of them with no local build; `docker compose build`
-  rebuilds (and retags) the same names locally.
+  plus a `build:` section for local development, so `make pull` followed by
+  `make up` runs all of them with no local build; `make build` rebuilds (and
+  retags) the same names locally.
 - The WebKit image is `linux/amd64` only (Playwright WebKit has no official
   arm64 Linux support); `compose.yaml` pins `platform: linux/amd64`
   for that service.
 
 ```sh
 # Fastest: pull published images, no local build
-docker compose pull
+make pull
 make up
 ```
 

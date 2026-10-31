@@ -1117,9 +1117,15 @@ class TestCaptureSession:
 class TestWebPagePlaywrightIntegration:
     """Integration tests using real Playwright servers via the Hub.
 
-    These tests require Docker services to be running:
-      docker compose up -d playwright-hub playwright-chromium playwright-firefox playwright-webkit
+    On the host, start the services with ``make up`` before running these tests:
+      make up
       pytest tests/test_webpage_playwright.py -m integration -k Playwright -v
+
+    In the Dev Container, VS Code starts the stack from the same Compose files,
+    and ``.devcontainer/compose.yaml`` sets ``PLAYWRIGHT_HUB_WS_URL``. On the host
+    without that variable, the test falls back to ``docker inspect``. The
+    fallback requires a Linux host; container IPs are not routable through
+    Docker Desktop networking.
 
     Manual checks (not automated here): Hub registry from inside the Compose
     network at ``http://playwright-hub:4001/health`` and the console through
@@ -1132,22 +1138,38 @@ class TestWebPagePlaywrightIntegration:
     def _get_hub_ws():
         import subprocess
 
-        result = subprocess.run(
-            [
-                "docker",
-                "inspect",
-                "pyscraper-playwright-hub-1",
-                "-f",
-                "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        ip = result.stdout.strip()
-        if not ip:
+        configured = os.environ.get("PLAYWRIGHT_HUB_WS_URL")
+        if configured:
+            return configured
+
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "inspect",
+                    "pyscraper-playwright-hub-1",
+                    "-f",
+                    "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (FileNotFoundError, subprocess.SubprocessError) as exc:
             raise RuntimeError(
-                "Playwright Hub container not found. Start with: docker compose up -d playwright-hub"
+                "Playwright Hub URL is not configured and Docker is unavailable. "
+                "Start the stack on the host with `make up`, or set "
+                "PLAYWRIGHT_HUB_WS_URL (for example ws://playwright-hub:4000/ws "
+                "inside the Dev Container)."
+            ) from exc
+
+        ip = result.stdout.strip()
+        if result.returncode != 0 or not ip:
+            raise RuntimeError(
+                "Playwright Hub URL is not configured and the Hub container was "
+                "not found. Start the stack on the host with `make up`, or set "
+                "PLAYWRIGHT_HUB_WS_URL (for example ws://playwright-hub:4000/ws "
+                "inside the Dev Container)."
             )
         return f"ws://{ip}:4000/ws"
 

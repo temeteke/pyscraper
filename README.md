@@ -78,10 +78,32 @@ Prebuilt images are published to Docker Hub and GHCR on `vX.Y.Z` tag
 pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags),
 on a weekly schedule, or manually via `workflow_dispatch`. This includes
 the browser console and both session managers, so
-`docker compose pull && make up` runs the whole stack from published images
+`make pull && make up` runs the whole stack from published images
 and exposes the browser console through the local Traefik instance.
 See [Operations Guide](docs/operations.md) for the image table, tag
 semantics, Compose/Traefik usage, and console configuration.
+
+`make up` starts the stack without forcing a rebuild; Compose builds an image
+only when it is missing. Run `make build up` after changing source.
+`make restart` only restarts existing containers and does not
+apply `.env`, Compose, or image changes. Use `make pull` to refresh the published
+images.
+
+Run Compose lifecycle targets (`up`, `down`, `restart`, `build`) on the Docker
+host. The Dev Container keeps Docker access for reference targets (`ps`,
+`ps-all`, `logs`, `config`, `pull`) and integration-test inspection, but
+starting or managing the stack from inside the container is not supported.
+`guard-host` enforces this for the Make targets. The normal stack and the Dev
+Container share the `pyscraper` Compose project, so run one at a time.
+
+Manage an existing Dev Container from the host with `make devcontainer-logs`,
+`devcontainer-stop`, `devcontainer-down`, and `devcontainer-config`. `make down`
+removes the services in the normal Compose files; the Dev Container `workspace`
+can remain. `make devcontainer-down` removes all containers and networks in the
+shared project. Close the Dev Container first. Starting it with plain Compose
+bypasses Dev Container features and lifecycle commands such as
+`postCreateCommand`; use VS Code's **Reopen in Container** /
+**Rebuild Container**.
 
 ## Documentation
 

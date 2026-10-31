@@ -18,6 +18,9 @@
 	// connected. This is typically a file mount in .devcontainer/compose.yaml
 	"workspaceFolder": "/workspace",
 
+	// Create the external Traefik network through the repository Makefile.
+	"initializeCommand": "make traefik-network",
+
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 
