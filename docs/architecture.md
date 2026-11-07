@@ -176,9 +176,17 @@ that `WebPageWebDriverError` is now an alias of the unified generic
   raises `HlsFileError` (HTTP failures such as 404 still surface as the
   inner `WebFile*` error). Segment download failures propagate as
   `WebFile*` errors carrying their own `status_code`.
-- There is no `WebPage.exists()`: reachability checks belong to
-  `WebFile.exists()` / `HlsFile.exists()` (first resource only, 4xx maps
-  to `False`). For page fetches, inspect the backend response directly.
+- `WebPageRequests.exists()` is the page-family reachability check: it
+  uses a GET when the page is not open (and closes it again), leaves an
+  already-open response intact, returns `True` for 2xx/3xx and `False`
+  for 4xx, raises `WebPageError` with `status_code` for 5xx, and lets
+  connection/timeout failures propagate. This mirrors
+  `WebFile.exists()` (4xx only maps to `False`; other failures surface).
+  It is a reachability check, not a validity check. `WebPageSelenium*`,
+  `WebPagePlaywright*`, and `WebPageCurl` do not expose an HTTP status,
+  so they intentionally have no `exists()`; inspect the expected content
+  instead. `WebFile.exists()` / `HlsFile.exists()` keep their own
+  contract (first resource only, 4xx maps to `False`).
 - HTTP-origin failures carry `status_code` on the exception (client and
   server errors). Non-HTTP failures (browser interaction, connection
   errors, timeouts, HLS-level errors) leave it as `None`.
