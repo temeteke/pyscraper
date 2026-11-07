@@ -13,6 +13,7 @@ from pyscraper import (
     WebFileClientError,
     WebFileConnectionError,
     WebFileError,
+    WebFileSeekError,
     WebFileServerError,
     WebFileTimeoutError,
 )
@@ -288,15 +289,364 @@ class TestStatusCode:
                 pass
         assert exc.value.__cause__ is failure
 
-    def test_read_residue_wraps_as_connection_error(self, mocker, mock_http_response):
+
+class _ChunkLengthStub:
+    """Minimal response stub for ``InvalidChunkLength``."""
+
+    length_remaining = 0
+
+    def tell(self):
+        return 0
+
+
+class TestWebFileReadErrors:
+    @staticmethod
+    def _webfile_with_read_failure(mocker, mock_http_response, failure):
         response = mock_http_response(200, b"x" * 16)
-        failure = urllib3.exceptions.ClosedPoolError("pool", "closed")
         response.raw.read = mocker.Mock(side_effect=failure)
         wf = WebFile("https://example.com/file")
         wf.response = response
-        with pytest.raises(WebFileConnectionError) as exc:
+        return wf
+
+    @pytest.mark.parametrize(
+        ("make_failure", "expected"),
+        [
+            (
+                lambda: urllib3.exceptions.ReadTimeoutError(None, "/", "Read timed out."),
+                WebFileTimeoutError,
+            ),
+            (lambda: urllib3.exceptions.TimeoutError("timed out"), WebFileTimeoutError),
+            (lambda: urllib3.exceptions.ConnectTimeoutError(), WebFileTimeoutError),
+            (
+                lambda: urllib3.exceptions.NewConnectionError(None, "refused"),
+                WebFileConnectionError,
+            ),
+            (
+                lambda: urllib3.exceptions.NameResolutionError("example.com", None, "dns"),
+                WebFileConnectionError,
+            ),
+            (lambda: urllib3.exceptions.ProtocolError("broken"), WebFileConnectionError),
+            (
+                lambda: urllib3.exceptions.MaxRetryError(None, "/", "retries"),
+                WebFileConnectionError,
+            ),
+            (lambda: urllib3.exceptions.SSLError("bad cert"), WebFileConnectionError),
+            (
+                lambda: urllib3.exceptions.ProxyError("proxy", OSError("down")),
+                WebFileConnectionError,
+            ),
+            (lambda: urllib3.exceptions.IncompleteRead(1, 2), WebFileConnectionError),
+            (
+                lambda: urllib3.exceptions.InvalidChunkLength(_ChunkLengthStub(), b"z"),
+                WebFileConnectionError,
+            ),
+            (
+                lambda: urllib3.exceptions.ResponseNotChunked("not chunked"),
+                WebFileError,
+            ),
+            (lambda: urllib3.exceptions.DecodeError("bad gzip"), WebFileError),
+            (
+                lambda: urllib3.exceptions.ClosedPoolError(None, "closed"),
+                WebFileError,
+            ),
+            (lambda: urllib3.exceptions.HTTPError("generic"), WebFileError),
+        ],
+        ids=[
+            "read-timeout",
+            "timeout",
+            "connect-timeout",
+            "new-connection",
+            "name-resolution",
+            "protocol",
+            "max-retry",
+            "ssl",
+            "proxy",
+            "incomplete-read",
+            "invalid-chunk-length",
+            "response-not-chunked",
+            "decode",
+            "closed-pool",
+            "generic-http",
+        ],
+    )
+    def test_read_maps_urllib3_residue(self, mocker, mock_http_response, make_failure, expected):
+        failure = make_failure()
+        wf = self._webfile_with_read_failure(mocker, mock_http_response, failure)
+        with pytest.raises(expected) as exc:
             wf.read()
         assert exc.value.__cause__ is failure
+        assert exc.value.status_code is None
+        assert type(exc.value) is expected
+
+    def test_read_propagates_non_urllib3_errors(self, mocker, mock_http_response):
+        failure = ValueError("programmer error")
+        wf = self._webfile_with_read_failure(mocker, mock_http_response, failure)
+        with pytest.raises(ValueError) as exc:
+            wf.read()
+        assert exc.value is failure
+
+
+class TestWebFileSizeHeader:
+    @pytest.mark.parametrize(
+        ("status", "headers", "header_name"),
+        [
+            (200, {"Content-Length": "abc"}, "Content-Length"),
+            (206, {"Content-Range": "bytes 0-9/abc"}, "Content-Range"),
+            (206, {"Content-Range": "bytes 0-9/"}, "Content-Range"),
+            (206, {"Content-Range": "bytes 0-9"}, "Content-Range"),
+        ],
+        ids=[
+            "content-length",
+            "content-range",
+            "content-range-empty-total",
+            "content-range-no-slash",
+        ],
+    )
+    def test_malformed_size_header_raises_webfile_error(
+        self, mock_http_response, status, headers, header_name
+    ):
+        response = mock_http_response(status, b"x" * 10, headers)
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        with pytest.raises(WebFileError) as exc:
+            _ = wf.size
+        assert type(exc.value) is WebFileError
+        assert exc.value.status_code is None
+        assert isinstance(exc.value.__cause__, ValueError)
+        assert header_name in str(exc.value)
+        assert repr(headers[header_name].split("/")[-1]) in str(exc.value)
+
+    @pytest.mark.parametrize(
+        ("status", "headers"),
+        [
+            (200, {"Content-Length": "-5"}),
+            (206, {"Content-Range": "bytes 0-9/-5"}),
+        ],
+        ids=["content-length", "content-range"],
+    )
+    def test_negative_size_header_raises_webfile_error(self, mock_http_response, status, headers):
+        response = mock_http_response(status, b"x" * 10, headers)
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        with pytest.raises(WebFileError) as exc:
+            _ = wf.size
+        assert type(exc.value) is WebFileError
+        assert exc.value.status_code is None
+        assert exc.value.__cause__ is None
+
+    def test_content_range_takes_priority(self, mock_http_response):
+        response = mock_http_response(
+            206,
+            b"x",
+            {"Content-Range": "bytes 0-0/123", "Content-Length": "1"},
+        )
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size == 123
+
+    def test_content_range_used_when_content_length_is_blank(self, mock_http_response):
+        response = mock_http_response(
+            206,
+            b"x",
+            {"Content-Range": "bytes 0-0/123", "Content-Length": "   "},
+        )
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size == 123
+
+    def test_content_length_used_without_content_range(self, mock_http_response):
+        response = mock_http_response(200, b"x", {"Content-Length": "42"})
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size == 42
+
+    def test_missing_size_headers_returns_none(self, mock_http_response):
+        response = mock_http_response(200, b"x")
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size is None
+
+    def test_unknown_content_range_length_returns_none(self, mock_http_response):
+        # RFC 9110 allows "*" for an unknown complete-length.
+        response = mock_http_response(
+            206,
+            b"x",
+            {"Content-Range": "bytes 0-0/*", "Content-Length": "1"},
+        )
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size is None
+
+    @pytest.mark.parametrize(
+        ("header", "value"),
+        [
+            ("Content-Length", ""),
+            ("Content-Length", "   "),
+            ("Content-Range", ""),
+            ("Content-Range", "   "),
+        ],
+        ids=["length-empty", "length-blank", "range-empty", "range-blank"],
+    )
+    def test_blank_size_header_is_treated_as_missing(self, mock_http_response, header, value):
+        response = mock_http_response(200, b"x", {header: value})
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size is None
+
+    def test_blank_content_range_does_not_fall_back_to_content_length(self, mock_http_response):
+        response = mock_http_response(
+            206,
+            b"x",
+            {"Content-Range": "   ", "Content-Length": "42"},
+        )
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size is None
+
+    def test_206_without_content_range_returns_none(self, mock_http_response):
+        # Content-Length on a 206 is only the partial body length.
+        response = mock_http_response(206, b"x", {"Content-Length": "10"})
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        assert wf.size is None
+
+    def test_size_without_open_raises_error(self):
+        wf = WebFile("https://example.com/file")
+        with pytest.raises(WebFileError, match="not opened"):
+            _ = wf.size
+
+    def test_unknown_total_makes_seek_fail(self, mock_http_response):
+        response = mock_http_response(
+            206,
+            b"x",
+            {"Accept-Ranges": "bytes", "Content-Range": "bytes 0-0/*"},
+        )
+        wf = WebFile("https://example.com/file")
+        wf.response = response
+        with pytest.raises(WebFileSeekError, match="unknown"):
+            wf.seek(0)
+
+
+class TestWebFileDownloadSize:
+    def test_resume_unknown_total_uses_pre_seek_size(self, mocker, mock_http_response, tmp_path):
+        content = b"x" * 1024
+        temp_file = tmp_path / "file.part"
+        temp_file.write_bytes(content[:128])
+
+        initial = mock_http_response(200, content, {"Content-Length": "1024"})
+        ranged = mock_http_response(
+            206,
+            content[128:],
+            {"Content-Range": "bytes 128-1023/*", "Content-Length": "896"},
+        )
+
+        wf = WebFile("https://example.com/file", directory=tmp_path, filename="file")
+        wf.response = initial
+
+        def fake_seek(offset):
+            wf.response = ranged
+            return offset
+
+        mocker.patch.object(wf, "seek", side_effect=fake_seek)
+        wf._download_known_size(wf, temp_file, None)
+
+        assert temp_file.read_bytes() == content
+
+    def test_resume_unknown_total_still_verifies_expected_size(
+        self, mocker, mock_http_response, tmp_path
+    ):
+        content = b"x" * 1024
+        temp_file = tmp_path / "file.part"
+        temp_file.write_bytes(content[:128])
+
+        initial = mock_http_response(200, content, {"Content-Length": "1024"})
+        # Deliberately short body: verification must still use the pre-seek 1024.
+        ranged = mock_http_response(
+            206,
+            content[128:256],
+            {"Content-Range": "bytes 128-255/*", "Content-Length": "128"},
+        )
+
+        wf = WebFile("https://example.com/file", directory=tmp_path, filename="file")
+        wf.response = initial
+
+        def fake_seek(offset):
+            wf.response = ranged
+            return offset
+
+        mocker.patch.object(wf, "seek", side_effect=fake_seek)
+        with pytest.raises(WebFileError, match="smaller than expected"):
+            wf._download_known_size(wf, temp_file, None)
+        assert temp_file.exists()
+
+    def test_resume_progress_callback_uses_pre_seek_total(
+        self, mocker, mock_http_response, tmp_path
+    ):
+        content = b"x" * 1024
+        temp_file = tmp_path / "file.part"
+        temp_file.write_bytes(content[:128])
+
+        initial = mock_http_response(200, content, {"Content-Length": "1024"})
+        ranged = mock_http_response(
+            206,
+            content[128:],
+            {"Content-Range": "bytes 128-1023/*", "Content-Length": "896"},
+        )
+
+        wf = WebFile("https://example.com/file", directory=tmp_path, filename="file")
+        wf.response = initial
+
+        def fake_seek(offset):
+            wf.response = ranged
+            return offset
+
+        progresses = []
+        mocker.patch.object(wf, "seek", side_effect=fake_seek)
+        wf._download_known_size(
+            wf, temp_file, lambda current, total: progresses.append((current, total))
+        )
+
+        assert progresses[-1] == (1024, 1024)
+
+    def test_download_rejects_initial_206_with_unknown_size(
+        self, mocker, mock_http_response, tmp_path
+    ):
+        response = mock_http_response(
+            206,
+            b"x" * 100,
+            {"Content-Range": "bytes 0-99/*", "Content-Length": "100"},
+        )
+        session = mocker.Mock()
+        session.headers = {}
+        session.cookies = {}
+        session.get.return_value = response
+        wf = WebFile(
+            "https://example.com/file",
+            session=session,
+            directory=tmp_path,
+            filename="file",
+        )
+        with pytest.raises(WebFileError, match="partial response"):
+            wf.download()
+        assert not wf.filepath.exists()
+
+    def test_download_malformed_content_length_raises_webfile_error(
+        self, mocker, mock_http_response, tmp_path
+    ):
+        response = mock_http_response(200, b"x", {"Content-Length": "abc"})
+        session = mocker.Mock()
+        session.headers = {}
+        session.cookies = {}
+        session.get.return_value = response
+        wf = WebFile(
+            "https://example.com/file",
+            session=session,
+            directory=tmp_path,
+            filename="file",
+        )
+        with pytest.raises(WebFileError, match="Invalid Content-Length"):
+            wf.download()
+        assert not wf.filepath.exists()
 
 
 class TestPlaywrightTranslation:

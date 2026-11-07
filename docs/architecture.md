@@ -171,7 +171,37 @@ that `WebPageWebDriverError` is now an alias of the unified generic
   too, so no `except ValueError` is needed for fetch failures. Curl
   decode failures surface as `WebPageError`.
 - `WebFile` maps `requests` / `urllib3` residue to `WebFile*` errors the
-  same way, and `HlsFile` maps playlist decode and ffmpeg merge failures
+  same way. It declares `urllib3>=2.0,<3` directly: 1.26 is EOL and the
+  tests cover the 2.x-only `NameResolutionError`; the `<3` cap matches
+  requests' own constraint. `open_response()` keeps the request-side
+  mapping (connection → `WebFileConnectionError`, timeout →
+  `WebFileTimeoutError`, other `RequestException` → `WebFileError`).
+  `read()` narrows its `urllib3` mapping by category:
+  `NewConnectionError` (which covers
+  `NameResolutionError`), `ProtocolError`, `MaxRetryError`, `SSLError`,
+  `ProxyError`, `IncompleteRead`, and `InvalidChunkLength` become
+  `WebFileConnectionError`; the `TimeoutError` family becomes
+  `WebFileTimeoutError`; everything else (`ResponseNotChunked`,
+  `DecodeError`, other `HTTPError` such as `PoolError` or
+  `LocationValueError`) becomes the base `WebFileError`. The
+  `NewConnectionError` case is matched before `TimeoutError` because it is
+  itself a `TimeoutError` (via `ConnectTimeoutError`), and
+  `ResponseNotChunked` is matched before `ProtocolError` because it
+  subclasses it. `ResponseNotChunked` is response-format misuse (also a
+  `ValueError`), so it is deliberately not classified as a connection
+  failure. Exceptions outside the `urllib3.exceptions.HTTPError` hierarchy
+  propagate unchanged.
+- `WebFile.size` uses the `Content-Range` complete-length when present,
+  otherwise `Content-Length`. It wraps a malformed non-integer or negative
+  header in `WebFileError`, with the original `ValueError` preserved as
+  `__cause__` for non-integers. Response headers are server-origin, so
+  this is not covered by the programmer-error rule below. A missing or
+  blank `Content-Length`, a blank `Content-Range`, a 206 response without
+  `Content-Range` (its `Content-Length` is only the partial body length),
+  and a complete-length of `*` (unknown, per RFC 9110) yield `None`.
+  `download()` rejects an initial 206 response whose total size is unknown
+  rather than saving a partial body as the complete file.
+- `HlsFile` maps playlist decode and ffmpeg merge failures
   to `HlsFileError`. An HTTP 200 response with an empty playlist also
   raises `HlsFileError` (HTTP failures such as 404 still surface as the
   inner `WebFile*` error). Segment download failures propagate as
@@ -190,13 +220,14 @@ that `WebPageWebDriverError` is now an alias of the unified generic
 - HTTP-origin failures carry `status_code` on the exception (client and
   server errors). Non-HTTP failures (browser interaction, connection
   errors, timeouts, HLS-level errors) leave it as `None`.
-- Deliberately not wrapped: programmer errors (`ValueError` /
-  `TypeError` / `NotImplementedError`, argument guards, `_ensure_open`,
-  `Response is not opened`), local filesystem failures (`OSError` from
-  `mkdir` / `shutil.move` / `rmtree`), and the `RemoteDisconnected`
-  retry policy. No automatic transient/permanent classification is
-  performed; callers branch on the exception type and `status_code`
-  themselves.
+- Deliberately not wrapped: caller-side programmer errors (`ValueError` /
+  `TypeError` / `NotImplementedError` passed as arguments, argument
+  guards, `_ensure_open`, `Response is not opened`), local filesystem
+  failures (`OSError` from `mkdir` / `shutil.move` / `rmtree`), and the
+  `RemoteDisconnected` retry policy. Malformed response headers are not
+  caller errors and are wrapped as described above. No automatic
+  transient/permanent classification is performed; callers branch on the
+  exception type and `status_code` themselves.
 
 ### Version from Git tags
 
