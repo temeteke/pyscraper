@@ -418,6 +418,19 @@ class TestRequestsCurlTranslation:
         assert exc.value.__cause__ is failure
         assert exc.value.status_code is None
 
+    def test_requests_exists_propagates_connection_error(self, mocker):
+        failure = requests.exceptions.ConnectionError("dns")
+        session = mocker.Mock()
+        session.headers = {}
+        session.cookies = {}
+        session.get.side_effect = failure
+
+        with pytest.raises(WebPageConnectionError) as exc:
+            WebPageRequests("https://example.com", session=session).exists()
+
+        assert exc.value.__cause__ is failure
+        assert exc.value.status_code is None
+
     @pytest.mark.parametrize(
         "failure",
         [

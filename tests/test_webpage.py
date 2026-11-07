@@ -11,7 +11,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 
-from pyscraper.webpage import WebPageNoSuchElementError, WebPageTimeoutError
+from pyscraper.webpage import WebPageError, WebPageNoSuchElementError, WebPageTimeoutError
 from pyscraper.webpage_curl import WebPageCurl
 from pyscraper.webpage_requests import WebPageRequests
 from pyscraper.webpage_selenium import (
@@ -285,6 +285,62 @@ class TestWebPageRequests(MixinTestWebPage, MixinTestWebPageOpenClose):
             web_page_class("https://httpbin.org/headers", session=session).headers["test"]
             == "test"
         )
+
+    def _exists_session(self, mocker, mock_http_response, status_code):
+        session = mocker.Mock()
+        session.headers = {}
+        session.cookies = {}
+        session.get.return_value = mock_http_response(
+            status_code, b"<html></html>", url="https://example.com/"
+        )
+        return session
+
+    def test_exists_true(self, mocker, mock_http_response):
+        session = self._exists_session(mocker, mock_http_response, 200)
+        page = WebPageRequests("https://example.com/", session=session)
+
+        assert page.exists() is True
+        assert page.response is None
+        session.get.assert_called_once()
+
+    def test_exists_false_client_error(self, mocker, mock_http_response):
+        session = self._exists_session(mocker, mock_http_response, 404)
+        page = WebPageRequests("https://example.com/", session=session)
+
+        assert page.exists() is False
+        assert page.response is None
+
+    def test_exists_server_error_carries_status_code(self, mocker, mock_http_response):
+        session = self._exists_session(mocker, mock_http_response, 503)
+        page = WebPageRequests("https://example.com/", session=session)
+
+        with pytest.raises(WebPageError) as exc:
+            page.exists()
+
+        assert exc.value.status_code == 503
+        assert page.response is None
+
+    def test_exists_open_reuses_response(self, mocker, mock_http_response):
+        session = self._exists_session(mocker, mock_http_response, 200)
+        page = WebPageRequests("https://example.com/", session=session)
+        page.open()
+        response = page.response
+
+        assert page.exists() is True
+        assert page.response is response
+        session.get.assert_called_once()
+        page.close()
+
+    def test_exists_open_client_error_reuses_response(self, mocker, mock_http_response):
+        session = self._exists_session(mocker, mock_http_response, 404)
+        page = WebPageRequests("https://example.com/", session=session)
+        page.open()
+        response = page.response
+
+        assert page.exists() is False
+        assert page.response is response
+        session.get.assert_called_once()
+        page.close()
 
 
 @pytest.mark.integration

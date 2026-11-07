@@ -10,6 +10,11 @@ tag.
 
 ### Added
 
+- `WebPageRequests.exists()`: page reachability check for the HTTP
+  backend. 2xx/3xx return `True`, 4xx return `False`, 5xx raise
+  `WebPageError` with `status_code`, and connection/timeout failures
+  propagate (same contract as `WebFile.exists()`). Browser and curl
+  backends do not expose an HTTP status and stay without `exists()`.
 - Resilient Hub node registration: nodes re-register with the Hub on a
   heartbeat (`PLAYWRIGHT_HUB_REGISTER_INTERVAL`, default `10`s) instead
   of registering once, so a node started while the Hub is down appears

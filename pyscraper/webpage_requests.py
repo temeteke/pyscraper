@@ -14,6 +14,21 @@ from pyscraper.webpage import (
 logger = logging.getLogger(__name__)
 
 
+def _response_exists(response):
+    """Map an HTTP response to the ``exists()`` contract.
+
+    A 4xx response is treated as "not reachable" (``False``). A 5xx
+    response is inconclusive, so it propagates as a ``WebPageError``
+    carrying its ``status_code`` instead of being reported as absent.
+    """
+    status_code = response.status_code
+    if status_code < 400:
+        return True
+    if status_code < 500:
+        return False
+    raise WebPageError(f"HTTP {status_code}", status_code=status_code)
+
+
 class WebPageRequests(RequestsMixin, WebPage):
     def __init__(
         self,
@@ -116,3 +131,19 @@ class WebPageRequests(RequestsMixin, WebPage):
     def close(self):
         self.close_response()
         self.close_session()
+
+    def exists(self):
+        """Check reachability with a GET request.
+
+        Returns False for 4xx client errors and raises
+        :class:`WebPageError` (with ``status_code``) for 5xx responses;
+        connection and timeout failures propagate. An already-open page
+        is inspected without refetching and is left open. This is a
+        reachability check only, not a validity check (same contract as
+        :meth:`WebFile.exists() <pyscraper.webfile.WebFile.exists>`).
+        """
+        if self.response is None:
+            with self as page:
+                return _response_exists(page.response)
+
+        return _response_exists(self.response)
