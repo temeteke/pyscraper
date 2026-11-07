@@ -47,10 +47,12 @@ hls_file.unlink(temp_directory="scratch")
 
 ## Failures and retrying
 
-A failed `download()` leaves its scratch files behind so the failure can be
-inspected: `WebFile` keeps the `<filepath>.part` partial file, and `HlsFile`
-keeps the `temp_directory` segment/playlist tree (its scratch-preservation
-contract is covered by tests). Neither call retries automatically on failure.
+A failed `download()` normally leaves its scratch files behind so the failure
+can be inspected: `WebFile` keeps the `<filepath>.part` partial file (except
+when the downloaded size exceeds the expected size, in which case
+`_verify_size()` removes it), and `HlsFile` keeps the `temp_directory`
+segment/playlist tree (its scratch-preservation contract is covered by
+tests). Neither call retries automatically on failure.
 
 - `WebFile.download()` resumes from an existing `.part` file when the server
   supports range requests; otherwise the partial file is discarded and the
@@ -61,6 +63,14 @@ contract is covered by tests). Neither call retries automatically on failure.
 - Failures surface as `WebFileError` / `HlsFileError` (both under
   `PyscraperError`), so a retry loop catches one base type. See the Error
   model in [architecture.md](architecture.md).
+- A malformed `Content-Length` / `Content-Range` header also surfaces as
+  `WebFileError` (the original `ValueError` is chained for non-integers),
+  so `download()` failures stay catchable as `WebFileError`. Negative
+  values are malformed too. A missing or blank header, a 206 response
+  without `Content-Range`, or an unknown complete-length (`*`) means the
+  size is unknown; a 206 `Content-Length` is not treated as the total size.
+  An initial 206 response with an unknown total size is rejected instead
+  of saving a partial body as the complete file.
 
 ## Recommended pattern
 

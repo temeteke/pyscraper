@@ -352,15 +352,49 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
 
     @property
     def size(self) -> int | None:
-        """Return the total file size, or None when the headers omit it."""
+        """Return the total file size, or None when it is unknown.
+
+        The ``Content-Range`` complete-length is used when present, otherwise
+        ``Content-Length``. The result is ``None`` when both are absent or
+        blank, when a 206 response lacks ``Content-Range`` (its
+        ``Content-Length`` is only the partial body length), or when the
+        complete-length is ``*`` (unknown, per RFC 9110). A blank
+        ``Content-Range`` does not fall back to ``Content-Length``.
+
+        Raises:
+            WebFileError: The response is not opened, or the size header is
+                not a non-negative integer. A malformed header is
+                server-origin, so it is wrapped instead of leaking
+                ``ValueError``.
+        """
         if self.response is None:
             raise WebFileError("Response is not opened.")
 
-        if content_range := self.response.headers.get("Content-Range"):
-            return int(content_range.split("/")[-1].strip())
-        elif content_length := self.response.headers.get("Content-Length"):
-            return int(content_length)
-        return None
+        headers = self.response.headers
+        raw_range = headers.get("Content-Range")
+        content_range = (raw_range or "").strip()
+        content_length = (headers.get("Content-Length") or "").strip()
+
+        if content_range:
+            header_name = "Content-Range"
+            value = content_range.split("/")[-1].strip()
+            if value == "*":
+                return None
+        elif raw_range is not None or self.response.status_code == 206:
+            return None
+        elif content_length:
+            header_name = "Content-Length"
+            value = content_length
+        else:
+            return None
+
+        try:
+            size = int(value)
+        except ValueError as e:
+            raise WebFileError(f"Invalid {header_name} header: {value!r}") from e
+        if size < 0:
+            raise WebFileError(f"Invalid {header_name} header: {value!r}")
+        return size
 
     def get_filename(self):
         """Resolve the output filename.
@@ -451,18 +485,42 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.close_session()
 
     def read(self, size=None):
-        """Read and return contents."""
+        """Read and return contents.
+
+        urllib3 residue is translated by category: connection setup and
+        mid-stream protocol failures become ``WebFileConnectionError``,
+        timeouts become ``WebFileTimeoutError``, and other urllib3 errors
+        (response decoding, response-format misuse, pool state) become the
+        base ``WebFileError``. Exceptions outside the
+        ``urllib3.exceptions.HTTPError`` hierarchy propagate unchanged.
+        """
         if self.response is None:
             raise WebFileError("Response is not opened.")
 
         try:
             chunk = self.response.raw.read(size)
-        except urllib3.exceptions.ProtocolError as e:
+        except urllib3.exceptions.ResponseNotChunked as e:
+            # Subclasses ProtocolError, but signals response-format misuse
+            # (and is a ValueError), not a broken connection.
+            raise WebFileError(e) from e
+        except (
+            # Also covers NameResolutionError. Checked before TimeoutError
+            # because NewConnectionError is itself a TimeoutError (via
+            # ConnectTimeoutError).
+            urllib3.exceptions.NewConnectionError,
+            urllib3.exceptions.ProtocolError,
+            urllib3.exceptions.MaxRetryError,
+            urllib3.exceptions.SSLError,
+            urllib3.exceptions.ProxyError,
+            urllib3.exceptions.IncompleteRead,
+            urllib3.exceptions.InvalidChunkLength,
+        ) as e:
             raise WebFileConnectionError(e) from e
-        except urllib3.exceptions.ReadTimeoutError as e:
+        except urllib3.exceptions.TimeoutError as e:
             raise WebFileTimeoutError(e) from e
         except urllib3.exceptions.HTTPError as e:
-            raise WebFileConnectionError(e) from e
+            # DecodeError, PoolError, LocationValueError, generic HTTPError...
+            raise WebFileError(e) from e
         return chunk
 
     def seek(self, offset: int):
@@ -525,10 +583,13 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         return downloaded_file_size
 
     def _download_known_size(self, wf, resolved_temp_file, progress_callback):
+        # Capture the total before seeking: the ranged response may not
+        # report it (e.g. "Content-Range: bytes N-M/*").
+        expected_size = wf.size
         downloaded_file_size = self._resume_offset(wf, resolved_temp_file)
 
         with MyTqdm(
-            total=wf.size,
+            total=expected_size,
             initial=downloaded_file_size,
             unit="B",
             unit_scale=True,
@@ -541,22 +602,24 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
                     pbar.update(len(chunk))
                     current_size += len(chunk)
                     if progress_callback:
-                        progress_callback(current_size, wf.size)
+                        progress_callback(current_size, expected_size)
 
-        self._verify_size(wf, resolved_temp_file)
+        self._verify_size(wf, resolved_temp_file, expected_size)
 
-    def _verify_size(self, wf, resolved_temp_file):
-        """Check the downloaded size unless the response is compressed."""
+    def _verify_size(self, wf, resolved_temp_file, expected_size):
+        """Check the downloaded size against the pre-seek expected size."""
         if wf.response.headers.get("Content-Encoding"):
             return
+        if expected_size is None:
+            return
         actual = resolved_temp_file.stat().st_size
-        wf.logger.debug(f"Comparing file size {actual} {wf.size}")
-        if actual > wf.size:
+        wf.logger.debug(f"Comparing file size {actual} {expected_size}")
+        if actual > expected_size:
             resolved_temp_file.unlink()
             raise WebFileError(
                 "Downloaded file size is larger than expected. Removed downloaded file."
             )
-        elif actual < wf.size:
+        elif actual < expected_size:
             raise WebFileError("Downloaded file size is smaller than expected.")
 
     def _download_unknown_size(self, wf, resolved_temp_file, progress_callback):
@@ -619,7 +682,10 @@ class WebFile(WebFileMixin, RequestsMixin, FileIOBase):
         self.directory.mkdir(parents=True, exist_ok=True)
 
         with self as wf:
-            if wf.size:
+            size = wf.size
+            if wf.response.status_code == 206 and size is None:
+                raise WebFileError("Cannot determine the total size of a partial response.")
+            if size:
                 self._download_known_size(wf, resolved_temp_file, progress_callback)
             else:
                 self._download_unknown_size(wf, resolved_temp_file, progress_callback)

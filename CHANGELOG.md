@@ -32,6 +32,31 @@ tag.
 
 ### Changed
 
+- `WebFile.read()` now classifies `urllib3` residue by category instead
+  of treating every `HTTPError` as a connection failure: connection and
+  mid-stream protocol errors keep `WebFileConnectionError`, the
+  `TimeoutError` family (including `ConnectTimeoutError`, previously a
+  connection error) maps to `WebFileTimeoutError`, and other errors
+  (`ResponseNotChunked`, `DecodeError`, `PoolError`, ...) surface as the
+  base `WebFileError`. Exceptions outside the
+  `urllib3.exceptions.HTTPError` hierarchy propagate unchanged. Callers
+  that caught `WebFileConnectionError` for every read failure should catch
+  `WebFileError` instead.
+- `WebFile.size` wraps a malformed `Content-Length` / `Content-Range`
+  header in `WebFileError` instead of leaking `ValueError` (the original
+  `ValueError` is chained for non-integers). A missing or blank
+  `Content-Length`, a blank `Content-Range`, a 206 response without
+  `Content-Range`, or a `Content-Range` with an unknown complete-length
+  (`*`) yields `None`; negative values are malformed.
+- `WebFile.download()` captures the expected total before a resume seek,
+  so a 206 response with an unknown complete-length no longer causes a
+  `TypeError` during size verification. An initial 206 response with an
+  unknown total is rejected with `WebFileError` instead of saving a
+  partial body as the complete file.
+- Require `urllib3>=2.0,<3` (urllib3 1.26 is EOL and the tests cover the
+  2.x-only `NameResolutionError`) and `requests>=2.33.1` (security floor
+  covering CVE-2024-47081 and CVE-2026-25645). The `<3` cap matches
+  requests' own urllib3 constraint.
 - Compose lifecycle targets are host-only. `guard-host` blocks `up`, `down`,
   `restart`, `build`, and `devcontainer-*` lifecycle operations inside
   containers. The Dev Container keeps Docker access for `ps`, `ps-all`,
