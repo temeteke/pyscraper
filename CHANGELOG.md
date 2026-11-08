@@ -21,6 +21,16 @@ tag.
   `pre-commit` in the Dev Container) instead of installing the latest release,
   bumped the ruff pre-commit hook to v0.17.4, and added Dependabot updates for
   `.pre-commit-config.yaml`.
+- Published image tags are now immutable. `X.Y.Z` is written once per release,
+  `X.Y` and `latest` move forward only (an older tag never moves them
+  backwards), the `X.Y.Z-YYYYMMDD` snapshot tags are gone, and the weekly
+  rebuild schedule was removed. Publishing happens only for a `vX.Y.Z` tag on
+  the default branch. Builds write only `X.Y.Z`; a final job pushes `latest`
+  and `X.Y` after every image of the release published, so a partial release
+  leaves them untouched. Base-image security fixes ship through a patch
+  release, and release tags must not be re-pushed or moved.
+  **Migration:** pin image tags or digests instead of relying on `latest`
+  moving weekly; no new date-suffixed tags are produced.
 
 ## [3.6.0]
 

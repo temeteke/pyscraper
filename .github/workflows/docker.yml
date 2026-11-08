@@ -5,21 +5,18 @@ on:
     # Tag convention is vX.Y.Z (e.g. v1.2.1); narrower than 'v*' so that
     # accidental tags like `vfoo` do not trigger a failing workflow run.
     # NOTE: GitHub glob cannot express full semver, so short forms like
-    # `v1.2` still trigger and then fail the X.Y.Z check below. Always cut
-    # tags as `vX.Y.Z`.
+    # `v1.2` still trigger and then fail the version check in
+    # `.github/actions/resolve-release`. Always cut tags as `vX.Y.Z`.
     tags:
       - 'v[0-9]*'
-  schedule:
-    - cron: '55 13 * * tue'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build and publish (e.g. 1.2.1). Empty = pushed tag, or latest release tag otherwise.'
-        required: false
-        default: ''
 
+# GitHub keeps one pending run per concurrency group and cancels the older
+# pending one, so a shared group would silently drop a release when several
+# tags are pushed in a row. Channel moves are serialized separately in
+# `move_channels`, which re-resolves the tags, so builds for different refs
+# are safe to run in parallel.
 concurrency:
-  group: docker-publish
+  group: docker-publish-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -36,6 +33,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Resolve release
+        id: version
+        uses: ./.github/actions/resolve-release
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -56,38 +57,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute version
-        id: version
-        # NOTE: inputs.version must NOT be interpolated inside the run script
-        # (command injection risk via quotes); pass it via env instead.
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          if [ -n "$INPUT_VERSION" ]; then
-            TAG="$(printf '%s' "$INPUT_VERSION" | sed 's/^v//')"
-          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            # Prefer the pushed tag itself over the latest tag, so that
-            # back-pushing an old tag does not build a newer version.
-            TAG="${GITHUB_REF_NAME#v}"
-          else
-            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0')"
-            TAG="${TAG#v}"
-          fi
-          # bash regex validates the whole value (unlike grep, which matches
-          # per line and lets embedded newlines through to GITHUB_OUTPUT).
-          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Invalid version. Expected X.Y.Z (e.g. 1.2.1)."
-            exit 1
-          fi
-          MAJOR_MINOR="$(echo "$TAG" | grep -oE '^[0-9]+\.[0-9]+')"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
-
-      - name: Compute date
-        id: date
-        run: |
-          echo "date=$(date -u +%Y%m%d)" >> $GITHUB_OUTPUT
-          echo "rfc3339=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+      - name: Compose tags
+        id: tags
+        uses: ./.github/actions/image-tags
+        with:
+          image: temeteke/pyscraper
+          ghcr_image: ghcr.io/${{ github.repository }}
+          version: ${{ steps.version.outputs.version }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -96,20 +72,21 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            temeteke/pyscraper:latest
-            temeteke/pyscraper:${{ steps.version.outputs.tag }}
-            temeteke/pyscraper:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
-            temeteke/pyscraper:${{ steps.version.outputs.major_minor }}
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag }}
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.major_minor }}
+          tags: ${{ steps.tags.outputs.tags }}
           labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
-            org.opencontainers.image.created=${{ steps.date.outputs.rfc3339 }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.version.outputs.created }}
           build-args: |
-            VERSION=${{ steps.version.outputs.tag }}
+            VERSION=${{ steps.version.outputs.version }}
+
+      - name: Compose tags (standalone)
+        id: tags_standalone
+        uses: ./.github/actions/image-tags
+        with:
+          image: temeteke/pyscraper-standalone
+          ghcr_image: ghcr.io/${{ github.repository }}-standalone
+          version: ${{ steps.version.outputs.version }}
 
       - name: Build and push Docker image standalone
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -118,20 +95,13 @@ jobs:
           file: ./Dockerfile.standalone
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            temeteke/pyscraper-standalone:latest
-            temeteke/pyscraper-standalone:${{ steps.version.outputs.tag }}
-            temeteke/pyscraper-standalone:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
-            temeteke/pyscraper-standalone:${{ steps.version.outputs.major_minor }}
-            ghcr.io/${{ github.repository }}-standalone:latest
-            ghcr.io/${{ github.repository }}-standalone:${{ steps.version.outputs.tag }}
-            ghcr.io/${{ github.repository }}-standalone:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
-            ghcr.io/${{ github.repository }}-standalone:${{ steps.version.outputs.major_minor }}
+          tags: ${{ steps.tags_standalone.outputs.tags }}
           labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
-            org.opencontainers.image.created=${{ steps.date.outputs.rfc3339 }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.version.outputs.created }}
           build-args: |
-            VERSION=${{ steps.version.outputs.tag }}
+            VERSION=${{ steps.version.outputs.version }}
 
   push_playwright_images:
     name: Push browser and console images to Docker Hub and GHCR
@@ -145,6 +115,8 @@ jobs:
       actions: write
     strategy:
       fail-fast: false
+      # Keep the image set in sync with the suffixes list in `move_channels`:
+      # an image that is missing there never gets its latest / X.Y alias.
       matrix:
         include:
           - dockerfile: ./Dockerfile.playwright-node
@@ -186,6 +158,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve release
+        id: version
+        uses: ./.github/actions/resolve-release
+
       - name: Set up QEMU
         if: matrix.platforms != 'linux/amd64'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -206,38 +182,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute version
-        id: version
-        # NOTE: inputs.version must NOT be interpolated inside the run script
-        # (command injection risk via quotes); pass it via env instead.
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          if [ -n "$INPUT_VERSION" ]; then
-            TAG="$(printf '%s' "$INPUT_VERSION" | sed 's/^v//')"
-          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            # Prefer the pushed tag itself over the latest tag, so that
-            # back-pushing an old tag does not build a newer version.
-            TAG="${GITHUB_REF_NAME#v}"
-          else
-            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0')"
-            TAG="${TAG#v}"
-          fi
-          # bash regex validates the whole value (unlike grep, which matches
-          # per line and lets embedded newlines through to GITHUB_OUTPUT).
-          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Invalid version. Expected X.Y.Z (e.g. 1.2.1)."
-            exit 1
-          fi
-          MAJOR_MINOR="$(echo "$TAG" | grep -oE '^[0-9]+\.[0-9]+')"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "major_minor=$MAJOR_MINOR" >> $GITHUB_OUTPUT
-
-      - name: Compute date
-        id: date
-        run: |
-          echo "date=$(date -u +%Y%m%d)" >> $GITHUB_OUTPUT
-          echo "rfc3339=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+      - name: Compose tags
+        id: tags
+        uses: ./.github/actions/image-tags
+        with:
+          image: ${{ matrix.image }}
+          ghcr_image: ghcr.io/${{ github.repository }}-${{ matrix.suffix }}
+          version: ${{ steps.version.outputs.version }}
 
       - name: Build and push image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -249,15 +200,132 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=min
           build-args: ${{ matrix.build_args }}
-          tags: |
-            ${{ matrix.image }}:latest
-            ${{ matrix.image }}:${{ steps.version.outputs.tag }}
-            ${{ matrix.image }}:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
-            ${{ matrix.image }}:${{ steps.version.outputs.major_minor }}
-            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:latest
-            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:${{ steps.version.outputs.tag }}
-            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:${{ steps.version.outputs.tag }}-${{ steps.date.outputs.date }}
-            ghcr.io/${{ github.repository }}-${{ matrix.suffix }}:${{ steps.version.outputs.major_minor }}
+          tags: ${{ steps.tags.outputs.tags }}
           labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
-            org.opencontainers.image.created=${{ steps.date.outputs.rfc3339 }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.version.outputs.created }}
+
+  move_channels:
+    name: Move latest and X.Y channels
+    # Runs only when every image of the release published, so a partial release
+    # never moves the channels.
+    needs: [push_to_registry, push_playwright_images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    # Serialized across runs: the newest release always wins, however long its
+    # images took to build. Re-resolving the tags below makes a late run of an
+    # older release a no-op instead of a rollback.
+    concurrency:
+      group: docker-publish-channels
+      cancel-in-progress: false
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release
+        id: version
+        uses: ./.github/actions/resolve-release
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Alias channels
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MAJOR_MINOR: ${{ steps.version.outputs.major_minor }}
+          LATEST: ${{ steps.version.outputs.latest }}
+          MINOR: ${{ steps.version.outputs.minor }}
+          DOCKERHUB_IMAGE: temeteke/pyscraper
+          GHCR_IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Registry reads can lag behind writes; retry before failing.
+          digest() {
+            local ref="$1" out=""
+            local _
+            for _ in 1 2 3 4 5 6; do
+              if out="$(docker buildx imagetools inspect \
+                --format '{{.Manifest.Digest}}' "$ref" 2>/dev/null)"; then
+                printf '%s' "$out"
+                return 0
+              fi
+              sleep 5
+            done
+            echo "::error::cannot inspect ${ref}" >&2
+            return 1
+          }
+
+          channels=()
+          if [ "${MINOR}" = "true" ]; then channels+=("${MAJOR_MINOR}"); fi
+          if [ "${LATEST}" = "true" ]; then channels+=("latest"); fi
+          if [ "${#channels[@]}" -eq 0 ]; then
+            echo "::notice::No channel moves for ${VERSION} (a newer release already exists)."
+            exit 0
+          fi
+
+          # Naming convention: every image is `temeteke/pyscraper<suffix>` on
+          # Docker Hub and `ghcr.io/<repo><suffix>` on GHCR. Keep this list in
+          # sync with the build matrix: an image missing here keeps its old
+          # latest / X.Y alias.
+          suffixes=(
+            ""
+            "-standalone"
+            "-playwright-chromium"
+            "-playwright-firefox"
+            "-playwright-webkit"
+            "-playwright-hub"
+            "-playwright-session-manager"
+            "-selenium-session-manager"
+            "-console"
+          )
+
+          # Preflight: resolve every source digest before writing anything, so
+          # a missing or unreadable image leaves all channels untouched.
+          declare -A source_digest=()
+          for suffix in "${suffixes[@]}"; do
+            for image in "${DOCKERHUB_IMAGE}${suffix}" "${GHCR_IMAGE}${suffix}"; do
+              src="${image}:${VERSION}"
+              source_digest["$src"]="$(digest "$src")"
+            done
+          done
+
+          for suffix in "${suffixes[@]}"; do
+            for image in "${DOCKERHUB_IMAGE}${suffix}" "${GHCR_IMAGE}${suffix}"; do
+              src="${image}:${VERSION}"
+              src_digest="${source_digest[$src]}"
+              for channel in "${channels[@]}"; do
+                dst="${image}:${channel}"
+                # --prefer-index=false keeps a carbon copy of the source
+                # manifest, so the digest comparison below is meaningful even
+                # when the source is a single-platform manifest.
+                docker buildx imagetools create --prefer-index=false \
+                  -t "$dst" "$src" >/dev/null
+                dst_digest="$(digest "$dst")"
+                if [ "${src_digest}" != "${dst_digest}" ]; then
+                  echo "::error::${dst} resolves to ${dst_digest}, expected ${src_digest}"
+                  exit 1
+                fi
+                echo "moved ${dst} -> ${VERSION}"
+              done
+            done
+          done

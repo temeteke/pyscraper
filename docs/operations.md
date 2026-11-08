@@ -642,13 +642,14 @@ local override only in environments that require direct host access.
 ### Quick start (pull prebuilt images)
 
 Prebuilt images are published to Docker Hub and GHCR by
-`.github/workflows/docker.yml` on every `vX.Y.Z` tag (e.g. `v1.2.1`), on a
-weekly schedule, or manually via `workflow_dispatch` (optional `version`
-input, `X.Y.Z` only, e.g. `1.2.1`; empty means the pushed tag, or the latest
-release tag otherwise). Always cut tags as `vX.Y.Z`: short forms like `v1.2`
-still trigger the workflow but fail the version check. On tag pushes the
-pushed tag itself is built, so back-pushing an old tag rebuilds that
-version rather than the latest:
+`.github/workflows/docker.yml` when a `vX.Y.Z` tag is pushed (e.g. `v1.2.1`);
+tags whose commit is not on the default branch are rejected. Publishing is
+two-phase: the build jobs push only the immutable `X.Y.Z` tags, and a final
+job aliases `latest` (newest release overall) and `X.Y` (newest release of
+that minor line) once every image has published. A failed build job therefore
+leaves the channels untouched; a failure while aliasing can leave them split
+between versions (see the recovery notes below). Always cut tags as `vX.Y.Z`:
+short forms like `v1.2` still trigger the workflow but fail the version check:
 
 | Image | Docker Hub | GHCR |
 |-------|------------|------|
@@ -662,21 +663,52 @@ version rather than the latest:
 | Playwright session manager | `temeteke/pyscraper-playwright-session-manager` | `ghcr.io/temeteke/pyscraper-playwright-session-manager` |
 | Selenium session manager | `temeteke/pyscraper-selenium-session-manager` | `ghcr.io/temeteke/pyscraper-selenium-session-manager` |
 
-Each image is tagged `latest`, `X.Y.Z`, `X.Y.Z-YYYYMMDD`, and `X.Y`.
-(`X.Y` is auto-derived from the release and cannot be given as a manual
-`version` input; only `X.Y.Z` is accepted.)
+Each image is tagged `X.Y.Z`. The newest release also carries `latest`, and
+the newest release of each minor line also carries `X.Y`.
 
 Tag semantics:
 
-- `latest`, `X.Y.Z`, and `X.Y` are mutable: the weekly schedule rebuilds
-  them with the latest base images, so base-image security fixes are picked
-  up without cutting a new release. To update base images outside the
-  schedule, cut a new `vX.Y.Z` tag (a patch bump is enough, even with no code
-  changes) or run the workflow manually.
-- `X.Y.Z-YYYYMMDD` is an immutable snapshot of a single build. Use it when
-  byte-level reproducibility matters. Note that weekly runs keep appending
-  new snapshots, so old ones should be pruned periodically (GHCR retention
-  rules or manual Docker Hub cleanup).
+- `X.Y.Z` is immutable: one release is one commit and one build, so the tag
+  identifies exactly the code that was released. Pin this tag (or its digest)
+  when reproducibility matters. Re-running the failed jobs of an interrupted
+  release republishes the `X.Y.Z` tag for those jobs; that repair is the only
+  sanctioned overwrite, and it does not move the channels until the whole
+  release succeeds.
+- `X.Y` and `latest` are moving channels that move forward only: `X.Y` points
+  at the newest release of that minor line, `latest` at the newest release
+  overall. A tag that is not the newest never moves them. This assumes the
+  tagged commit contains the current workflow: a tag on an older commit runs
+  that commit's workflow, which may move `latest` unconditionally.
+- Do not re-push or move a release tag. The images it produced are already
+  published, and an older tag runs the workflow as it existed at that commit,
+  so the immutability guarantees do not apply to it. To rebuild with current
+  base images, cut a new patch release. Protect `v*` tags with a repository
+  ruleset that blocks updates and deletions, and restricts who may create
+  tags.
+- There is no scheduled rebuild. Base-image security fixes reach the registry
+  through a patch release (a patch bump with no code changes is enough): the
+  rebuild then picks up current base images as a new immutable version.
+- If a published release turns out to be broken, cut a patch release with the
+  fix. The channels never move backwards, so there is no automatic rollback;
+  the broken `X.Y.Z` images stay available for diagnosis.
+- If a release build fails part-way, re-run only the failed jobs (a full
+  re-run would rebuild images that are already published). The channel job
+  runs after every image succeeds, so `latest` and `X.Y` stay put until the
+  release is complete.
+- If the channel job fails, re-run only the failed jobs; it is idempotent and
+  re-resolves the tags before moving anything. A **cancelled** job cannot be
+  retried that way (cancellation is not a failure): use "Re-run all jobs",
+  which also republishes the `X.Y.Z` tags under the repair exception. Queued
+  channel jobs can also be cancelled by a later release, so check the `moved`
+  lines after a burst of tags.
+- The channel job verifies that each alias resolves to the released digest.
+  A mismatch means another writer moved the tag or the registry altered it;
+  re-running is likely to hit the same mismatch. Inspect both tags with
+  `docker buildx imagetools inspect`, then re-alias manually (log in to both
+  registries first) with
+  `docker buildx imagetools create --prefer-index=false -t <image>:latest <image>:X.Y.Z`,
+  and confirm every image ends on the same digest. Images are aliased one by
+  one, so a failure can leave the channels split between versions.
 
 Notes:
 

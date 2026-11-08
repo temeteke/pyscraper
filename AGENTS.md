@@ -111,3 +111,10 @@ manual. `playwright`, `fastapi`, `uvicorn`, and `websockets` are pinned in
 several files (or, for `websockets`, capped because the Hub uses the legacy
 API) and must always be bumped everywhere in one change. Pre-commit hook
 revisions in `.pre-commit-config.yaml` are refreshed weekly by Dependabot.
+
+Published image tags are immutable: `X.Y.Z` maps to one build per release
+(except a repair re-run of an interrupted release, which republishes that
+version). Only a `vX.Y.Z` tag push on the default branch publishes; build
+jobs write only the `X.Y.Z` tags and the `move_channels` job aliases
+`latest` / `X.Y` after every image published. Never re-push or move a
+release tag: to rebuild, cut a new patch release.

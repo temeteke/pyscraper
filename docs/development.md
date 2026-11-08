@@ -151,13 +151,38 @@ the real version (the mounted workspace includes `.git`).
 Keep `CHANGELOG.md` (the human-facing source of truth for breaking changes
 and migration notes) up to date before cutting a release.
 
+- Publishing happens only on a `vX.Y.Z` tag push whose commit is on the
+  default branch; the workflow rejects tags from other branches. There is no
+  manual publish path.
+- **Tag a commit that contains the current workflow.** A tag push runs the
+  `docker.yml` stored in the tagged commit, so tagging an older commit
+  re-runs the publishing rules of that commit (older commits still push
+  `latest` unconditionally and would move it backwards). Cut hotfixes from
+  the tip of the default branch as a new patch release; do not tag commits
+  from previous release lines.
+- Release tags are immutable: never re-push or move one. Rebuild with current
+  base images by cutting a patch release; re-running the failed jobs of an
+  interrupted release is the only sanctioned overwrite.
+- Builds push only `X.Y.Z`; a final job aliases `latest` and `X.Y` after every
+  image published, and checks that both resolve to the released digest.
+- After the run, check the `Move latest and X.Y channels` job log: it prints
+  one `moved ... -> X.Y.Z` line per image and registry. A release that moves
+  both channels prints 18 lines (9 images x 2 registries x 2 channels); a
+  patch release of an older minor moves only `X.Y` (9 lines), and a tag that
+  is not the newest moves nothing (a notice is printed instead). A missing
+  line means the image list in that job drifted from the build matrix.
+- Protect `v*` tags with a repository ruleset: no updates, no deletions, and
+  restrict who may create tags (a tag on an old commit bypasses the rules
+  above).
+
 ```bash
 # Create a GitHub Release (creates tag + release notes + triggers Docker build)
 # gh CLI is pre-installed on GitHub Actions runners and in the devcontainer
 gh release create v1.1.0 --generate-notes
 
-# For hotfixes targeting a specific commit:
-gh release create v1.1.0 --generate-notes --target <commit-hash>
+# For a hotfix, cut a patch release from the default branch tip. Do not pass
+# --target <old commit>: a tag on an older commit runs that commit's workflow.
+gh release create v1.1.1 --generate-notes
 ```
 
 ### Changelog

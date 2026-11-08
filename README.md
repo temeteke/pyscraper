@@ -75,9 +75,8 @@ intentionally not hardcoded in docs).
 ## Docker
 
 Prebuilt images are published to Docker Hub and GHCR on `vX.Y.Z` tag
-pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags),
-on a weekly schedule, or manually via `workflow_dispatch`. This includes
-the browser console and both session managers, so
+pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags).
+The published set includes the browser console and both session managers, so
 `make pull && make up` runs the whole stack from published images
 and exposes the browser console through the local Traefik instance.
 See [Operations Guide](docs/operations.md) for the image table, tag

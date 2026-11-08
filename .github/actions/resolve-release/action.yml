@@ -1,0 +1,123 @@
+name: Resolve release
+description: >-
+  Resolve the release version, its `X.Y` channel, and the channel-move flags
+  from the Git tags. Releases are cut from a `vX.Y.Z` tag on the default
+  branch; anything else is rejected.
+
+outputs:
+  version:
+    description: Release version in `X.Y.Z` form (no leading `v`).
+    value: ${{ steps.resolve.outputs.version }}
+  major_minor:
+    description: '`X.Y` prefix of the release version.'
+    value: ${{ steps.resolve.outputs.major_minor }}
+  latest:
+    description: '`true` when the build should move the `latest` channel.'
+    value: ${{ steps.resolve.outputs.latest }}
+  minor:
+    description: '`true` when the build should move the `X.Y` channel.'
+    value: ${{ steps.resolve.outputs.minor }}
+  created:
+    description: Build timestamp in RFC 3339 for the OCI `created` label.
+    value: ${{ steps.resolve.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve version
+      id: resolve
+      shell: bash
+      # Values come from the event context via env, never interpolated into
+      # the script body (command injection risk).
+      env:
+        REF_NAME: ${{ github.ref_name }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+
+        if ! git rev-parse --verify --quiet "origin/${DEFAULT_BRANCH}" >/dev/null; then
+          echo "::error::Cannot resolve origin/${DEFAULT_BRANCH}; the checkout must fetch the default branch (actions/checkout with fetch-depth: 0)."
+          exit 1
+        fi
+
+        # bash regex validates the whole value (unlike grep, which matches per
+        # line and lets embedded newlines through to GITHUB_OUTPUT). Leading
+        # zeros are rejected because the version sort ranks `3.07.3` above
+        # `3.7.2`.
+        valid_version() {
+          [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+        }
+
+        TAG="${REF_NAME#v}"
+        if ! valid_version "$TAG"; then
+          echo "::error::Invalid version '$TAG'. Expected X.Y.Z without leading zeros (e.g. 1.2.1)."
+          exit 1
+        fi
+
+        # Releases come from the default branch: a tag on a side branch must
+        # not publish images or move the channels.
+        if ! git merge-base --is-ancestor HEAD "origin/${DEFAULT_BRANCH}"; then
+          echo "::error::Tag ${REF_NAME} is not on ${DEFAULT_BRANCH}; refusing to publish. Cut releases from ${DEFAULT_BRANCH}."
+          exit 1
+        fi
+
+        # Only strict X.Y.Z tags reachable from the default branch count.
+        # Unreachable tags are dropped so a stray tag on a side branch cannot
+        # freeze the channels, and prerelease / 4-part tags are dropped because
+        # git's version sort ranks them above the real release.
+        TAGS_FILE="$(mktemp)"
+        STRICT_FILE="$(mktemp)"
+        trap 'rm -f "$TAGS_FILE" "$STRICT_FILE"' EXIT
+        git tag --merged "origin/${DEFAULT_BRANCH}" --list 'v[0-9]*' > "$TAGS_FILE"
+        if ! grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' "$TAGS_FILE" > "$STRICT_FILE"; then
+          echo "::error::No vX.Y.Z tags reachable from ${DEFAULT_BRANCH}."
+          exit 1
+        fi
+        sort -rV -o "$STRICT_FILE" "$STRICT_FILE"
+        NEWEST_TAG="$(head -n 1 "$STRICT_FILE")"
+
+        # The pushed tag must be in the list: if the checkout did not fetch the
+        # tags, the flags below would silently stay false and the channels
+        # would never move.
+        if ! grep -qxF "v${TAG}" "$STRICT_FILE"; then
+          echo "::error::Tag ${REF_NAME} is not among the release tags reachable from ${DEFAULT_BRANCH}."
+          exit 1
+        fi
+
+        MAJOR_MINOR="${TAG%.*}"
+
+        # Newest tag within the same minor line, scanning the version-sorted
+        # list. The dot in the prefix keeps `v3.6.` from matching `v3.60.1`.
+        NEWEST_MINOR_TAG=""
+        while IFS= read -r candidate; do
+          case "$candidate" in
+            "v${MAJOR_MINOR}."*) NEWEST_MINOR_TAG="$candidate"; break ;;
+          esac
+        done < "$STRICT_FILE"
+
+        LATEST=false
+        MINOR=false
+        if [ "v${TAG}" = "$NEWEST_TAG" ]; then LATEST=true; fi
+        if [ "v${TAG}" = "$NEWEST_MINOR_TAG" ]; then MINOR=true; fi
+
+        CHANNELS="$TAG"
+        if [ "$MINOR" = "true" ]; then CHANNELS="$CHANNELS, $MAJOR_MINOR"; fi
+        if [ "$LATEST" = "true" ]; then CHANNELS="$CHANNELS, latest"; fi
+
+        {
+          echo "version=$TAG"
+          echo "major_minor=$MAJOR_MINOR"
+          echo "latest=$LATEST"
+          echo "minor=$MINOR"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### Image release resolution"
+          echo ""
+          echo "| field | value |"
+          echo "| --- | --- |"
+          echo "| tag | \`${REF_NAME}\` |"
+          echo "| version | \`${TAG}\` |"
+          echo "| channels | \`${CHANNELS}\` |"
+        } >> "$GITHUB_STEP_SUMMARY"

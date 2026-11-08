@@ -1,0 +1,51 @@
+name: Image tags
+description: >-
+  Compose the registry tag list for one published image. Only the immutable
+  `X.Y.Z` tag is written here; the `latest` and `X.Y` channels are moved by a
+  separate job once every image of the release has published.
+
+inputs:
+  image:
+    description: Docker Hub image name, for example `temeteke/pyscraper`.
+    required: true
+  ghcr_image:
+    description: GHCR image name, for example `ghcr.io/owner/repo`.
+    required: true
+  version:
+    description: Release version in `X.Y.Z` form (no leading `v`).
+    required: true
+
+outputs:
+  tags:
+    description: Newline-separated tag list for `docker/build-push-action`.
+    value: ${{ steps.tags.outputs.tags }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compose tags
+      id: tags
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        GHCR_IMAGE: ${{ inputs.ghcr_image }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${IMAGE}" ] || [ -z "${GHCR_IMAGE}" ]; then
+          echo "::error::image and ghcr_image are required."
+          exit 1
+        fi
+        # Same rule as resolve-release: no leading zeros, no prerelease suffix.
+        if ! [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          echo "::error::Invalid version '${VERSION}'. Expected X.Y.Z (e.g. 1.2.1)."
+          exit 1
+        fi
+
+        {
+          echo "tags<<TAGS_EOF"
+          echo "${IMAGE}:${VERSION}"
+          echo "${GHCR_IMAGE}:${VERSION}"
+          echo "TAGS_EOF"
+        } >> "$GITHUB_OUTPUT"
