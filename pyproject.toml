@@ -23,8 +23,10 @@ markers = [
 addopts = "-m 'not integration'"
 
 filterwarnings = [
-    # Starlette's TestClient touches a deprecated anyio alias internally
-    # (anyio>=4 + starlette<1.0); unrelated to our code. Re-check when
-    # bumping fastapi/starlette.
-    "ignore::DeprecationWarning:starlette.testclient",
+    # fastapi re-exports starlette's TestClient, which warns that the httpx
+    # transport is deprecated in favour of httpx2. httpx2 requires Python
+    # 3.11+, so the console extra keeps httpx while 3.10 stays supported.
+    # Match on the message only: starlette <1.0 has no warning class to
+    # reference. Re-check when dropping 3.10.
+    "ignore:Using .*httpx.* is deprecated",
 ]

@@ -13,3 +13,10 @@ updates:
       github-actions:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+  # Pre-commit hook revisions (ruff, pre-commit-hooks). Runtime Python
+  # dependencies live in setup.cfg, which Dependabot's pip ecosystem does
+  # not parse; see AGENTS.md for how those are kept current.
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly

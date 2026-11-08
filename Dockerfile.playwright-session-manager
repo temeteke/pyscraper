@@ -6,9 +6,9 @@
 # Dockerfile.playwright-node, and Dockerfile.standalone. Keep
 # FASTAPI_VERSION / UVICORN_VERSION in sync with setup.cfg (console
 # extra) and Dockerfile.selenium-session-manager (no pin test exists).
-ARG PLAYWRIGHT_VERSION=1.62.0
-ARG FASTAPI_VERSION=0.119.0
-ARG UVICORN_VERSION=0.37.0
+ARG PLAYWRIGHT_VERSION=1.64.1
+ARG FASTAPI_VERSION=0.162.2
+ARG UVICORN_VERSION=0.54.0
 FROM python:3.12-slim
 
 ARG PLAYWRIGHT_VERSION

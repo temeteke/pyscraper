@@ -8,6 +8,20 @@ tag.
 
 ## [Unreleased]
 
+### Changed
+
+- Raised dependency floors and pins: `urllib3>=2.8.0,<3` (2.8.0 is the first
+  release with every published urllib3 advisory fixed), `fastapi==0.162.2`
+  (pulls `starlette` 1.x, which fixes the `StaticFiles` SSRF, missing Host
+  header validation, and Range-header DoS advisories present in 0.48),
+  `uvicorn==0.54.0`, and `playwright==1.64.1`. The `playwright` pin moves
+  together with the Dockerfiles that build the client, node, and standalone
+  images.
+- Pinned the test tooling (`pytest`, `pytest-cov`, `pytest-mock`, and
+  `pre-commit` in the Dev Container) instead of installing the latest release,
+  bumped the ruff pre-commit hook to v0.17.4, and added Dependabot updates for
+  `.pre-commit-config.yaml`.
+
 ## [3.6.0]
 
 ### Added

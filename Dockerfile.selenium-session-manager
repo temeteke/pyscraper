@@ -4,8 +4,8 @@
 # Keep FASTAPI_VERSION / UVICORN_VERSION in sync with setup.cfg
 # (console extra) and Dockerfile.playwright-session-manager
 # (no pin test exists).
-ARG FASTAPI_VERSION=0.119.0
-ARG UVICORN_VERSION=0.37.0
+ARG FASTAPI_VERSION=0.162.2
+ARG UVICORN_VERSION=0.54.0
 FROM python:3.12-slim
 
 ARG FASTAPI_VERSION

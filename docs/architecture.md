@@ -171,7 +171,8 @@ that `WebPageWebDriverError` is now an alias of the unified generic
   too, so no `except ValueError` is needed for fetch failures. Curl
   decode failures surface as `WebPageError`.
 - `WebFile` maps `requests` / `urllib3` residue to `WebFile*` errors the
-  same way. It declares `urllib3>=2.0,<3` directly: 1.26 is EOL and the
+  same way. It declares `urllib3>=2.8.0,<3` directly: 2.8.0 is the first
+  release with every published advisory fixed, 1.26 is EOL, and the
   tests cover the 2.x-only `NameResolutionError`; the `<3` cap matches
   requests' own constraint. `open_response()` keeps the request-side
   mapping (connection → `WebFileConnectionError`, timeout →

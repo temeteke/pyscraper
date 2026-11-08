@@ -104,3 +104,10 @@ All unit tests must pass. Docs-only changes need no test run, but keep
 Workflow actions in `.github/workflows/` are pinned to full commit SHAs with a
 `# vX.Y.Z` comment; `.github/dependabot.yml` refreshes them weekly. Never
 replace a SHA pin with a floating tag.
+
+Runtime dependencies live in `setup.cfg` (`install_requires` and the `console`
+extra), which Dependabot's pip ecosystem does not parse, so Python bumps are
+manual. `playwright`, `fastapi`, `uvicorn`, and `websockets` are pinned in
+several files (or, for `websockets`, capped because the Hub uses the legacy
+API) and must always be bumped everywhere in one change. Pre-commit hook
+revisions in `.pre-commit-config.yaml` are refreshed weekly by Dependabot.
