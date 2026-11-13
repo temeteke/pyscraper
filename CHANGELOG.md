@@ -8,6 +8,8 @@ tag.
 
 ## [Unreleased]
 
+## [3.7.1]
+
 ### Changed
 
 - Bumped the Selenium Grid images (`selenium/hub`, `selenium/node-chrome`,
