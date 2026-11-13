@@ -86,7 +86,10 @@ def _proxy_from_env():
     https_proxy = _get_env_anycase("HTTPS_PROXY")
     no_proxy = _get_env_anycase("NO_PROXY")
 
-    if http_proxy or https_proxy or no_proxy:
+    # NO_PROXY only makes sense when there is a proxy to bypass. On its own it
+    # must not switch Firefox to a manual proxy configuration: there is no
+    # server to use, and Firefox fails to load pages with a proxy reset error.
+    if http_proxy or https_proxy:
         proxy_dict = {"proxyType": proxy.ProxyType.MANUAL}
         if http_proxy:
             proxy_dict["httpProxy"] = _normalize_proxy_for_selenium(http_proxy)

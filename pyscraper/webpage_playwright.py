@@ -355,9 +355,11 @@ class WebPagePlaywright(WebPage, ABC):
         # (pre-refactor) precedence in _setup_proxy_context.
         server = _get_env_anycase("HTTPS_PROXY") or _get_env_anycase("HTTP_PROXY")
         bypass = _get_env_anycase("NO_PROXY")
-        settings: dict = {}
-        if server:
-            settings["server"] = server
+        if not server:
+            # NO_PROXY on its own is not a proxy configuration, and Playwright
+            # rejects a proxy dict without a server.
+            return {}
+        settings: dict = {"server": server}
         if bypass:
             settings["bypass"] = bypass
         return settings

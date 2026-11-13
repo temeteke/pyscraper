@@ -569,8 +569,16 @@ class TestConfigureNoProxyForRemote:
                 "plain-proxy:3128",
                 ["localhost"],
             ),
+            # NO_PROXY without a proxy server must not select a manual proxy.
+            ({"NO_PROXY": "localhost"}, "", ""),
         ],
-        ids=["lowercase-only", "lowercase-priority", "uppercase-only", "no-scheme"],
+        ids=[
+            "lowercase-only",
+            "lowercase-priority",
+            "uppercase-only",
+            "no-scheme",
+            "no-proxy-without-server",
+        ],
     )
     def test_firefox_proxy(self, selenium_env, env_vars, expected_proxy, expected_no_proxy):
         env_vars = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub", **env_vars}

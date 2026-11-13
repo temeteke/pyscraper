@@ -15,6 +15,14 @@ tag.
   the `SE_SCREEN_WIDTH` / `SE_SCREEN_HEIGHT` form used by current images. Node
   stereotypes, event-bus wiring, and noVNC settings are unchanged.
 
+### Fixed
+
+- `NO_PROXY` on its own no longer configures a browser proxy. The Selenium
+  backend selected a manual proxy with no server (Firefox failed with a proxy
+  resolution error) and Playwright rejected the resulting `{"bypass": ...}`
+  context option. Both now treat a missing `HTTP_PROXY` / `HTTPS_PROXY` as "no
+  proxy", matching curl and requests.
+
 ## [3.7.0]
 
 ### Changed

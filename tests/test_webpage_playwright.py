@@ -862,13 +862,20 @@ class TestWebPagePlaywrightProxy:
                 {"HTTP_PROXY": "http://proxy:8080", "NO_PROXY": "localhost,.local"},
                 {"server": "http://proxy:8080", "bypass": "localhost,.local"},
             ),
-            ({"NO_PROXY": "localhost"}, {"bypass": "localhost"}),
+            ({"NO_PROXY": "localhost"}, None),
             (
                 {"http_proxy": "http://lower:8080", "HTTP_PROXY": "http://UPPER:8080"},
                 {"server": "http://lower:8080"},
             ),
         ],
-        ids=["http", "https", "https-priority", "bypass", "bypass-only", "lowercase-priority"],
+        ids=[
+            "http",
+            "https",
+            "https-priority",
+            "bypass",
+            "bypass-without-server",
+            "lowercase-priority",
+        ],
     )
     def test_proxy_settings(self, mock_pw, playwright_env, env_vars, expected_proxy):
         for key, value in env_vars.items():
@@ -876,7 +883,12 @@ class TestWebPagePlaywrightProxy:
         _, browser, _, _ = mock_pw
         with WebPagePlaywrightChromium("https://example.com"):
             pass
-        assert browser.new_context.call_args.kwargs["proxy"] == expected_proxy
+        kwargs = browser.new_context.call_args.kwargs
+        if expected_proxy is None:
+            # NO_PROXY without a proxy server must not become a proxy config.
+            assert "proxy" not in kwargs
+        else:
+            assert kwargs["proxy"] == expected_proxy
 
 
 # ---------------------------------------------------------------------------
