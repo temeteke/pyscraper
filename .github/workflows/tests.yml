@@ -45,11 +45,15 @@ jobs:
       - name: Install console render tools (yq, jq, nginx)
         # The console tests exercise the real entrypoint: yq (YAML->JSON),
         # jq (generate.jq), and nginx -t (rendered config syntax). jq ships
-        # with the runner; yq is pinned and checksum-verified.
+        # with the runner; yq is pinned and checksum-verified. GitHub Releases
+        # intermittently answers 5xx, so the download retries before failing.
         run: |
           YQ_VERSION=v4.53.3
           YQ_SHA256=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
-          curl -fsSL -o "$RUNNER_TEMP/yq" \
+          curl -fsSL \
+            --retry 5 --retry-delay 2 --retry-max-time 60 \
+            --retry-all-errors --connect-timeout 10 \
+            -o "$RUNNER_TEMP/yq" \
             "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
           echo "${YQ_SHA256}  $RUNNER_TEMP/yq" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/yq"
