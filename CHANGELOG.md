@@ -10,6 +10,15 @@ tag.
 
 ### Changed
 
+- Bumped the Selenium Grid images (`selenium/hub`, `selenium/node-chrome`,
+  `selenium/node-firefox`) to 4.52.0 and renamed the Xvfb desktop overrides to
+  the `SE_SCREEN_WIDTH` / `SE_SCREEN_HEIGHT` form used by current images. Node
+  stereotypes, event-bus wiring, and noVNC settings are unchanged.
+
+## [3.7.0]
+
+### Changed
+
 - Raised dependency floors and pins: `urllib3>=2.8.0,<3` (2.8.0 is the first
   release with every published urllib3 advisory fixed), `fastapi==0.162.2`
   (pulls `starlette` 1.x, which fixes the `StaticFiles` SSRF, missing Host

@@ -18,7 +18,7 @@ services:
     # startup gate adds no value (and couples startup to Hub health).
 
   selenium-hub:
-    image: selenium/hub:4.27.0
+    image: selenium/hub:4.52.0
     expose:
       - "4442"
       - "4443"
@@ -33,7 +33,7 @@ services:
       start_period: 10s
 
   selenium-chrome-node:
-    image: selenium/node-chrome:4.27.0
+    image: selenium/node-chrome:4.52.0
     shm_size: 2gb
     # Chrome requires additional syscalls for sandbox IPC. shm_size:2gb alone
     # is not sufficient -- without seccomp:unconfined the session fails with
@@ -50,8 +50,8 @@ services:
       - SE_VNC_NO_PASSWORD=true
       # Desktop size (Xvfb) shown in noVNC (16:9 to match the default 16:9
       # console tiles). Restart to apply.
-      - SCREEN_WIDTH=1280
-      - SCREEN_HEIGHT=720
+      - SE_SCREEN_WIDTH=1280
+      - SE_SCREEN_HEIGHT=720
     volumes:
       - chrome-profile:/tmp/chrome-profile
     expose:
@@ -66,7 +66,7 @@ services:
       start_period: 60s
 
   selenium-firefox-node:
-    image: selenium/node-firefox:4.27.0
+    image: selenium/node-firefox:4.52.0
     shm_size: 2gb
     environment:
       - SE_EVENT_BUS_HOST=selenium-hub
@@ -77,8 +77,8 @@ services:
       - SE_VNC_NO_PASSWORD=true
       # Desktop size (Xvfb) shown in noVNC (16:9 to match the default 16:9
       # console tiles). Restart to apply.
-      - SCREEN_WIDTH=1280
-      - SCREEN_HEIGHT=720
+      - SE_SCREEN_WIDTH=1280
+      - SE_SCREEN_HEIGHT=720
     volumes:
       - firefox-profile:/tmp/firefox-profile
     expose:
