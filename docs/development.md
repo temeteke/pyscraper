@@ -155,7 +155,8 @@ and migration notes) up to date before cutting a release.
   default branch; the workflow rejects tags from other branches. There is no
   manual publish path.
 - **Tag a commit that contains the current workflow.** A tag push runs the
-  `docker.yml` stored in the tagged commit, so tagging an older commit
+  workflow stored in the tagged commit (`release.yml` on current commits;
+  older commits may use `docker.yml`), so tagging an older commit
   re-runs the publishing rules of that commit (older commits still push
   `latest` unconditionally and would move it backwards). Cut hotfixes from
   the tip of the default branch as a new patch release; do not tag commits
@@ -165,18 +166,31 @@ and migration notes) up to date before cutting a release.
   interrupted release is the only sanctioned overwrite.
 - Builds push only `X.Y.Z`; a final job aliases `latest` and `X.Y` after every
   image published, and checks that both resolve to the released digest.
+- The same run publishes the Helm chart after the images and channel moves.
+  The chart version is taken from the tag (`helm package --version` /
+  `--app-version`), so the release commit does not bump `Chart.yaml`. Empty
+  pyscraper image tags follow the packaged appVersion; update the `tag` of
+  the `images.selenium.hub`, `.chrome`, and `.firefox` entries in
+  `charts/pyscraper/values.yaml` only when those images change. Add a
+  `## [X.Y.Z]` section to `CHANGELOG.md` in the release commit;
+  `validate_release` fails without it and runs before any image build.
+  Chart-only fixes use the next patch tag, not a separate chart release. Do
+  not move a tag after a failed validation; cut a new patch tag.
 - After the run, check the `Move latest and X.Y channels` job log: it prints
   one `moved ... -> X.Y.Z` line per image and registry. A release that moves
-  both channels prints 18 lines (9 images x 2 registries x 2 channels); a
-  patch release of an older minor moves only `X.Y` (9 lines), and a tag that
-  is not the newest moves nothing (a notice is printed instead). A missing
+  both channels prints 36 lines (9 images x 2 registries x 2 channels); a
+  patch release that is the newest in its minor but not overall moves only
+  `X.Y` (18 lines), and a tag that is neither the newest overall nor the
+  newest in its minor moves nothing (a notice is printed instead). A missing
   line means the image list in that job drifted from the build matrix.
+  Confirm that `Publish Helm chart to GHCR` also succeeded; if only that job
+  failed, use **Re-run failed jobs** to avoid rebuilding the images.
 - Protect `v*` tags with a repository ruleset: no updates, no deletions, and
   restrict who may create tags (a tag on an old commit bypasses the rules
   above).
 
 ```bash
-# Create a GitHub Release (creates tag + release notes + triggers Docker build)
+# Create a GitHub Release (creates tag + release notes + triggers the release workflow)
 # gh CLI is pre-installed on GitHub Actions runners and in the devcontainer
 gh release create v1.1.0 --generate-notes
 
@@ -189,10 +203,11 @@ gh release create v1.1.1 --generate-notes
 
 `CHANGELOG.md` is the human-facing record of changes. Sections are numbered
 by version without dates; the release date lives in the Git tag / GitHub
-Release. The version itself is derived from the tag by setuptools-scm, so a
-release needs no version/date commit: cut the tag with `gh release create`
-(see Release Procedure). When starting a new cycle, add a `## [Unreleased]`
-section at the top.
+Release. The Python version is derived from the tag by setuptools-scm, and
+the Helm chart is packaged with the same tag, so a release needs no
+`Chart.yaml` version bump. The release commit must add a `## [X.Y.Z]`
+CHANGELOG section (validated before images are built). When starting a new
+cycle, add a `## [Unreleased]` section at the top.
 
 ---
 

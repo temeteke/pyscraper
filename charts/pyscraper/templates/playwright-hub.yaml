@@ -1,0 +1,80 @@
+{{- if .Values.playwright.hub.enabled }}
+{{- $registration := default (dict) (dig "registration" (dict) .Values.playwright.hub) }}
+{{- $probe := default (dict) (dig "readinessProbe" (dict) .Values.playwright.hub) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playwright-hub
+  labels:
+    app: playwright-hub
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: playwright-hub
+  template:
+    metadata:
+      labels:
+        app: playwright-hub
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.playwright.hub.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.playwright.hub.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: playwright-hub
+          image: {{ include "pyscraper.image" (dict "root" . "image" .Values.images.playwright.hub) }}
+          {{- with .Values.playwright.hub.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- if .Values.global.timezone }}
+            {{- include "pyscraper.timezoneEnv" . | nindent 12 }}
+            {{- end }}
+            - name: PLAYWRIGHT_HUB_NODE_TTL
+              value: {{ dig "nodeTTLSeconds" 30 $registration | quote }}
+          ports:
+            - name: ws
+              containerPort: 4000
+            - name: http
+              containerPort: 4001
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ dig "initialDelaySeconds" 5 $probe }}
+            timeoutSeconds: {{ dig "timeoutSeconds" 3 $probe }}
+          {{- with .Values.playwright.hub.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: playwright-hub
+  labels:
+    app: playwright-hub
+spec:
+  selector:
+    app: playwright-hub
+  ports:
+    - name: ws
+      port: 4000
+      targetPort: ws
+    - name: http
+      port: 4001
+      targetPort: http
+{{- end }}

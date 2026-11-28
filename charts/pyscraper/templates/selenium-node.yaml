@@ -1,0 +1,167 @@
+{{- range $key, $node := .Values.nodes }}
+{{- $node := default (dict) $node }}
+{{- $enabled := dig "enabled" true $node }}
+{{- if and (or (kindIs "invalid" $enabled) $enabled) (eq (dig "framework" "" $node) "selenium") }}
+{{- $name := $key }}
+{{- $proxy := default (dict) $.Values.global.proxy }}
+{{- $nodeName := default $key (dig "node" "" $node) }}
+{{- $persistence := default (dict) (dig "persistence" (dict) $node) }}
+{{- $persistent := dig "enabled" false $persistence }}
+{{- $mountPath := default (printf "/tmp/%s-profile" $key) (dig "mountPath" "" $persistence) }}
+{{- $screen := default (dict) (dig "screen" (dict) $node) }}
+{{- $shm := default (dict) (dig "shm" (dict) $node) }}
+{{- $extra := dict "pyscraper:node" $nodeName }}
+{{- if $persistent }}
+{{- if eq (dig "browser" "" $node) "chrome" }}
+{{- $_ := set $extra "goog:chromeOptions" (dict "binary" "/usr/bin/google-chrome" "args" (list (printf "--user-data-dir=%s" $mountPath))) }}
+{{- else }}
+{{- $_ := set $extra "moz:firefoxOptions" (dict "args" (list "-profile" $mountPath)) }}
+{{- end }}
+{{- end }}
+{{- $image := $.Values.images.selenium.firefox }}
+{{- if eq (dig "browser" "" $node) "chrome" }}{{ $image = $.Values.images.selenium.chrome }}{{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (dig "podSecurityContext" (dict) $node) }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (dig "nodeSelector" (dict) $node) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: selenium-node
+          image: {{ include "pyscraper.image" (dict "root" $ "image" $image) }}
+          {{- with (dig "securityContext" (dict) $node) }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- if $.Values.global.timezone }}
+            {{- include "pyscraper.timezoneEnv" $ | nindent 12 }}
+            {{- end }}
+            {{- if or $proxy.httpProxy $proxy.httpsProxy $proxy.noProxy }}
+            {{- include "pyscraper.proxyEnv" $ | nindent 12 }}
+            {{- end }}
+            - name: SE_EVENT_BUS_HOST
+              value: selenium-hub
+            - name: SE_EVENT_BUS_PUBLISH_PORT
+              value: "4442"
+            - name: SE_EVENT_BUS_SUBSCRIBE_PORT
+              value: "4443"
+            - name: SE_VNC_NO_PASSWORD
+              value: "true"
+            - name: SE_NODE_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: SE_NODE_PORT
+              value: "5555"
+            - name: SE_NODE_GRID_URL
+              value: http://selenium-hub:4444
+            - name: SE_NODE_MAX_SESSIONS
+              value: {{ default 4 (dig "maxSessions" 4 $node) | quote }}
+            - name: SE_NODE_STEREOTYPE_EXTRA
+              value: {{ $extra | toJson | quote }}
+            - name: SE_SCREEN_WIDTH
+              value: {{ default 1280 (dig "width" 1280 $screen) | quote }}
+            - name: SE_SCREEN_HEIGHT
+              value: {{ default 720 (dig "height" 720 $screen) | quote }}
+          ports:
+            - name: node
+              containerPort: 5555
+            - name: no-vnc
+              containerPort: 7900
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: node
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            {{- if $persistent }}
+            - name: profile
+              mountPath: {{ $mountPath | quote }}
+            {{- end }}
+          {{- with (dig "resources" (dict) $node) }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            {{- with default "2Gi" (dig "sizeLimit" "" $shm) }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- if $persistent }}
+        - name: profile
+          persistentVolumeClaim:
+            claimName: {{ printf "%s-pvc" $name }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+spec:
+  selector:
+    app: {{ $name }}
+  ports:
+    - name: no-vnc
+      port: 7900
+      targetPort: no-vnc
+{{- if $persistent }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-pvc" $name }}
+  labels:
+    app: {{ $name }}
+  {{- $keep := dig "keep" true $persistence }}
+  {{- if or (kindIs "invalid" $keep) $keep }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  accessModes:
+    - {{ default "ReadWriteOnce" (dig "accessMode" "" $persistence) }}
+  resources:
+    requests:
+      storage: {{ default "1Gi" (dig "size" "" $persistence) }}
+  {{- with (dig "storageClassName" "" $persistence) }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

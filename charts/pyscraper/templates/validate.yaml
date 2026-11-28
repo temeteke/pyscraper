@@ -1,0 +1,119 @@
+{{- $seleniumNodes := 0 -}}
+{{- $playwrightNodes := 0 -}}
+{{- $names := dict -}}
+{{- $tuples := dict -}}
+{{- $_ := set $names "console" true -}}
+{{- $_ := set $names "selenium-hub" true -}}
+{{- $_ := set $names "playwright-hub" true -}}
+{{- $_ := set $names "selenium-session-manager" true -}}
+{{- $_ := set $names "playwright-session-manager" true -}}
+{{- $_ := set $names "playwright-session-states" true -}}
+{{- $proxy := default (dict) .Values.global.proxy -}}
+{{- if or $proxy.httpProxy $proxy.httpsProxy $proxy.noProxy -}}
+  {{- if not $proxy.httpProxy -}}
+    {{- fail "global.proxy.httpProxy is required when proxy is configured" -}}
+  {{- end -}}
+  {{- if not $proxy.httpsProxy -}}
+    {{- fail "global.proxy.httpsProxy is required when proxy is configured" -}}
+  {{- end -}}
+{{- end -}}
+{{- range $key, $node := .Values.nodes -}}
+  {{- $node := default (dict) $node -}}
+  {{- $enabled := dig "enabled" true $node -}}
+  {{- if or (kindIs "invalid" $enabled) $enabled -}}
+    {{- $framework := dig "framework" "" $node -}}
+    {{- $browser := dig "browser" "" $node -}}
+    {{- $console := default (dict) (dig "console" (dict) $node) -}}
+    {{- $name := $key -}}
+    {{- if hasKey $names $name -}}
+      {{- fail (printf "reserved node name: %s (nodes.%s)" $name $key) -}}
+    {{- end -}}
+    {{- $_ := set $names $name true -}}
+    {{- if not (has $framework (list "selenium" "playwright")) -}}
+      {{- fail (printf "nodes.%s.framework must be selenium or playwright" $key) -}}
+    {{- end -}}
+    {{- if eq $framework "selenium" -}}
+      {{- if not (has $browser (list "chrome" "firefox")) -}}
+        {{- fail (printf "nodes.%s.browser must be chrome or firefox for selenium" $key) -}}
+      {{- end -}}
+      {{- $maxSessions := toString (dig "maxSessions" 4 $node) -}}
+      {{- if not (regexMatch "^[1-9][0-9]*$" $maxSessions) -}}
+        {{- fail (printf "nodes.%s.maxSessions must be a positive integer" $key) -}}
+      {{- end -}}
+      {{- $screen := default (dict) (dig "screen" (dict) $node) -}}
+      {{- $screenWidth := toString (dig "width" 1280 $screen) -}}
+      {{- $screenHeight := toString (dig "height" 720 $screen) -}}
+      {{- if not (regexMatch "^[1-9][0-9]*$" $screenWidth) -}}
+        {{- fail (printf "nodes.%s.screen.width must be a positive integer" $key) -}}
+      {{- end -}}
+      {{- if not (regexMatch "^[1-9][0-9]*$" $screenHeight) -}}
+        {{- fail (printf "nodes.%s.screen.height must be a positive integer" $key) -}}
+      {{- end -}}
+      {{- if hasKey $console "contextOptions" -}}
+        {{- fail (printf "nodes.%s.console.contextOptions is only supported for playwright" $key) -}}
+      {{- end -}}
+      {{- if hasKey $console "storageState" -}}
+        {{- fail (printf "nodes.%s.console.storageState is only supported for playwright" $key) -}}
+      {{- end -}}
+      {{- $nodeValue := default $key (dig "node" "" $node) -}}
+      {{- $persistence := default (dict) (dig "persistence" (dict) $node) -}}
+      {{- if dig "enabled" false $persistence -}}
+        {{- if ne (int $maxSessions) 1 -}}
+          {{- fail (printf "nodes.%s.maxSessions must be 1 when persistence.enabled is true" $key) -}}
+        {{- end -}}
+        {{- $podSecurityContext := dig "podSecurityContext" (dict) $node -}}
+        {{- $fsGroup := 0 -}}
+        {{- if kindIs "map" $podSecurityContext -}}
+          {{- $fsGroup = dig "fsGroup" 0 $podSecurityContext -}}
+        {{- end -}}
+        {{- $message := printf "nodes.%s.persistence.enabled requires a positive integer podSecurityContext.fsGroup (e.g. 1201) on a storage class that supports fsGroup" $key -}}
+        {{- if not (or (kindIs "float64" $fsGroup) (kindIs "int64" $fsGroup) (kindIs "int" $fsGroup)) -}}
+          {{- fail $message -}}
+        {{- end -}}
+        {{- $gid := int $fsGroup -}}
+        {{- if or (lt $gid 1) (ne (float64 $gid) (float64 $fsGroup)) -}}
+          {{- fail $message -}}
+        {{- end -}}
+      {{- end -}}
+      {{- $seleniumNodes = add $seleniumNodes 1 -}}
+      {{- if $.Values.console.enabled -}}
+        {{- $tuple := printf "%s|%s-%s|%s" $framework $framework $browser $nodeValue -}}
+        {{- if hasKey $tuples $tuple -}}
+          {{- fail (printf "duplicate console routing tuple (%s, %s, %s) at nodes.%s" $framework (printf "%s-%s" $framework $browser) $nodeValue $key) -}}
+        {{- end -}}
+        {{- $_ := set $tuples $tuple true -}}
+      {{- end -}}
+    {{- else -}}
+      {{- if not (has $browser (list "chromium" "firefox" "webkit")) -}}
+        {{- fail (printf "nodes.%s.browser must be chromium, firefox, or webkit for playwright" $key) -}}
+      {{- end -}}
+      {{- if hasKey $node "node" -}}
+        {{- fail (printf "nodes.%s.node is only supported for selenium nodes" $key) -}}
+      {{- end -}}
+      {{- $persistence := default (dict) (dig "persistence" (dict) $node) -}}
+      {{- if dig "enabled" false $persistence -}}
+        {{- fail (printf "nodes.%s.persistence is only supported for selenium nodes" $key) -}}
+      {{- end -}}
+      {{- $playwrightNodes = add $playwrightNodes 1 -}}
+      {{- if $.Values.console.enabled -}}
+        {{- $tuple := printf "%s|%s-%s|%s" $framework $framework $browser $name -}}
+        {{- if hasKey $tuples $tuple -}}
+          {{- fail (printf "duplicate console routing tuple (%s, %s, %s) at nodes.%s" $framework (printf "%s-%s" $framework $browser) $name $key) -}}
+        {{- end -}}
+        {{- $_ := set $tuples $tuple true -}}
+      {{- end -}}
+    {{- end -}}
+    {{- if $.Values.console.enabled -}}
+      {{- $ss := dig "storageState" true $console -}}
+      {{- if not (kindIs "bool" $ss) -}}
+        {{- fail (printf "nodes.%s.console.storageState must be a boolean" $key) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- if and (not .Values.selenium.hub.enabled) (gt $seleniumNodes 0) -}}
+  {{- fail "selenium.hub.enabled is false but selenium nodes are enabled" -}}
+{{- end -}}
+{{- if and (not .Values.playwright.hub.enabled) (gt $playwrightNodes 0) -}}
+  {{- fail "playwright.hub.enabled is false but playwright nodes are enabled" -}}
+{{- end -}}

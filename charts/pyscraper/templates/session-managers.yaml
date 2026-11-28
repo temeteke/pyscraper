@@ -1,0 +1,213 @@
+{{- $proxy := default (dict) .Values.global.proxy }}
+{{- if .Values.playwright.sessionManager.enabled }}
+{{- $pw := .Values.playwright.sessionManager }}
+{{- $persistence := default (dict) $pw.persistence }}
+{{- $persistent := dig "enabled" false $persistence }}
+{{- $screen := default (dict) (dig "screen" (dict) $pw) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playwright-session-manager
+  labels:
+    app: playwright-session-manager
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: playwright-session-manager
+  template:
+    metadata:
+      labels:
+        app: playwright-session-manager
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pw.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pw.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: playwright-session-manager
+          image: {{ include "pyscraper.image" (dict "root" . "image" .Values.images.playwright.sessionManager) }}
+          {{- with $pw.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- if .Values.global.timezone }}
+            {{- include "pyscraper.timezoneEnv" . | nindent 12 }}
+            {{- end }}
+            - name: PLAYWRIGHT_HUB_WS
+              value: {{ $pw.hubWs | quote }}
+            - name: PLAYWRIGHT_SCREEN_WIDTH
+              value: {{ dig "width" 1280 $screen | quote }}
+            - name: PLAYWRIGHT_SCREEN_HEIGHT
+              value: {{ dig "height" 720 $screen | quote }}
+            {{- if $persistent }}
+            - name: SESSION_STATE_DIR
+              value: {{ dig "mountPath" "/data/sessions" $persistence | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /openapi.json
+              port: http
+            initialDelaySeconds: 3
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 12
+          {{- if $persistent }}
+          volumeMounts:
+            - name: sessions
+              mountPath: {{ dig "mountPath" "/data/sessions" $persistence | quote }}
+          {{- end }}
+          {{- with $pw.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if $persistent }}
+      volumes:
+        - name: sessions
+          persistentVolumeClaim:
+            claimName: playwright-session-states-pvc
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: playwright-session-manager
+  labels:
+    app: playwright-session-manager
+spec:
+  selector:
+    app: playwright-session-manager
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- if $persistent }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: playwright-session-states-pvc
+  labels:
+    app: playwright-session-manager
+  {{- $keep := dig "keep" true $persistence }}
+  {{- if or (kindIs "invalid" $keep) $keep }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  accessModes:
+    - {{ default "ReadWriteOnce" (dig "accessMode" "" $persistence) }}
+  resources:
+    requests:
+      storage: {{ default "1Gi" (dig "size" "" $persistence) }}
+  {{- with (dig "storageClassName" "" $persistence) }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.selenium.sessionManager.enabled }}
+{{- $se := .Values.selenium.sessionManager }}
+{{- if .Values.playwright.sessionManager.enabled }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenium-session-manager
+  labels:
+    app: selenium-session-manager
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: selenium-session-manager
+  template:
+    metadata:
+      labels:
+        app: selenium-session-manager
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $se.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $se.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: selenium-session-manager
+          image: {{ include "pyscraper.image" (dict "root" . "image" .Values.images.selenium.sessionManager) }}
+          {{- with $se.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- if .Values.global.timezone }}
+            {{- include "pyscraper.timezoneEnv" . | nindent 12 }}
+            {{- end }}
+            {{- if or $proxy.httpProxy $proxy.httpsProxy $proxy.noProxy }}
+            - name: FIXED_CHROME_EGRESS
+              value: {{ $proxy.httpsProxy | quote }}
+            {{- end }}
+            - name: SELENIUM_HUB_URL
+              value: {{ $se.hubUrl | quote }}
+            {{- with $se.chromeOptions }}
+            - name: SELENIUM_NODE_CHROME_OPTIONS
+              value: {{ . | toJson | quote }}
+            {{- end }}
+            {{- with $se.firefoxOptions }}
+            - name: SELENIUM_NODE_FIREFOX_OPTIONS
+              value: {{ . | toJson | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /openapi.json
+              port: http
+            initialDelaySeconds: 3
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 12
+          {{- with $se.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium-session-manager
+  labels:
+    app: selenium-session-manager
+spec:
+  selector:
+    app: selenium-session-manager
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- end }}

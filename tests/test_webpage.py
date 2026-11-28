@@ -652,6 +652,20 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         assert options.capabilities["grid:profile"] == "fixed-profile"
         assert options.capabilities["se:name"] == "my-session"
 
+    def test_chrome_grid_language_argument(self, selenium_driver):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
+            selenium_driver(WebPageSeleniumChrome, env, language="ja")
+        options = self._remote_options(mock_remote)
+        assert "--lang=ja" in options.arguments
+
+    def test_chrome_local_language_argument(self, selenium_driver):
+        with patch("pyscraper.webpage_selenium.webdriver.Chrome") as mock_chrome:
+            selenium_driver(WebPageSeleniumChrome, language="ja")
+        mock_chrome.assert_called_once()
+        _, kwargs = mock_chrome.call_args
+        assert "--lang=ja" in kwargs["options"].arguments
+
     def test_chrome_grid_profile_argument(self, selenium_driver):
         env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
         with patch("pyscraper.webpage_selenium.webdriver.Remote") as mock_remote:
@@ -679,6 +693,19 @@ class TestWebPageSeleniumCapabilitiesAndProfile:
         options = self._remote_options(mock_remote)
         assert "--user-data-dir=/tmp/arg-profile" in options.arguments
         assert "--user-data-dir=/tmp/env-profile" not in options.arguments
+
+    def test_chrome_grid_node_and_profile_warns(self, selenium_driver, caplog):
+        env = {"SELENIUM_CHROME_URL": "http://chrome:9515/wd/hub"}
+        with patch("pyscraper.webpage_selenium.webdriver.Remote"):
+            selenium_driver(
+                WebPageSeleniumChrome,
+                env,
+                node="chrome-profile",
+                profile="/tmp/client-profile",
+            )
+        assert any(
+            "may override the node-owned profile" in record.message for record in caplog.records
+        )
 
     def test_firefox_grid_node_capability(self, selenium_driver):
         env = {"SELENIUM_FIREFOX_URL": "http://firefox:4444/wd/hub"}

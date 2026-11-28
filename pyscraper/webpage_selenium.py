@@ -466,6 +466,7 @@ class WebPageSeleniumFirefox(WebPageSelenium):
     ``SELENIUM_FIREFOX_PROFILE`` environment variable. The ``node`` argument
     is forwarded as the ``pyscraper:node`` capability so a Selenium Grid can
     route the session to the node that hosts the matching persistent profile.
+    The ``language`` argument sets ``intl.accept_languages``.
     """
 
     DEFAULT_URL = "about:home"
@@ -543,15 +544,17 @@ class WebPageSeleniumChrome(WebPageSelenium):
     in the session request so Grid nodes can be matched by stereotype.
 
     ``capabilities`` is an arbitrary dict of extension capabilities. Keys
-    that overlap with the dedicated arguments/environment (``page_load_strategy``,
-    ``profile``) are overridden by those settings. Reserved option keys
-    such as ``goog:chromeOptions`` are not supported and must not be passed.
-    ``proxy`` cannot be set via ``capabilities``; configure it with the
-    ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` environment variables.
-    Unsupported capabilities are logged as warnings. The ``profile`` argument
-    (or its alias ``user_data_dir``) takes precedence over the legacy
-    ``SELENIUM_CHROME_PROFILE`` environment variable. The ``node`` argument is
-    forwarded as the ``pyscraper:node`` capability for Grid node routing.
+    that overlap with the dedicated arguments/environment
+    (``page_load_strategy``, ``language``, ``profile``) are overridden by those
+    settings. Reserved option keys such as ``goog:chromeOptions`` are not
+    supported and must not be passed. ``proxy`` cannot be set via
+    ``capabilities``; configure it with the ``HTTP_PROXY`` / ``HTTPS_PROXY`` /
+    ``NO_PROXY`` environment variables. Unsupported capabilities are logged as
+    warnings. The ``profile`` argument (or its alias ``user_data_dir``) takes
+    precedence over the legacy ``SELENIUM_CHROME_PROFILE`` environment
+    variable. The ``node`` argument is forwarded as the ``pyscraper:node``
+    capability for Grid node routing. The ``language`` argument adds
+    ``--lang=<language>`` to the Chrome launch options.
     """
 
     DEFAULT_URL = "chrome://new-tab-page"
@@ -568,6 +571,7 @@ class WebPageSeleniumChrome(WebPageSelenium):
         user_data_dir: str | None = None,
         capabilities: dict | None = None,
         node: str | None = None,
+        language=None,
     ):
         super().__init__(
             url,
@@ -581,6 +585,12 @@ class WebPageSeleniumChrome(WebPageSelenium):
             capabilities=capabilities,
             node=node,
         )
+        self.language = language
+
+    def _apply_dedicated_settings(self, options):
+        super()._apply_dedicated_settings(options)
+        if self.language:
+            options.add_argument(f"--lang={self.language}")
 
     def _create_driver(self):
         options = webdriver.ChromeOptions()
@@ -591,6 +601,14 @@ class WebPageSeleniumChrome(WebPageSelenium):
             options.add_argument("--start-maximized")
             profile = self.profile or os.environ.get("SELENIUM_CHROME_PROFILE")
             if profile:
+                if self.node:
+                    logger.warning(
+                        "profile= / user_data_dir= / SELENIUM_CHROME_PROFILE sends "
+                        "a client-side --user-data-dir; with node %r this may "
+                        "override the node-owned profile (if any); omit it for "
+                        "profile nodes",
+                        self.node,
+                    )
                 options.add_argument(f"--user-data-dir={profile}")
 
             self._configure_no_proxy_for_remote(url)

@@ -9,6 +9,9 @@ repos:
       - id: check-yaml
         args:
           - --allow-multiple-documents
+        # Helm templates are Go templates, not YAML; helm lint/template
+        # validates them in CI instead.
+        exclude: ^charts/.*/templates/
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: check-toml

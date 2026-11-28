@@ -15,15 +15,11 @@ ARG PLAYWRIGHT_VERSION
 ARG FASTAPI_VERSION
 ARG UVICORN_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl && \
-    rm -rf /var/lib/apt/lists/*
-
 RUN pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
     "fastapi==${FASTAPI_VERSION}" "uvicorn==${UVICORN_VERSION}"
 
 COPY servers/playwright_session_manager.py /app/session_manager.py
 
-EXPOSE 8081
+EXPOSE 8000
 
 CMD ["python", "/app/session_manager.py"]

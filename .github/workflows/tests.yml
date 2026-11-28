@@ -66,6 +66,46 @@ jobs:
         run: |
           pytest tests/ -v --cov=pyscraper --cov-report=term-missing
 
+  chart:
+    name: Validate Helm chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Helm
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.2
+
+      - name: Install yq
+        run: |
+          YQ_VERSION=v4.53.3
+          YQ_SHA256=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
+          curl -fsSL \
+            --retry 5 --retry-delay 2 --retry-max-time 60 \
+            --retry-all-errors --connect-timeout 10 \
+            -o "$RUNNER_TEMP/yq" \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $RUNNER_TEMP/yq" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/yq"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/yq" --version
+
+      - name: Validate chart
+        run: |
+          set -euo pipefail
+          helm lint charts/pyscraper
+          rm -rf /tmp/chart
+          mkdir -p /tmp/chart
+          helm package charts/pyscraper -d /tmp/chart \
+            --version 0.0.0 --app-version 0.0.0
+          helm template pyscraper /tmp/chart/pyscraper-0.0.0.tgz -n pyscraper \
+            --set console.enabled=true > /tmp/chart/rendered.yaml
+          sh scripts/check-console-config.sh /tmp/chart/rendered.yaml
+
   lint:
     name: Run linters
     runs-on: ubuntu-latest

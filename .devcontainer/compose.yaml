@@ -29,10 +29,10 @@ services:
 
     environment:
       - SELENIUM_FIREFOX_URL=http://selenium-hub:4444/wd/hub
-      - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
       - SELENIUM_CHROME_URL=http://selenium-hub:4444/wd/hub
-      - SELENIUM_CHROME_PROFILE=/tmp/chrome-profile
       - PLAYWRIGHT_CHROMIUM_URL=ws://playwright-hub:4000/ws
       - PLAYWRIGHT_FIREFOX_URL=ws://playwright-hub:4000/ws
       - PLAYWRIGHT_WEBKIT_URL=ws://playwright-hub:4000/ws
       - PLAYWRIGHT_HUB_WS_URL=ws://playwright-hub:4000/ws
+      # Profile nodes supply their profile path in the node stereotype.
+      # Pass node="chrome-profile" / node="firefox-profile" to route there.

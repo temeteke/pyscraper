@@ -1,4 +1,4 @@
-name: Publish Docker image
+name: Publish release
 
 on:
   push:
@@ -16,7 +16,7 @@ on:
 # `move_channels`, which re-resolves the tags, so builds for different refs
 # are safe to run in parallel.
 concurrency:
-  group: docker-publish-${{ github.ref }}
+  group: release-publish-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -24,8 +24,120 @@ permissions:
   packages: write
 
 jobs:
+  validate_release:
+    name: Validate release chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release
+        id: version
+        uses: ./.github/actions/resolve-release
+
+      - name: Set up Helm
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.2
+
+      - name: Install yq
+        run: |
+          YQ_VERSION=v4.53.3
+          YQ_SHA256=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
+          curl -fsSL \
+            --retry 5 --retry-delay 2 --retry-max-time 60 \
+            --retry-all-errors --connect-timeout 10 \
+            -o "$RUNNER_TEMP/yq" \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $RUNNER_TEMP/yq" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/yq"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/yq" --version
+
+      - name: Validate chart package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! grep -q "^## \[${VERSION}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no [${VERSION}] section"
+            exit 1
+          fi
+          helm lint charts/pyscraper
+          rm -rf /tmp/validated
+          mkdir -p /tmp/validated
+          helm package charts/pyscraper -d /tmp/validated \
+            --version "$VERSION" --app-version "$VERSION"
+          helm show chart "/tmp/validated/pyscraper-${VERSION}.tgz" | tee /tmp/validated/chart.txt
+          grep -Fqx "version: ${VERSION}" /tmp/validated/chart.txt
+          grep -Fqx "appVersion: ${VERSION}" /tmp/validated/chart.txt
+          pyscraper_images="console playwright.hub playwright.chromium playwright.firefox playwright.webkit playwright.sessionManager selenium.sessionManager"
+          selenium_images="selenium.hub selenium.chrome selenium.firefox"
+          for key in $pyscraper_images $selenium_images; do
+            repository="$(yq -r ".images.${key}.repository" charts/pyscraper/values.yaml)"
+            if [ -z "$repository" ] || [ "$repository" = "null" ]; then
+              echo "::error::images.${key}.repository must be set"
+              exit 1
+            fi
+          done
+          for key in $selenium_images; do
+            tag="$(yq -r ".images.${key}.tag" charts/pyscraper/values.yaml)"
+            if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+              echo "::error::images.${key}.tag must be set"
+              exit 1
+            fi
+          done
+          image_ref() {
+            key="$1"
+            tag="$2"
+            registry="$(yq -r ".images.${key}.registry" charts/pyscraper/values.yaml)"
+            repository="$(yq -r ".images.${key}.repository" charts/pyscraper/values.yaml)"
+            if [ -z "$registry" ] || [ "$registry" = "null" ]; then
+              printf '%s:%s\n' "$repository" "$tag"
+            else
+              printf '%s/%s:%s\n' "$registry" "$repository" "$tag"
+            fi
+          }
+          check_image() {
+            ref="$(image_ref "$1" "$2")"
+            if ! grep -Fq "image: ${ref}" /tmp/validated/images.yaml; then
+              echo "::error::rendered chart is missing ${ref}"
+              exit 1
+            fi
+          }
+          helm template pyscraper "/tmp/validated/pyscraper-${VERSION}.tgz" -n pyscraper > /tmp/validated/rendered.yaml
+          console_enabled="$(yq -r '.console.enabled' charts/pyscraper/values.yaml)"
+          if [ "$console_enabled" = "true" ]; then
+            sh scripts/check-console-config.sh /tmp/validated/rendered.yaml
+          fi
+          image_args=()
+          while IFS= read -r node; do
+            image_args+=(--set "nodes.${node}.enabled=true")
+          done < <(yq -r '.nodes | keys[]' charts/pyscraper/values.yaml)
+          image_args+=(
+            --set selenium.hub.enabled=true
+            --set playwright.hub.enabled=true
+            --set selenium.sessionManager.enabled=true
+            --set playwright.sessionManager.enabled=true
+          )
+          helm template pyscraper "/tmp/validated/pyscraper-${VERSION}.tgz" -n pyscraper \
+            "${image_args[@]}" > /tmp/validated/images.yaml
+          for key in $pyscraper_images; do
+            if [ "$key" = "console" ] && [ "$console_enabled" != "true" ]; then
+              continue
+            fi
+            check_image "$key" "$VERSION"
+          done
+          for key in $selenium_images; do
+            check_image "$key" "$(yq -r ".images.${key}.tag" charts/pyscraper/values.yaml)"
+          done
+
   push_to_registry:
     name: Push Docker image to Docker Hub and GHCR
+    needs: validate_release
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -105,6 +217,7 @@ jobs:
 
   push_playwright_images:
     name: Push browser and console images to Docker Hub and GHCR
+    needs: validate_release
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # actions/cache (type=gha) needs write for cache save; scoped to this
@@ -220,7 +333,7 @@ jobs:
     # images took to build. Re-resolving the tags below makes a late run of an
     # older release a no-op instead of a rollback.
     concurrency:
-      group: docker-publish-channels
+      group: release-publish-channels
       cancel-in-progress: false
     steps:
       - name: Check out the repo
@@ -329,3 +442,47 @@ jobs:
               done
             done
           done
+
+  publish_charts:
+    name: Publish Helm chart to GHCR
+    # Charts are part of the same release: publish them only after every image
+    # and the latest / X.Y aliases succeeded.
+    needs: [push_to_registry, push_playwright_images, move_channels]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release
+        id: version
+        uses: ./.github/actions/resolve-release
+
+      - name: Set up Helm
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.3.2
+
+      - name: Log in to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GHCR_USER" --password-stdin
+
+      - name: Publish pyscraper chart
+        env:
+          REPOSITORY: oci://ghcr.io/temeteke/charts
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if helm show chart "$REPOSITORY/pyscraper" --version "$VERSION" >/dev/null 2>&1; then
+            echo "pyscraper ${VERSION} is already published; skipping"
+            exit 0
+          fi
+          helm lint charts/pyscraper
+          rm -rf dist
+          helm package charts/pyscraper -d dist \
+            --version "$VERSION" --app-version "$VERSION"
+          helm push "dist/pyscraper-${VERSION}.tgz" "$REPOSITORY"

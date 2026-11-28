@@ -77,10 +77,10 @@ run without them is expected to show a few skips:
 
 - `yq` (YAML -> JSON) and `jq` (`console/generate.jq`) for the
   entrypoint/rendering tests. `.github/workflows/tests.yml` installs the
-  pinned `yq` and `jq`.
+  pinned `yq`; `jq` is installed if missing (not pinned).
 - `nginx` for the generated-config syntax check
-  (`TestNginxSyntax`). CI installs nginx; without it those syntax checks
-  are skipped locally.
+  (`TestNginxSyntax`). CI installs nginx if missing (not pinned); without it
+  those syntax checks are skipped locally.
 
 ### UI tests and their limits
 
@@ -187,6 +187,9 @@ git commit -m "..."
 
 **Executed tests:**
 - ✅ Unit tests (see counts via `collect-only`)
+- ✅ Helm chart lint/package/template (the `chart` job)
+- ✅ Console config validation through `console/generate.jq`
+  (`scripts/check-console-config.sh`)
 - ❌ Integration tests (excluded)
 
 ### After Main Branch Merge

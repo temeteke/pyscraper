@@ -18,7 +18,6 @@ SM_PATH = Path(__file__).resolve().parent.parent / "servers" / "selenium_session
 
 def _load_sm(monkeypatch, tmp_path, env=None):
     for key in (
-        "SELENIUM_SESSION_MANAGER_PORT",
         "SELENIUM_HUB_URL",
         "SELENIUM_REQUEST_TIMEOUT",
         "SELENIUM_NODE_CHROME_OPTIONS",
@@ -541,10 +540,6 @@ class TestSeleniumSessions:
             headers={"Content-Type": "application/json"},
         )
         assert r.status_code == 422
-
-    def test_open_port_out_of_range_falls_back(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path, env={"SELENIUM_SESSION_MANAGER_PORT": "99999"})
-        assert sm.PORT == 8082
 
     def test_request_read_capped(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)

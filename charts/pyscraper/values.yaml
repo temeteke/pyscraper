@@ -1,0 +1,364 @@
+global:
+  # Empty means no TZ env; the container image default applies. Set a valid
+  # IANA timezone name to apply one timezone to all application containers.
+  timezone: ""
+  # Kubernetes cluster DNS domain used for Service FQDNs.
+  clusterDomain: cluster.local
+  proxy:
+    # Rendered directly into the relevant Pod env. All three are optional, but
+    # setting any proxy value requires httpProxy and httpsProxy. Proxy URLs may
+    # contain credentials and are visible in the Deployment; keep secrets out
+    # of values. Authenticated proxy support is not included in the chart.
+    httpProxy: ""
+    httpsProxy: ""
+    noProxy: ""
+  imagePullSecrets: []
+
+images:
+  # Images are grouped by component. Every leaf has registry, repository, and
+  # tag. registry is the registry host (empty means Docker Hub); repository
+  # includes any namespace. An empty tag on a pyscraper image uses the chart
+  # appVersion, which the release workflow sets to the release tag. Upstream
+  # Selenium images require an explicit tag.
+  selenium:
+    # Upstream Selenium images are independent of the pyscraper release tag,
+    # so their tags are explicit.
+    hub:
+      registry: ""
+      repository: selenium/hub
+      tag: "4.52.0"
+    chrome:
+      registry: ""
+      repository: selenium/node-chrome
+      tag: "4.52.0"
+    firefox:
+      registry: ""
+      repository: selenium/node-firefox
+      tag: "4.52.0"
+    # Built by the pyscraper release; an empty tag follows appVersion.
+    sessionManager:
+      registry: ""
+      repository: temeteke/pyscraper-selenium-session-manager
+      tag: ""
+
+  playwright:
+    hub:
+      registry: ""
+      repository: temeteke/pyscraper-playwright-hub
+      tag: ""
+    chromium:
+      registry: ""
+      repository: temeteke/pyscraper-playwright-chromium
+      tag: ""
+    firefox:
+      registry: ""
+      repository: temeteke/pyscraper-playwright-firefox
+      tag: ""
+    webkit:
+      registry: ""
+      repository: temeteke/pyscraper-playwright-webkit
+      tag: ""
+    sessionManager:
+      registry: ""
+      repository: temeteke/pyscraper-playwright-session-manager
+      tag: ""
+
+  console:
+    registry: ""
+    repository: temeteke/pyscraper-console
+    tag: ""
+
+selenium:
+  hub:
+    enabled: true
+    readinessProbe:
+      initialDelaySeconds: 5
+      timeoutSeconds: 5
+    resources: {}
+    nodeSelector: {}
+    podSecurityContext: {}
+    securityContext: {}
+  sessionManager:
+    enabled: true
+    hubUrl: http://selenium-hub:4444/wd/hub
+    # Per-node Chrome launch options, keyed by the Selenium node value.
+    # Example: {"default": {"args": ["--lang=en-US"]}}
+    # The node stereotype supplies the persistent profile path; add
+    # "--proxy-server=$(FIXED_CHROME_EGRESS)" when global.proxy is configured.
+    chromeOptions: {}
+    # Per-node Firefox launch options, keyed by the Selenium node value.
+    # Example: {"default": {"prefs": {"intl.accept_languages": "en-US"}}}
+    firefoxOptions: {}
+    resources: {}
+    nodeSelector: {}
+    podSecurityContext: {}
+    securityContext: {}
+
+playwright:
+  hub:
+    enabled: true
+    registration:
+      # Keep at least 3x the node registration interval. Integer seconds.
+      nodeTTLSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 5
+      timeoutSeconds: 3
+    resources: {}
+    nodeSelector: {}
+    podSecurityContext: {}
+    securityContext: {}
+  sessionManager:
+    enabled: true
+    hubWs: ws://playwright-hub:4000/ws
+    screen:
+      # Keep equal to the Playwright nodes' screen size.
+      width: 1280
+      height: 720
+    persistence:
+      # Saved storage states live in the container and are lost on Pod
+      # restart unless this is enabled.
+      enabled: false
+      size: 1Gi
+      accessMode: ReadWriteOnce
+      storageClassName: ""
+      keep: true
+      mountPath: /data/sessions
+    resources: {}
+    nodeSelector: {}
+    podSecurityContext: {}
+    securityContext: {}
+
+console:
+  enabled: true
+  replicas: 1
+  # Empty or /segment[/segment...].
+  basePath: ""
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    # Set the Ingress host for a host-based rule; empty matches all hosts.
+    # path defaults to "/". The chart passes these through; Kubernetes
+    # validates the Ingress API fields. The console has no built-in
+    # authentication.
+    host: ""
+    path: /
+    pathType: Prefix
+    tls: []
+  # Empty uses the container's /etc/resolv.conf (cluster DNS).
+  resolver: ""
+  # Empty uses .<release namespace>.svc.<global.clusterDomain>. Include the
+  # leading dot. Override for a custom DNS setup.
+  upstreamSuffix: ""
+  # Optional overrides for the console's native `ui` schema (snake_case),
+  # for example group_by: framework. Unset uses the console defaults.
+  ui: {}
+  # Root Playwright context options. Nested keys use Playwright's native names
+  # (for example timezone_id and color_scheme). Per-node console.contextOptions
+  # are sent as target overrides and merged shallowly by the console (nested
+  # values are replaced as a whole). A viewport override must contain only
+  # width and height, both positive integers.
+  contextOptions: {}
+  resources: {}
+  nodeSelector: {}
+  podSecurityContext: {}
+  securityContext: {}
+
+# Browser nodes. The map key is the node identity: it is used as the
+# Kubernetes Deployment/Service name, the PVC base name, and the console
+# target id. Use a DNS-1035 label (lowercase alphanumeric and "-", start with
+# a letter, end alphanumeric). The chart rejects reserved chart names
+# (console, selenium-hub, playwright-hub, selenium-session-manager,
+# playwright-session-manager, playwright-session-states) but does not check
+# key format or length; Kubernetes rejects invalid resource names on apply.
+# Renaming a key renames the resources and does not move persistent PVC data.
+#
+#   node: pyscraper:node value (default: map key)
+#   maxSessions: Selenium sessions per node (default 4); persistent nodes
+#     require 1
+#   screen.width / height: Xvfb size (default 1280x720)
+#   shm.sizeLimit: /dev/shm size (default 2Gi)
+#   readinessProbe.initialDelaySeconds / timeoutSeconds: Playwright only
+#     (default 60; the stock firefox/webkit nodes set 90/120; timeout default 3)
+#   registration.intervalSeconds: Playwright only (default 10; keep
+#     playwright.hub.registration.nodeTTLSeconds at least 3x this value)
+#   persistence.mountPath: default /tmp/<key>-profile
+#   console.label / console.group: display overrides (group defaults to browser)
+#   console.contextOptions: Playwright-only target overrides
+#   console.storageState: false to disable; unset/true auto-generates one state
+#     from the target id and label (Playwright only)
+#
+# Selenium nodes:
+#   browser: chrome | firefox
+#   persistence.enabled: true mounts a PVC and adds the matching
+#     --user-data-dir / -profile to the node stereotype. Clients must not also
+#     set SELENIUM_*_PROFILE for that node. Requires podSecurityContext.fsGroup
+#     (1201 for the stock images) and a storage class that supports fsGroup;
+#     hostPath/local-path storage does not.
+# Playwright nodes:
+#   browser: chromium | firefox | webkit
+#   Persistence is handled by playwright.sessionManager.persistence, not by
+#   the browser node.
+nodes:
+  selenium-chrome:
+    enabled: true
+    framework: selenium
+    browser: chrome
+    node: default
+    maxSessions: 4
+    screen:
+      width: 1280
+      height: 720
+    shm:
+      sizeLimit: 2Gi
+    persistence:
+      enabled: false
+    nodeSelector: {}
+    resources: {}
+    podSecurityContext: {}
+    securityContext: {}
+    console:
+      label: Chrome (Selenium)
+
+  # Disabled by default. Enable and provide an fsGroup-capable storage class
+  # to use a persistent profile.
+  selenium-chrome-profile:
+    enabled: false
+    framework: selenium
+    browser: chrome
+    node: chrome-profile
+    maxSessions: 1
+    screen:
+      width: 1280
+      height: 720
+    shm:
+      sizeLimit: 2Gi
+    persistence:
+      enabled: true
+      size: 1Gi
+      accessMode: ReadWriteOnce
+      storageClassName: ""
+      keep: true
+      mountPath: /tmp/chrome-profile
+    nodeSelector: {}
+    resources: {}
+    podSecurityContext:
+      fsGroup: 1201
+      fsGroupChangePolicy: OnRootMismatch
+    securityContext: {}
+    console:
+      label: Chrome (profile)
+
+  selenium-firefox:
+    enabled: true
+    framework: selenium
+    browser: firefox
+    node: default
+    maxSessions: 4
+    screen:
+      width: 1280
+      height: 720
+    shm:
+      sizeLimit: 2Gi
+    persistence:
+      enabled: false
+    nodeSelector: {}
+    resources: {}
+    podSecurityContext: {}
+    securityContext: {}
+    console:
+      label: Firefox (Selenium)
+
+  # Disabled by default. Enable and provide an fsGroup-capable storage class
+  # to use a persistent profile.
+  selenium-firefox-profile:
+    enabled: false
+    framework: selenium
+    browser: firefox
+    node: firefox-profile
+    maxSessions: 1
+    screen:
+      width: 1280
+      height: 720
+    shm:
+      sizeLimit: 2Gi
+    persistence:
+      enabled: true
+      size: 16Gi
+      accessMode: ReadWriteOnce
+      storageClassName: ""
+      keep: true
+      mountPath: /tmp/firefox-profile
+    nodeSelector: {}
+    resources: {}
+    podSecurityContext:
+      fsGroup: 1201
+      fsGroupChangePolicy: OnRootMismatch
+    securityContext: {}
+    console:
+      label: Firefox (profile)
+
+  playwright-chromium:
+    enabled: true
+    framework: playwright
+    browser: chromium
+    readinessProbe:
+      initialDelaySeconds: 60
+      timeoutSeconds: 3
+    registration:
+      intervalSeconds: 10
+    screen:
+      width: 1280
+      height: 720
+    shm:
+      sizeLimit: 2Gi
+    nodeSelector: {}
+    resources: {}
+    podSecurityContext: {}
+    securityContext: {}
+    console:
+      label: Chromium (Playwright)
+
+  playwright-firefox:
+    enabled: true
+    framework: playwright
+    browser: firefox
+    readinessProbe:
+      initialDelaySeconds: 90
+      timeoutSeconds: 3
+    registration:
+      intervalSeconds: 10
+    screen:
+      width: 1280
+      height: 720
+    shm:
+      sizeLimit: 2Gi
+    nodeSelector: {}
+    resources: {}
+    podSecurityContext: {}
+    securityContext: {}
+    console:
+      label: Firefox (Playwright)
+
+  playwright-webkit:
+    enabled: true
+    framework: playwright
+    browser: webkit
+    readinessProbe:
+      initialDelaySeconds: 120
+      timeoutSeconds: 3
+    registration:
+      intervalSeconds: 10
+    screen:
+      width: 1280
+      height: 720
+    shm:
+      sizeLimit: 2Gi
+    # The published WebKit image is amd64-only.
+    nodeSelector:
+      kubernetes.io/arch: amd64
+    resources: {}
+    podSecurityContext: {}
+    securityContext: {}
+    console:
+      label: WebKit (Playwright)

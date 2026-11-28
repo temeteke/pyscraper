@@ -24,6 +24,31 @@ with WebPageSeleniumFirefox(
 The `node` value is forwarded as the `pyscraper:node` Grid capability so
 the distributor routes the session to the matching node stereotype.
 
+The Compose profile nodes also supply their profile path in the node
+stereotype. Pass `node="chrome-profile"` / `node="firefox-profile"` and do not
+set `SELENIUM_CHROME_PROFILE` / `SELENIUM_FIREFOX_PROFILE` for those sessions.
+A direct client that does not need a profile should pass `node="default"`;
+otherwise Grid may select either the default or a profile node.
+
+Set `language=` to request a browser language. Firefox applies it to
+`intl.accept_languages`; Chrome adds `--lang=<language>`:
+
+```python
+from pyscraper import WebPageSeleniumChrome, WebPageSeleniumFirefox
+
+with WebPageSeleniumFirefox(
+    "https://example.com",
+    language="en-US",
+) as web_page:
+    ...
+
+with WebPageSeleniumChrome(
+    "https://example.com",
+    language="en-US",
+) as web_page:
+    ...
+```
+
 Any additional extension capability can also be passed via the
 `capabilities` argument for custom Grid stereotypes:
 
@@ -51,7 +76,10 @@ Notes:
 - `profile` selects the browser profile directory (Firefox uses `-profile`,
   Chrome uses `--user-data-dir`). It takes precedence over the legacy
   `SELENIUM_FIREFOX_PROFILE` / `SELENIUM_CHROME_PROFILE` environment
-  variables.
+  variables. For Chrome Grid sessions, `profile=` /
+  `user_data_dir=` / `SELENIUM_CHROME_PROFILE` adds a client-side
+  `--user-data-dir`; with `node=` this may override the node-owned profile
+  (if any). Omit them for profile nodes.
 - `capabilities` and `node` are ignored during local (non-Grid) execution.
 
 ## Playwright Hub
@@ -125,6 +153,14 @@ and proxy env (`HTTPS_PROXY`/`HTTP_PROXY`) are set, the env wins.
 `storage_state` is ignored with a warning for local persistent contexts
 (`profile=`/`user_data_dir=`).
 
+```python
+with WebPagePlaywrightChromium(
+    "https://example.com",
+    context_options={"locale": "en-US"},
+) as web_page:
+    ...
+```
+
 ### Remote browsers via the Hub
 
 Two-port Hub: `4000` = websocket relay, `4001` = HTTP node registry at
@@ -142,7 +178,7 @@ works:
   browser is launched locally (no Hub).
 - The `node=` argument selects a node by name (taken as-is, even if its
   browser differs -- the name is the explicit routing request, e.g. the
-  Selenium `chromium-profile` stereotype is unrelated to the removed
+  Selenium `chrome-profile` stereotype is unrelated to the removed
   Playwright `chromium-profile` service); when omitted the Hub selects a
   node whose `browser` matches the client.
 - Fail-closed routing: a missing header, invalid JSON, an unknown
@@ -185,9 +221,8 @@ works:
   the native window size (the manager passes `no_viewport` unless an
   emulated viewport is configured); Firefox and WebKit get a
   reduced-height default viewport computed from the desktop size so
-  their outer windows land on the desktop. `--start-maximized` is
-  deliberately not used anywhere
-  because bare Xvfb has no window manager to honor it.
+  their outer windows land on the desktop. The Playwright node does not use
+  `--start-maximized` because bare Xvfb has no window manager to honor it.
   This is the window size, not the page size: use `context_options`
   `viewport` (per console target or per client call) for the rendered
   page size.
@@ -205,7 +240,9 @@ Headed Playwright browsers run under Xvfb with x11vnc + noVNC bundled in
 every node image; the Selenium nodes ship their own noVNC on the same
 port. A single `console` service (dedicated `Dockerfile.console` image,
 published as `temeteke/pyscraper-console`) is the unified entry point
-at `http://pyscraper.localhost/`. The console is registry-driven: at start
+at `http://pyscraper.localhost/`. The Kubernetes chart deploys the same
+image and generates its target registry from the chart's `nodes` values.
+The console is registry-driven: at start
 `console/entrypoint.sh` reads the target registry (`console/config.yaml`),
 validates it, and renders the nginx config and the UI's target list from
 it, resolving the DNS resolver from `/etc/resolv.conf` so the same image
@@ -221,12 +258,13 @@ adapts to its runtime environment (see
 - `/view/<id>` -- full-size view (`<id>` is the target id, e.g.
   `selenium-chrome` or `playwright-chromium`).
 - `/vnc/<id>/` -- raw noVNC page for that target. The default registry maps
-  the five compose browsers (`playwright-chromium`, `playwright-firefox`,
-  `playwright-webkit`, `selenium-chrome`, `selenium-firefox`). The
+  the seven compose browsers (`playwright-chromium`, `playwright-firefox`,
+  `playwright-webkit`, `selenium-chrome`, `selenium-chrome-profile`,
+  `selenium-firefox`, `selenium-firefox-profile`). The
   Selenium desktop is always visible; the browser appears once a Grid
   session starts. Password authentication is disabled on the nodes
   (`SE_VNC_NO_PASSWORD=true`). Selenium desktop size comes from
-  `SCREEN_WIDTH` / `SCREEN_HEIGHT` (`1280`/`720` in `compose.yaml` to
+  `SE_SCREEN_WIDTH` / `SE_SCREEN_HEIGHT` (`1280`/`720` in `compose.yaml` to
   match the default 16:9 console tiles). The trailing slash matters (noVNC resolves
   its assets relative to the page URL); `/vnc/<id>` without it is
   `301`-redirected to `/vnc/<id>/` by an explicit generated exact location.
@@ -268,6 +306,11 @@ If no URL is given, the session opens on a blank page (Chrome shows
       ...  # resolve the challenge in the console meanwhile
       wp.save_storage_state("state.json")
   ```
+
+  The `node` value above is the Compose Playwright node name
+  (`PLAYWRIGHT_NODE_NAME`, e.g. `chromium`), not the Compose service name.
+  In the Helm chart it is the `nodes` map key, for example
+  `playwright-chromium`.
 
   Next time, load `storage_state="state.json"` to reuse the session.
 - Selenium: sessions always open on a blank page or the given URL (no
@@ -341,9 +384,12 @@ pyscraper client code:
   (`browserName` plus the optional `pyscraper:node` stereotype). Scope:
   matching browser plus a node listed in the map; other nodes, nodeless
   sessions, and the other browser are unaffected, and `pyscraper:node`
-  routing is preserved. Firefox value-taking flags split across two tokens
-  (e.g. `-width 1280`) are not supported: every arg must carry its own
-  `-` prefix, so use the window maximize step instead for geometry.
+  routing is preserved. In Compose, the Selenium console targets
+  set `node: default` for the default nodes and `node: chrome-profile` /
+  `node: firefox-profile` for the profile nodes, so these node-keyed options
+  apply to console sessions. Firefox value-taking flags split across
+  two tokens (e.g. `-width 1280`) are not supported: every arg must carry
+  its own `-` prefix, so use the window maximize step instead for geometry.
   `--profile-directory` (a subdirectory selector inside the fixed
   user-data-dir) is allowed; picking another subdirectory changes what
   gets persisted. Merging: exact-duplicate entries are deduped
@@ -365,8 +411,8 @@ pyscraper client code:
   traffic (create/maximize/navigate/close) bypasses proxy env via a
   `ProxyHandler({})` opener, and the manager never sends a `proxy`
   capability. Restart the manager to apply, e.g.
-  `SELENIUM_NODE_CHROME_OPTIONS='{"chromium-profile": {"args":
-  ["--disable-blink-features=AutomationControlled", "--lang=ja-JP",
+  `SELENIUM_NODE_CHROME_OPTIONS='{"chrome-profile": {"args":
+  ["--disable-blink-features=AutomationControlled",
   "--proxy-server=http://proxy.example:3128"], "excludeSwitches":
   ["enable-automation"]}}' (commented example in `compose.yaml`; not
   enabled by default).
@@ -465,7 +511,7 @@ pyscraper client code:
   (default `30`s per Grid REST call; open issues up to 4 calls --
   create, maximize, navigate, compensating close -- so ~`120`s worst
   case, still well under the nginx `150`s above).
-- Invalid numeric env values (including non-positive timeouts/ports)
+- Invalid numeric env values (including non-positive timeouts)
   fall back to defaults with a warning on stderr (managers, Hub); the
   node fails fast with an explicit error. Lifecycle messages
   (listening, node registration) go to stdout; warnings and
@@ -488,8 +534,10 @@ and renders the nginx config and the UI's target list from it, and reads
 `/etc/resolv.conf` to pick the nginx `resolver`, so the same image adapts
 to the environment the container runs in (Docker's embedded DNS, an
 internal resolver, etc.). Upstreams are addressed by short service name by
-default; set `CONSOLE_UPSTREAM_SUFFIX` when short names do not resolve and
-a domain suffix must be appended.
+default; Compose relies on Docker DNS. The Helm chart sets
+`CONSOLE_UPSTREAM_SUFFIX` to `.<namespace>.svc.<clusterDomain>` because nginx
+does not use search domains. Set `CONSOLE_UPSTREAM_SUFFIX` explicitly for
+other platforms.
 
 The registry lives at `/etc/console/config.yaml` (YAML; `/etc/console/`
 holds only this file, so a directory mount is safe). Override the path with
@@ -503,25 +551,35 @@ ui:
   tile_aspect: "16:9"    # 4:3 | 16:9 | 16:10 | 5:4
 
 context_options:         # optional Playwright defaults (root level)
-  locale: ja-JP
-  timezone_id: Asia/Tokyo
+  locale: en-US
+  timezone_id: UTC
   viewport: { width: 1280, height: 1024 }
 
 targets:
   - id: selenium-chrome              # URL/UI key (unique, ^[a-z0-9-]+$, <=63 chars)
-    label: Chrome (Selenium)         # shown in the UI (default: id)
+    label: Chrome (default)          # shown in the UI (default: id)
     framework: selenium              # playwright | selenium
     browser: selenium-chrome         # known enum, must match framework
-    # node: chromium-profile         # optional node routing
+    node: default                    # optional node routing
     # group: chrome                  # optional (ui.group_by: group)
     novnc:
-      host: selenium-chrome-node     # noVNC upstream (without the suffix; default: id)
+      host: selenium-chrome          # noVNC upstream (without the suffix; default: id)
       port: 7900                     # default 7900
+
+  - id: selenium-chrome-profile
+    label: Chrome (profile)
+    framework: selenium
+    browser: selenium-chrome
+    node: chrome-profile
+    novnc:
+      host: selenium-chrome-profile
+      port: 7900
 
   - id: playwright-chromium
     label: Chromium (Playwright)
     framework: playwright
     browser: playwright-chromium
+    node: chromium
     context_options:                 # key-wise override of the root defaults
       viewport: { width: 1440, height: 900 }
     storage_state:                   # presence enables the state selector
@@ -536,17 +594,18 @@ The console validates the registry at start (unique ids and
 shape, context options, ...) and refuses to start on any problem, printing
 the offending target and reason. `framework` selects the session manager
 and the `/api/<framework>/` namespace; `browser` is the target passed to it
-(and re-validated by the manager). The default registry wires the five
-compose browsers; Selenium profile nodes are not enabled by default (see
-the example in `console/config.yaml`).
+(and re-validated by the manager). The default registry wires the seven
+compose browsers; the Helm chart disables its Selenium profile nodes by
+default.
 
 `ui.columns` is `auto` (a responsive grid whose tile minimum width comes
 from `ui.tile_min_width`) or an integer 1-12; `ui.group_by` is `none`,
 `framework`, or `group` (targets without a group fall back to their
 framework); `ui.tile_min_width` is an integer 160-1920 (px, default 560);
 `ui.tile_aspect` is one of `4:3`, `16:9`, `16:10`, `5:4` (default `16:9`).
-All four are optional. Remote desktops are 5:4/4:3, so 16:9 tiles show side
-letterbox bars; the noVNC stream itself always scales to fit.
+All four are optional. The default desktops are 16:9 (1280x720), matching
+the default tiles; a 5:4/4:3 desktop shows side letterbox bars. The noVNC
+stream itself always scales to fit.
 
 `context_options` is Playwright-only and optional. Allowed keys: `locale`,
 `timezone_id`, `viewport` (`{width, height}` positive integers),
@@ -578,7 +637,8 @@ Environment variables:
 | `CONSOLE_CONFIG_FILE` | `/etc/console/config.yaml` | target registry (YAML) |
 | `CONSOLE_BASE_PATH` | empty (root) | serve the console under a path prefix (e.g. `/console`); `/` then `308`-redirects to it |
 | `CONSOLE_RESOLVER` | first `nameserver` in `/etc/resolv.conf` | nginx `resolver` |
-| `CONSOLE_UPSTREAM_SUFFIX` | empty (short service names) | FQDN suffix appended to the registry noVNC hosts and the session-manager names |
+| `CONSOLE_UPSTREAM_SUFFIX` | empty (short service names; Helm sets `.<namespace>.svc.<clusterDomain>`) | FQDN suffix appended to the registry noVNC hosts and the session-manager names |
+| `CONSOLE_SESSION_PORT` | `8000` | session-manager upstream port (the Helm chart exposes the Services on `80`) |
 | `CONSOLE_PW_SESSION` | `playwright-session-manager` | `/api/playwright/*` (incl. `states`) |
 | `CONSOLE_SE_SESSION` | `selenium-session-manager` | `/api/selenium/*` |
 
@@ -595,7 +655,9 @@ written beforehand).
 An explicit `CONSOLE_UPSTREAM_SUFFIX` is applied verbatim (for example
 `.example.internal`), so a deployment can pin the exact FQDN suffix it
 needs. It is never derived from `/etc/resolv.conf` search domains, which
-would break short service names on Docker's embedded DNS.
+would break short service names on Docker's embedded DNS. For the Helm
+chart's namespace/domain defaults, see
+[kubernetes.md](kubernetes.md#console-dns-and-upstreams).
 `CONSOLE_PW_SESSION`, `CONSOLE_SE_SESSION`, and registry `novnc.host`
 values must match `[A-Za-z0-9._-]+` and be resolvable by the environment's
 DNS (underscores are accepted for compose service names, but strict DNS
@@ -639,12 +701,24 @@ use `http://pyscraper.dev.localhost/` with a distinct local hostname namespace. 
 Playwright Hub ports are intentionally not published to the host; add a
 local override only in environments that require direct host access.
 
+Selenium profile volumes are named volumes. On first mount Docker creates
+them root-owned; the one-shot `profile-volumes-init` service runs on each
+`docker compose up`, checks the volume root ownership, and chowns them to
+`1200:1201` only when needed before the profile nodes start. Nested
+root-owned files require a one-time manual `chown -R`. An `exited (0)`
+status for that service is expected.
+
+For Kubernetes, use the Helm chart in `charts/pyscraper`; see
+[kubernetes.md](kubernetes.md).
+
 ### Quick start (pull prebuilt images)
 
 Prebuilt images are published to Docker Hub and GHCR by
-`.github/workflows/docker.yml` when a `vX.Y.Z` tag is pushed (e.g. `v1.2.1`);
-tags whose commit is not on the default branch are rejected. Publishing is
-two-phase: the build jobs push only the immutable `X.Y.Z` tags, and a final
+`.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed (e.g. `v1.2.1`);
+the same run publishes the Helm chart (including the console and both session
+managers) after every image and channel move;
+tags whose commit is not on the default branch are rejected. Image publishing
+is two-phase: the build jobs push only the immutable `X.Y.Z` tags, and a final
 job aliases `latest` (newest release overall) and `X.Y` (newest release of
 that minor line) once every image has published. A failed build job therefore
 leaves the channels untouched; a failure while aliasing can leave them split
@@ -676,7 +750,8 @@ Tag semantics:
   release succeeds.
 - `X.Y` and `latest` are moving channels that move forward only: `X.Y` points
   at the newest release of that minor line, `latest` at the newest release
-  overall. A tag that is not the newest never moves them. This assumes the
+  overall. A tag that is not the newest overall moves `X.Y` only if it is the
+  newest release of that minor; otherwise it moves neither. This assumes the
   tagged commit contains the current workflow: a tag on an older commit runs
   that commit's workflow, which may move `latest` unconditionally.
 - Do not re-push or move a release tag. The images it produced are already

@@ -12,8 +12,8 @@
 #   ui.tile_min_width  tile minimum width in px (integer 160-1920,
 #                      default 560).
 #   ui.tile_aspect     tile aspect ratio 4:3 | 16:9 | 16:10 | 5:4
-#                      (default 16:9). Remote desktops are 5:4/4:3, so 16:9
-#                      tiles show side letterbox bars.
+#                      (default 16:9). Default desktops are 16:9 (1280x720),
+#                      matching the default tiles; other sizes may letterbox.
 #
 # Context options (optional, Playwright only):
 #   Root-level context_options are the defaults for every Playwright target;
@@ -34,7 +34,8 @@
 #                  (playwright-chromium | playwright-firefox | playwright-webkit
 #                  | selenium-chrome | selenium-firefox).
 #   node           Optional node routing: the Hub node name (playwright) or
-#                  the pyscraper:node stereotype (selenium). Omit for the
+#                  the pyscraper:node value (selenium). Omit to let the
+#                  Hub/Grid choose; for Selenium set `default` to target the
 #                  default node.
 #   group          Optional group name for ui.group_by: group (defaults to
 #                  the framework).
@@ -56,15 +57,9 @@
 #   <base>/view/<id>   full-size view
 #   <base>/vnc/<id>/   raw noVNC page
 #
-# The default entries assume the compose service names. Selenium profile
-# nodes are not enabled by default; to route to them, add e.g.:
-#
-#   - id: selenium-chrome-profile
-#     label: Chrome (profile)
-#     framework: selenium
-#     browser: selenium-chrome
-#     node: chromium-profile
-#     novnc: { host: selenium-chrome-node, port: 7900 }
+# The default `novnc.host` values assume the compose service names. To expose
+# an additional Selenium node variant, add a target with a unique id and
+# matching node/novnc.host values.
 ui:
   columns: auto
   group_by: none
@@ -73,25 +68,46 @@ ui:
 
 targets:
   - id: selenium-chrome
-    label: Chrome (Selenium)
+    label: Chrome (default)
     framework: selenium
     browser: selenium-chrome
+    node: default
     novnc:
-      host: selenium-chrome-node
+      host: selenium-chrome
+      port: 7900
+
+  - id: selenium-chrome-profile
+    label: Chrome (profile)
+    framework: selenium
+    browser: selenium-chrome
+    node: chrome-profile
+    novnc:
+      host: selenium-chrome-profile
       port: 7900
 
   - id: selenium-firefox
-    label: Firefox (Selenium)
+    label: Firefox (default)
     framework: selenium
     browser: selenium-firefox
+    node: default
     novnc:
-      host: selenium-firefox-node
+      host: selenium-firefox
+      port: 7900
+
+  - id: selenium-firefox-profile
+    label: Firefox (profile)
+    framework: selenium
+    browser: selenium-firefox
+    node: firefox-profile
+    novnc:
+      host: selenium-firefox-profile
       port: 7900
 
   - id: playwright-chromium
     label: Chromium (Playwright)
     framework: playwright
     browser: playwright-chromium
+    node: chromium
     storage_state:
       states:
         - id: chromium
@@ -100,6 +116,7 @@ targets:
     label: Firefox (Playwright)
     framework: playwright
     browser: playwright-firefox
+    node: firefox
     storage_state:
       states:
         - id: firefox
@@ -108,6 +125,7 @@ targets:
     label: WebKit (Playwright)
     framework: playwright
     browser: playwright-webkit
+    node: webkit
     storage_state:
       states:
         - id: webkit

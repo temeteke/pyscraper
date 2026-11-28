@@ -1,0 +1,125 @@
+{{- range $key, $node := .Values.nodes }}
+{{- $node := default (dict) $node }}
+{{- $enabled := dig "enabled" true $node }}
+{{- if and (or (kindIs "invalid" $enabled) $enabled) (eq (dig "framework" "" $node) "playwright") }}
+{{- $name := $key }}
+{{- $proxy := default (dict) $.Values.global.proxy }}
+{{- $browser := dig "browser" "" $node }}
+{{- $screen := default (dict) (dig "screen" (dict) $node) }}
+{{- $readinessProbe := default (dict) (dig "readinessProbe" (dict) $node) }}
+{{- $registration := default (dict) (dig "registration" (dict) $node) }}
+{{- $shm := default (dict) (dig "shm" (dict) $node) }}
+{{- $image := $.Values.images.playwright.chromium }}
+{{- if eq $browser "firefox" }}{{ $image = $.Values.images.playwright.firefox }}
+{{- else if eq $browser "webkit" }}{{ $image = $.Values.images.playwright.webkit }}{{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (dig "podSecurityContext" (dict) $node) }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (dig "nodeSelector" (dict) $node) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $browser }}
+          image: {{ include "pyscraper.image" (dict "root" $ "image" $image) }}
+          {{- with (dig "securityContext" (dict) $node) }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- if $.Values.global.timezone }}
+            {{- include "pyscraper.timezoneEnv" $ | nindent 12 }}
+            {{- end }}
+            {{- if or $proxy.httpProxy $proxy.httpsProxy $proxy.noProxy }}
+            {{- include "pyscraper.proxyEnv" $ | nindent 12 }}
+            {{- end }}
+            - name: PLAYWRIGHT_BROWSER
+              value: {{ $browser | quote }}
+            - name: PLAYWRIGHT_PORT
+              value: "3000"
+            - name: PLAYWRIGHT_NODE_NAME
+              value: {{ $name | quote }}
+            - name: PLAYWRIGHT_ADVERTISE_HOST
+              value: {{ $name | quote }}
+            - name: PLAYWRIGHT_HUB_URL
+              value: http://playwright-hub:4001
+            {{- with (dig "intervalSeconds" 10 $registration) }}
+            - name: PLAYWRIGHT_HUB_REGISTER_INTERVAL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: PLAYWRIGHT_SCREEN_WIDTH
+              value: {{ dig "width" 1280 $screen | quote }}
+            - name: PLAYWRIGHT_SCREEN_HEIGHT
+              value: {{ dig "height" 720 $screen | quote }}
+          ports:
+            - name: launch-server
+              containerPort: 3000
+            - name: no-vnc
+              containerPort: 7900
+          readinessProbe:
+            httpGet:
+              path: /
+              port: no-vnc
+            initialDelaySeconds: {{ dig "initialDelaySeconds" 60 $readinessProbe }}
+            timeoutSeconds: {{ dig "timeoutSeconds" 3 $readinessProbe }}
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+          {{- with (dig "resources" (dict) $node) }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            {{- with default "2Gi" (dig "sizeLimit" "" $shm) }}
+            sizeLimit: {{ . }}
+            {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+spec:
+  publishNotReadyAddresses: true
+  selector:
+    app: {{ $name }}
+  ports:
+    - name: no-vnc
+      port: 7900
+      targetPort: no-vnc
+    - name: launch-server
+      port: 3000
+      targetPort: launch-server
+{{- end }}
+{{- end }}

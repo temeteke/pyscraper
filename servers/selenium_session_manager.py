@@ -29,7 +29,6 @@ bug, so it returns ``500`` (never retryable).
 
 Environment:
 
-* ``SELENIUM_SESSION_MANAGER_PORT`` (default ``8082``)
 * ``SELENIUM_HUB_URL`` (default ``http://selenium-hub:4444/wd/hub``)
 * ``SELENIUM_REQUEST_TIMEOUT`` (default ``30``, seconds per Grid call)
 * ``SELENIUM_NODE_CHROME_OPTIONS`` (default unset: legacy behavior; JSON
@@ -65,7 +64,7 @@ def _int_env(name, default):
 
     Duplicated across servers/*: each image COPYs a single file, so no
     shared helper module is used. Non-positive values also fall back
-    (timeouts/ports must be positive).
+    (timeouts must be positive).
     """
     try:
         result = int(os.environ.get(name, str(default)))
@@ -86,14 +85,7 @@ def _int_env(name, default):
     return result
 
 
-PORT = _int_env("SELENIUM_SESSION_MANAGER_PORT", 8082)
-if not 1 <= PORT <= 65535:
-    print(
-        "[selenium-session-manager] invalid SELENIUM_SESSION_MANAGER_PORT, using 8082",
-        file=sys.stderr,
-        flush=True,
-    )
-    PORT = 8082
+PORT = 8000
 SELENIUM_HUB_URL = os.environ.get("SELENIUM_HUB_URL", "http://selenium-hub:4444/wd/hub")
 # Timeout for every Grid REST round-trip (session create/url/close).
 REQUEST_TIMEOUT = _int_env("SELENIUM_REQUEST_TIMEOUT", 30)

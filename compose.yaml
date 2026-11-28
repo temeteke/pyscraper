@@ -8,12 +8,12 @@ services:
       dockerfile: Dockerfile
     environment:
       - SELENIUM_FIREFOX_URL=http://selenium-hub:4444/wd/hub
-      - SELENIUM_FIREFOX_PROFILE=/tmp/firefox-profile
       - SELENIUM_CHROME_URL=http://selenium-hub:4444/wd/hub
-      - SELENIUM_CHROME_PROFILE=/tmp/chrome-profile
       - PLAYWRIGHT_CHROMIUM_URL=ws://playwright-hub:4000/ws
       - PLAYWRIGHT_FIREFOX_URL=ws://playwright-hub:4000/ws
       - PLAYWRIGHT_WEBKIT_URL=ws://playwright-hub:4000/ws
+      # Profile nodes supply their profile path in the node stereotype.
+      # Pass node="chrome-profile" / node="firefox-profile" to route there.
     # No depends_on: the client resolves Hub URLs at session time, so a
     # startup gate adds no value (and couples startup to Hub health).
 
@@ -32,7 +32,31 @@ services:
       retries: 10
       start_period: 10s
 
-  selenium-chrome-node:
+  # Named volumes are root-owned on first mount. Check the volume root's
+  # ownership on each start and chown only when needed, before the profile
+  # nodes start, so the Selenium user (uid 1200 / gid 1201) can write.
+  # Uses the same image/tag as selenium-chrome; keep it in sync on bumps.
+  profile-volumes-init:
+    image: selenium/node-chrome:4.52.0
+    user: root
+    network_mode: none
+    entrypoint: ["/bin/sh", "-c"]
+    # $$ escapes Compose interpolation; the shell receives $(...).
+    command:
+      - |
+        set -eu
+        if [ "$$(stat -c '%u:%g' /tmp/chrome-profile)" != "1200:1201" ]; then
+          chown -R 1200:1201 /tmp/chrome-profile
+        fi
+        if [ "$$(stat -c '%u:%g' /tmp/firefox-profile)" != "1200:1201" ]; then
+          chown -R 1200:1201 /tmp/firefox-profile
+        fi
+    volumes:
+      - chrome-profile:/tmp/chrome-profile
+      - firefox-profile:/tmp/firefox-profile
+    restart: "no"
+
+  selenium-chrome:
     image: selenium/node-chrome:4.52.0
     shm_size: 2gb
     # Chrome requires additional syscalls for sandbox IPC. shm_size:2gb alone
@@ -46,14 +70,13 @@ services:
       - SE_EVENT_BUS_PUBLISH_PORT=4442
       - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
       - SE_NODE_GRID_URL=http://selenium-hub:4444
-      - 'SE_NODE_STEREOTYPE={"browserName": "chrome", "platformName": "Linux", "pyscraper:node": "chromium-profile"}'
+      - 'SE_NODE_STEREOTYPE={"browserName": "chrome", "platformName": "Linux", "pyscraper:node": "default"}'
+      - SE_NODE_MAX_SESSIONS=4
       - SE_VNC_NO_PASSWORD=true
       # Desktop size (Xvfb) shown in noVNC (16:9 to match the default 16:9
       # console tiles). Restart to apply.
       - SE_SCREEN_WIDTH=1280
       - SE_SCREEN_HEIGHT=720
-    volumes:
-      - chrome-profile:/tmp/chrome-profile
     expose:
       - "7900"
     # No depends_on: nodes retry event-bus registration, so they can start
@@ -65,7 +88,65 @@ services:
       retries: 12
       start_period: 60s
 
-  selenium-firefox-node:
+  # Persistent Chrome profile node. A profile is single-session.
+  selenium-chrome-profile:
+    image: selenium/node-chrome:4.52.0
+    shm_size: 2gb
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_GRID_URL=http://selenium-hub:4444
+      - 'SE_NODE_STEREOTYPE={"browserName": "chrome", "platformName": "Linux", "pyscraper:node": "chrome-profile"}'
+      - 'SE_NODE_STEREOTYPE_EXTRA={"goog:chromeOptions": {"binary": "/usr/bin/google-chrome", "args": ["--user-data-dir=/tmp/chrome-profile"]}}'
+      - SE_NODE_MAX_SESSIONS=1
+      - SE_VNC_NO_PASSWORD=true
+      - SE_SCREEN_WIDTH=1280
+      - SE_SCREEN_HEIGHT=720
+    volumes:
+      - chrome-profile:/tmp/chrome-profile
+    depends_on:
+      profile-volumes-init:
+        condition: service_completed_successfully
+    expose:
+      - "7900"
+    # No hub depends_on: nodes retry event-bus registration.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+
+  selenium-firefox:
+    image: selenium/node-firefox:4.52.0
+    shm_size: 2gb
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_GRID_URL=http://selenium-hub:4444
+      - 'SE_NODE_STEREOTYPE={"browserName": "firefox", "platformName": "Linux", "pyscraper:node": "default"}'
+      - SE_NODE_MAX_SESSIONS=4
+      - SE_VNC_NO_PASSWORD=true
+      # Desktop size (Xvfb) shown in noVNC (16:9 to match the default 16:9
+      # console tiles). Restart to apply.
+      - SE_SCREEN_WIDTH=1280
+      - SE_SCREEN_HEIGHT=720
+    expose:
+      - "7900"
+    # No depends_on: same as selenium-chrome above.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+
+  # Persistent Firefox profile node. A profile is single-session.
+  selenium-firefox-profile:
     image: selenium/node-firefox:4.52.0
     shm_size: 2gb
     environment:
@@ -74,16 +155,19 @@ services:
       - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
       - SE_NODE_GRID_URL=http://selenium-hub:4444
       - 'SE_NODE_STEREOTYPE={"browserName": "firefox", "platformName": "Linux", "pyscraper:node": "firefox-profile"}'
+      - 'SE_NODE_STEREOTYPE_EXTRA={"moz:firefoxOptions": {"args": ["-profile", "/tmp/firefox-profile"]}}'
+      - SE_NODE_MAX_SESSIONS=1
       - SE_VNC_NO_PASSWORD=true
-      # Desktop size (Xvfb) shown in noVNC (16:9 to match the default 16:9
-      # console tiles). Restart to apply.
       - SE_SCREEN_WIDTH=1280
       - SE_SCREEN_HEIGHT=720
     volumes:
       - firefox-profile:/tmp/firefox-profile
+    depends_on:
+      profile-volumes-init:
+        condition: service_completed_successfully
     expose:
       - "7900"
-    # No depends_on: same as selenium-chrome-node above.
+    # No hub depends_on: nodes retry event-bus registration.
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:7900/ >/dev/null"]
       interval: 10s
@@ -114,6 +198,7 @@ services:
       dockerfile: Dockerfile.playwright-node
       args:
         PLAYWRIGHT_BROWSER: chromium
+    shm_size: 2gb
     environment:
       - PLAYWRIGHT_BROWSER=chromium
       - PLAYWRIGHT_PORT=3000
@@ -147,6 +232,7 @@ services:
       dockerfile: Dockerfile.playwright-node
       args:
         PLAYWRIGHT_BROWSER: firefox
+    shm_size: 2gb
     environment:
       - PLAYWRIGHT_BROWSER=firefox
       - PLAYWRIGHT_PORT=3000
@@ -176,8 +262,8 @@ services:
 
   playwright-webkit:
     # WebKit has no official arm64 Linux support; the published image is
-    # amd64-only. Pin the platform so Apple Silicon gets an explicit error
-    # instead of a silent QEMU fallback.
+    # amd64-only. On arm64 hosts Docker must emulate linux/amd64; disable
+    # this service if emulation is unavailable.
     platform: linux/amd64
     image: temeteke/pyscraper-playwright-webkit:latest
     build:
@@ -185,6 +271,7 @@ services:
       dockerfile: Dockerfile.playwright-node
       args:
         PLAYWRIGHT_BROWSER: webkit
+    shm_size: 2gb
     environment:
       - PLAYWRIGHT_BROWSER=webkit
       - PLAYWRIGHT_PORT=3000
@@ -231,8 +318,10 @@ services:
       - playwright-chromium
       - playwright-firefox
       - playwright-webkit
-      - selenium-chrome-node
-      - selenium-firefox-node
+      - selenium-chrome
+      - selenium-chrome-profile
+      - selenium-firefox
+      - selenium-firefox-profile
       - playwright-session-manager
       - selenium-session-manager
 
@@ -245,7 +334,6 @@ services:
       context: .
       dockerfile: Dockerfile.playwright-session-manager
     environment:
-      - PLAYWRIGHT_SESSION_MANAGER_PORT=8081
       - PLAYWRIGHT_HUB_WS=ws://playwright-hub:4000/ws
       - SESSION_STATE_DIR=/data/sessions
       # Desktop size shared with the Playwright nodes' Xvfb (default
@@ -266,10 +354,10 @@ services:
     volumes:
       - session-states:/data/sessions
     expose:
-      - "8081"
+      - "8000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8081/api/playwright/states', timeout=2))"]
+      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8000/api/playwright/states', timeout=2))"]
       interval: 10s
       timeout: 3s
       retries: 6
@@ -284,7 +372,6 @@ services:
       context: .
       dockerfile: Dockerfile.selenium-session-manager
     environment:
-      - SELENIUM_SESSION_MANAGER_PORT=8082
       - SELENIUM_HUB_URL=http://selenium-hub:4444/wd/hub
       # Per-node browser launch options (JSON node -> options map; unset
       # keeps the legacy request). Applies only to the named node of the
@@ -296,25 +383,31 @@ services:
       # the node volume and pyscraper:node routing (see docs/operations.md).
       # Browser proxy goes in args as --proxy-server=...; Grid control
       # traffic always bypasses proxy env. Restart to apply, e.g.:
-      # - 'SELENIUM_NODE_CHROME_OPTIONS={"chromium-profile": {"args": ["--disable-blink-features=AutomationControlled", "--lang=ja-JP", "--proxy-server=http://proxy.example:3128"], "excludeSwitches": ["enable-automation"]}}'
-      # - 'SELENIUM_NODE_FIREFOX_OPTIONS={"firefox-profile": {"args": ["-marionette"], "prefs": {"intl.accept_languages": "ja-JP"}}}'
+      # - 'SELENIUM_NODE_CHROME_OPTIONS={"chrome-profile": {"args": ["--disable-blink-features=AutomationControlled", "--proxy-server=http://proxy.example:3128"], "excludeSwitches": ["enable-automation"]}}'
+      # - 'SELENIUM_NODE_FIREFOX_OPTIONS={"firefox-profile": {"prefs": {"browser.startup.homepage": "about:blank"}}}'
+      # Default-node language, e.g.:
+      # - 'SELENIUM_NODE_CHROME_OPTIONS={"default": {"args": ["--lang=en-US"]}}'
+      # Language, e.g.:
+      # - 'SELENIUM_NODE_CHROME_OPTIONS={"chrome-profile": {"args": ["--lang=en-US"]}}'
+      # - 'SELENIUM_NODE_FIREFOX_OPTIONS={"firefox-profile": {"prefs": {"intl.accept_languages": "en-US"}}}'
     expose:
-      - "8082"
+      - "8000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8082/api/selenium/sessions', timeout=2))"]
+      test: ["CMD", "python", "-c", "import urllib.request,json; json.load(urllib.request.urlopen('http://localhost:8000/api/selenium/sessions', timeout=2))"]
       interval: 10s
       timeout: 3s
       retries: 6
       start_period: 10s
 
 volumes:
-  # Persistent profile volumes: Selenium images run as user 1200 (selenium);
-  # named volumes are initialized empty and owned correctly on first mount,
-  # so the legacy busybox init containers (chown -R 1200:1201) are no
-  # longer needed. If a host bind-mount is used instead, ensure the
-  # directory is writable by the container user (e.g. chown 1200:1201 or
-  # chmod 777).
+  # Persistent profile volumes. Docker creates named volumes root-owned on
+  # first mount; profile-volumes-init checks the volume root ownership on
+  # each start and chowns them to the Selenium user (uid 1200 / gid 1201)
+  # only when needed. Nested root-owned files require a one-time manual
+  # chown -R. If a host bind-mount is used instead, ensure the directory is
+  # writable by that user (or remove the init service and its depends_on
+  # entries and chown it yourself).
   chrome-profile:
   firefox-profile:
   # Console UI state files (storage_state JSON only), shared with

@@ -43,7 +43,8 @@ export CONSOLE_UPSTREAM_SUFFIX
 # Session-manager upstreams (override to match your Services).
 : "${CONSOLE_PW_SESSION:=playwright-session-manager}"
 : "${CONSOLE_SE_SESSION:=selenium-session-manager}"
-export CONSOLE_PW_SESSION CONSOLE_SE_SESSION
+: "${CONSOLE_SESSION_PORT:=8000}"
+export CONSOLE_PW_SESSION CONSOLE_SE_SESSION CONSOLE_SESSION_PORT
 
 # Base path: empty (root) or /segment[/segment...]. Normalize a trailing
 # slash, then reject anything else (dots, double slashes, metacharacters).
@@ -96,6 +97,7 @@ jq -e -f "$CONSOLE_GENERATE_JQ" \
     --arg suffix "$CONSOLE_UPSTREAM_SUFFIX" \
     --arg pw "$CONSOLE_PW_SESSION" \
     --arg se "$CONSOLE_SE_SESSION" \
+    --arg smport "$CONSOLE_SESSION_PORT" \
     --arg rundir "$CONSOLE_RUN_DIR" \
     "$CONSOLE_RUN_DIR/source.json" > "$CONSOLE_RUN_DIR/generated.json"
 jq -r '.nginx'  "$CONSOLE_RUN_DIR/generated.json" > "$CONSOLE_NGINX_CONF"

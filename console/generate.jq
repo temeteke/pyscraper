@@ -8,6 +8,7 @@
 #     --arg suffix "$CONSOLE_UPSTREAM_SUFFIX" \
 #     --arg pw "$CONSOLE_PW_SESSION" \
 #     --arg se "$CONSOLE_SE_SESSION" \
+#     --arg smport "$CONSOLE_SESSION_PORT" \
 #     --arg rundir "$CONSOLE_RUN_DIR" \
 #     config.json
 #
@@ -224,7 +225,7 @@ def public_target:
 # Validate the env-derived arguments. Rejects nginx metacharacters before any
 # value reaches a directive. The base path is also checked in the entrypoint
 # for an early message; this keeps a direct jq invocation fail-closed too.
-def validate_args($resolver; $b; $sfx; $pw; $se; $rundir):
+def validate_args($resolver; $b; $sfx; $pw; $se; $smport; $rundir):
   if ($resolver | has_newline) then fail("invalid resolver: \($resolver)")
   elif ($resolver | test("^[A-Za-z0-9.:\\[\\]]+$") | not) then fail("invalid resolver: \($resolver)")
   elif ($b | has_newline) then fail("invalid base path: \($b)")
@@ -235,6 +236,9 @@ def validate_args($resolver; $b; $sfx; $pw; $se; $rundir):
   elif ($pw | test("^[A-Za-z0-9._-]+$") | not) then fail("invalid playwright session upstream: \($pw)")
   elif ($se | has_newline) then fail("invalid selenium session upstream: \($se)")
   elif ($se | test("^[A-Za-z0-9._-]+$") | not) then fail("invalid selenium session upstream: \($se)")
+  elif ($smport | test("^[0-9]+$") | not) then fail("invalid session port: \($smport)")
+  elif (($smport | tonumber) < 1) or (($smport | tonumber) > 65535)
+  then fail("invalid session port: \($smport)")
   elif ($rundir | test("\\A/[A-Za-z0-9._/-]+\\z") | not) then fail("invalid run dir: \($rundir)")
   elif ($rundir | test("(^|/)\\.\\.?(/|$)")) then fail("invalid run dir: \($rundir)")
   elif ($rundir | contains("//")) then fail("invalid run dir: \($rundir)")
@@ -268,10 +272,12 @@ def view_loc($b):
 def config_loc($b; $rundir):
   "    location = \($b)/config.json {\n        alias \($rundir)/config.json;\n        default_type application/json;\n        add_header Cache-Control \"no-store\" always;\n    }";
 
-def api_loc($b; $pw; $se; $sfx):
-  (
-    "    location \($b)/api/playwright/ {\n        set $pw_sessions \($pw)\($sfx):8081;\n        rewrite ^\($b)/api/playwright/(.*) /api/playwright/$1 break;\n        proxy_pass http://$pw_sessions;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_read_timeout 150s;\n    }",
-    "    location \($b)/api/selenium/ {\n        set $se_sessions \($se)\($sfx):8082;\n        rewrite ^\($b)/api/selenium/(.*) /api/selenium/$1 break;\n        proxy_pass http://$se_sessions;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_read_timeout 150s;\n    }"
+def api_loc($b; $pw; $se; $sfx; $smport):
+  ($smport | tonumber) as $port
+  | (if $port == 80 then "" else ":\($port)" end) as $port_suffix
+  | (
+    "    location \($b)/api/playwright/ {\n        set $pw_sessions \($pw)\($sfx)\($port_suffix);\n        rewrite ^\($b)/api/playwright/(.*) /api/playwright/$1 break;\n        proxy_pass http://$pw_sessions;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_read_timeout 150s;\n    }",
+    "    location \($b)/api/selenium/ {\n        set $se_sessions \($se)\($sfx)\($port_suffix);\n        rewrite ^\($b)/api/selenium/(.*) /api/selenium/$1 break;\n        proxy_pass http://$se_sessions;\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_read_timeout 150s;\n    }"
   );
 
 # noVNC without the trailing slash redirects explicitly: the prefix location
@@ -286,7 +292,7 @@ def novnc_loc($b; $sfx; $e):
   "    location \($b)/vnc/\($e.id)/ {\n        set $novnc_node \($e.host)\($sfx):\($e.port);\n        rewrite ^\($b)/vnc/\($e.id)/$ /vnc.html break;\n        rewrite ^\($b)/vnc/\($e.id)/(.*) /$1 break;\n        proxy_pass http://$novnc_node;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection $connection_upgrade;\n        proxy_set_header Host $host;\n        proxy_read_timeout 1d;\n    }";
 
 . as $root
-| validate_args($resolver; $base; $suffix; $pw; $se; $rundir)
+| validate_args($resolver; $base; $suffix; $pw; $se; $smport; $rundir)
 | if ($root | type) != "object" then fail("console: must be a mapping") else . end
 | ($root | keys_unsorted - ["ui", "context_options", "targets"]) as $runk
 | if ($runk | length) > 0 then fail("console: unknown keys: \($runk | join(", "))") else . end
@@ -353,7 +359,7 @@ def novnc_loc($b; $sfx; $e):
           ui_loc($base),
           view_loc($base),
           config_loc($base; $rundir),
-          api_loc($base; $pw; $se; $suffix),
+          api_loc($base; $pw; $se; $suffix; $smport),
           ($T[] | vnc_redirect_loc($base; .)),
           ($T[] | novnc_loc($base; $suffix; .))
         ] | join("\n"))

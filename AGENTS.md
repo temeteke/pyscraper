@@ -20,6 +20,7 @@ HLS video downloads.
 
 - **Testing strategy**: `docs/testing.md`
 - **Grid/Hub operation, Docker images**: `docs/operations.md`
+- **Kubernetes / Helm charts**: `docs/kubernetes.md`
 - **Setup, TDD flow, release**: `docs/development.md`
 - **Module responsibilities, design decisions**: `docs/architecture.md`
 - **Mock infrastructure**: `tests/conftest.py`
@@ -46,7 +47,7 @@ editing and tests, not stack management.
 - `SELENIUM_FIREFOX_URL`, `SELENIUM_CHROME_URL` - Selenium Grid URLs
 - `PLAYWRIGHT_CHROMIUM_URL`, `PLAYWRIGHT_FIREFOX_URL`, `PLAYWRIGHT_WEBKIT_URL` - Playwright Hub URLs
 - `PLAYWRIGHT_HUB_WS_URL` - Hub WebSocket URL used by the integration tests (set by the Dev Container)
-- `SELENIUM_FIREFOX_PROFILE`, `SELENIUM_CHROME_PROFILE` - Legacy profile dirs (prefer `profile=`)
+- `SELENIUM_FIREFOX_PROFILE`, `SELENIUM_CHROME_PROFILE` - Legacy profile dirs (prefer `node=` for Grid profile nodes; `profile=` for local runs)
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` - Proxy configuration
 
 ## Playwright v2 model (breaking since v2.0.0)
@@ -62,8 +63,9 @@ editing and tests, not stack management.
   image, published as `temeteke/pyscraper-console`): `/` tile overview
   plus `/view/<id>` single views and `/vnc/<id>/` raw noVNC per registry
   entry, and `/api/` proxied to the session managers
-  (`playwright-session-manager` on :8081 for sessions/states,
-  `selenium-session-manager` on :8082 for sessions; both published). The
+  (`playwright-session-manager` and `selenium-session-manager` on :8000
+  for sessions/states; both published; the chart exposes them as
+  Service :80). The
   console is registry-driven: `console/entrypoint.sh` validates
   `console/config.yaml` with `console/generate.jq` (jq; YAML via
   `yq-go`) and renders the nginx config (`/etc/nginx/conf.d/console.conf`)
@@ -101,6 +103,20 @@ pytest tests/ -v
 All unit tests must pass. Docs-only changes need no test run, but keep
 `docker compose config --quiet` green when touching compose files.
 
+Chart changes need the Helm checks to stay green:
+
+```sh
+helm lint charts/pyscraper
+helm template pyscraper charts/pyscraper -n pyscraper > /tmp/rendered.yaml
+sh scripts/check-console-config.sh /tmp/rendered.yaml
+helm package charts/pyscraper -d /tmp/dist \
+  --version 0.0.0 --app-version 0.0.0
+```
+
+`scripts/check-console-config.sh` requires `yq` and `jq`. Helm templates are
+excluded from the pre-commit `check-yaml` hook; the `chart` job in
+`.github/workflows/tests.yml` runs the same validation.
+
 Workflow actions in `.github/workflows/` are pinned to full commit SHAs with a
 `# vX.Y.Z` comment; `.github/dependabot.yml` refreshes them weekly. Never
 replace a SHA pin with a floating tag.
@@ -112,9 +128,22 @@ several files (or, for `websockets`, capped because the Hub uses the legacy
 API) and must always be bumped everywhere in one change. Pre-commit hook
 revisions in `.pre-commit-config.yaml` are refreshed weekly by Dependabot.
 
+Selenium Grid image tags are pinned in
+`charts/pyscraper/values.yaml` (`images.selenium.hub`, `.chrome`, and
+`.firefox`) and in `compose.yaml` (`selenium-hub`, the default/profile nodes,
+and `profile-volumes-init`); the chart source `version` / `appVersion` in
+`charts/pyscraper/Chart.yaml` is only a base. The release workflow packages
+the chart with the tag via `--version` / `--app-version`, and an empty
+pyscraper image `tag` makes those images follow that appVersion. Update the
+Selenium tags only when those images change.
+
 Published image tags are immutable: `X.Y.Z` maps to one build per release
 (except a repair re-run of an interrupted release, which republishes that
 version). Only a `vX.Y.Z` tag push on the default branch publishes; build
 jobs write only the `X.Y.Z` tags and the `move_channels` job aliases
-`latest` / `X.Y` after every image published. Never re-push or move a
-release tag: to rebuild, cut a new patch release.
+`latest` / `X.Y` after every image published. The same run publishes the
+Helm chart after the images and channel moves. The release commit must add a
+`## [X.Y.Z]` CHANGELOG section; `validate_release` checks it and the packaged
+chart before any image build. Never re-push or move a release tag: to
+rebuild, cut a new patch release. Published Helm chart versions are immutable
+too: cut the next patch tag instead of re-pushing the same version.

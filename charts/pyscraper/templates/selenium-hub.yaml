@@ -1,0 +1,82 @@
+{{- if .Values.selenium.hub.enabled }}
+{{- $probe := default (dict) (dig "readinessProbe" (dict) .Values.selenium.hub) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenium-hub
+  labels:
+    app: selenium-hub
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: selenium-hub
+  template:
+    metadata:
+      labels:
+        app: selenium-hub
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.selenium.hub.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.selenium.hub.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: selenium-hub
+          image: {{ include "pyscraper.image" (dict "root" . "image" .Values.images.selenium.hub) }}
+          {{- with .Values.selenium.hub.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.global.timezone }}
+          env:
+            {{- include "pyscraper.timezoneEnv" . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: grid
+              containerPort: 4444
+            - name: event-publish
+              containerPort: 4442
+            - name: event-subscribe
+              containerPort: 4443
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: grid
+            initialDelaySeconds: {{ dig "initialDelaySeconds" 5 $probe }}
+            timeoutSeconds: {{ dig "timeoutSeconds" 5 $probe }}
+          {{- with .Values.selenium.hub.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenium-hub
+  labels:
+    app: selenium-hub
+spec:
+  selector:
+    app: selenium-hub
+  ports:
+    - name: grid
+      port: 4444
+      targetPort: grid
+    - name: event-publish
+      port: 4442
+      targetPort: event-publish
+    - name: event-subscribe
+      port: 4443
+      targetPort: event-subscribe
+{{- end }}

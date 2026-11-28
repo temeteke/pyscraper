@@ -19,7 +19,6 @@ SM_PATH = Path(__file__).resolve().parent.parent / "servers" / "playwright_sessi
 
 def _load_sm(monkeypatch, tmp_path, env=None):
     for key in (
-        "PLAYWRIGHT_SESSION_MANAGER_PORT",
         "PLAYWRIGHT_HUB_WS",
         "SESSION_STATE_DIR",
         "PLAYWRIGHT_OPEN_TIMEOUT",
@@ -730,10 +729,6 @@ class TestPlaywrightSessions:
             )
             assert r.status_code == 422
             assert "detail" in r.json()
-
-    def test_open_port_out_of_range_falls_back(self, monkeypatch, tmp_path):
-        sm = _load_sm(monkeypatch, tmp_path, env={"PLAYWRIGHT_SESSION_MANAGER_PORT": "99999"})
-        assert sm.PORT == 8081
 
     def test_open_non_string_node_422(self, monkeypatch, tmp_path):
         sm = _load_sm(monkeypatch, tmp_path)

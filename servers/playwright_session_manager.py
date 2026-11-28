@@ -42,7 +42,6 @@ is stdlib with its own ``{"error": ...}`` shape and is out of scope.
 
 Environment:
 
-* ``PLAYWRIGHT_SESSION_MANAGER_PORT`` (default ``8081``)
 * ``PLAYWRIGHT_HUB_WS`` (default ``ws://playwright-hub:4000/ws``)
 * ``SESSION_STATE_DIR`` (default ``/data/sessions``)
 * ``PLAYWRIGHT_OPEN_TIMEOUT`` (default ``60``) bounds each open
@@ -74,7 +73,7 @@ def _int_env(name, default):
 
     Duplicated across servers/*: each image COPYs a single file, so no
     shared helper module is used. Non-positive values also fall back
-    (timeouts/ports must be positive).
+    (timeouts must be positive).
     """
     try:
         result = int(os.environ.get(name, str(default)))
@@ -95,14 +94,7 @@ def _int_env(name, default):
     return result
 
 
-PORT = _int_env("PLAYWRIGHT_SESSION_MANAGER_PORT", 8081)
-if not 1 <= PORT <= 65535:
-    print(
-        "[playwright-session-manager] invalid PLAYWRIGHT_SESSION_MANAGER_PORT, using 8081",
-        file=sys.stderr,
-        flush=True,
-    )
-    PORT = 8081
+PORT = 8000
 PLAYWRIGHT_HUB_WS = os.environ.get("PLAYWRIGHT_HUB_WS", "ws://playwright-hub:4000/ws")
 # Absolute so an id resolves to the same file regardless of the process
 # cwd; a relative SESSION_STATE_DIR would otherwise be re-applied by the

@@ -79,6 +79,8 @@ pushes (the workflow matches `v[0-9]*`; always cut full `vX.Y.Z` tags).
 The published set includes the browser console and both session managers, so
 `make pull && make up` runs the whole stack from published images
 and exposes the browser console through the local Traefik instance.
+The same release workflow publishes the Helm chart (including the console)
+to GHCR after the images and channel moves.
 See [Operations Guide](docs/operations.md) for the image table, tag
 semantics, Compose/Traefik usage, and console configuration.
 
@@ -87,6 +89,9 @@ only when it is missing. Run `make build up` after changing source.
 `make restart` only restarts existing containers and does not
 apply `.env`, Compose, or image changes. Use `make pull` to refresh the published
 images.
+
+Kubernetes deployments use the Helm chart in `charts/pyscraper`; see
+[Kubernetes Guide](docs/kubernetes.md).
 
 Run Compose lifecycle targets (`up`, `down`, `restart`, `build`) on the Docker
 host. The Dev Container keeps Docker access for reference targets (`ps`,
@@ -107,6 +112,7 @@ bypasses Dev Container features and lifecycle commands such as
 ## Documentation
 
 - **[Operations Guide](docs/operations.md)** - Grid/Hub operation and Docker
+- **[Kubernetes Guide](docs/kubernetes.md)** - Helm chart for the Grid/Hub stack
 - **[Testing Guide](docs/testing.md)** - Testing documentation
 - **[Development Guide](docs/development.md)** - Development setup and guidelines
 - **[Architecture](docs/architecture.md)** - Module responsibilities and design decisions

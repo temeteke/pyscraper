@@ -8,6 +8,119 @@ tag.
 
 ## [Unreleased]
 
+## [4.0.0]
+
+### Added
+
+- Added a single `charts/pyscraper` Helm chart for Playwright, Selenium Grid,
+  both session managers, and the browser console. A `nodes` map defines
+  arbitrary browser nodes and Selenium profiles; console targets are generated
+  from it. Chart and image versions follow the release tag, and Selenium image
+  tags are configured independently.
+- `WebPageSeleniumChrome` accepts `language=`, passed as `--lang`, matching
+  `WebPageSeleniumFirefox`'s `language=` (`intl.accept_languages`).
+
+### Changed
+
+- Helm `images` is grouped by component (`console`, `playwright`, `selenium`).
+  Every image entry has `registry`, `repository`, and `tag`. Empty pyscraper
+  tags follow `appVersion`; upstream Selenium tags are explicit.
+- Helm session-manager settings live under each framework
+  (`selenium.sessionManager`, `playwright.sessionManager`).
+- Session managers listen on uvicorn's default port 8000. The chart Services
+  expose port 80, and the console addresses them by Service name; the
+  per-manager `port` values and `*_SESSION_MANAGER_PORT` overrides were
+  removed.
+- The Helm console sets `CONSOLE_UPSTREAM_SUFFIX` to
+  `.<namespace>.svc.<global.clusterDomain>` by default so nginx can resolve
+  Service FQDNs without relying on Kubernetes search domains.
+  `global.clusterDomain` defaults to `cluster.local`; override
+  `console.upstreamSuffix` for a custom DNS setup.
+- Helm browser node map keys are the Kubernetes Deployment/Service and
+  console target identifiers (`selenium-chrome`, `playwright-firefox`, ...).
+  The separate `name`/`console.id` fields were removed.
+- Compose now has separate default and profile Selenium nodes.
+  `selenium-chrome` / `selenium-firefox` use `pyscraper:node: default`, and
+  `selenium-chrome-profile` / `selenium-firefox-profile` use the profile
+  routing keys. The previous Compose `-node` service names are gone.
+  Both profile and default targets are in the console registry,
+  so `SELENIUM_NODE_CHROME_OPTIONS` / `SELENIUM_NODE_FIREFOX_OPTIONS` apply
+  to either. Profile nodes supply their profile path in the node stereotype,
+  so the Compose client service no longer sets `SELENIUM_*_PROFILE`.
+  A one-shot `profile-volumes-init` checks the profile volume roots on each
+  `up`, chowns them to 1200:1201 when needed, and exits 0; that status is
+  expected.
+- Selenium screen size is 1280x720 in both Helm and Compose. Compose sets
+  `SE_NODE_MAX_SESSIONS=4` for default nodes and `1` for profile nodes, and
+  gives every Playwright node a 2gb `/dev/shm`.
+- Compose Playwright console targets set their `node` names (`chromium`,
+  `firefox`, `webkit`).
+- Helm console values keep the console's native casing for the `console.ui`
+  pass-through block (snake_case), while chart-owned keys stay camelCase.
+  Redundant `console.ui` defaults were removed; unset keys use the console
+  defaults (`group_by: none`).
+- Removed `console.targets`; console targets are generated from `nodes` only.
+- `console.storageState` is now a boolean: `true`/unset auto-generates a state
+  from the target id/label, and `false` disables it. Custom ids, labels, and
+  URL prefill were removed.
+- In the Helm chart, the stock Selenium profile nodes are disabled by
+  default; enable them explicitly to create profile PVCs.
+- Browser nodes and hubs run with one replica; their `replicas` values were
+  removed. Add another node for capacity, and use `enabled: false` to remove a
+  node. Browser nodes use `strategy: Recreate`. The Helm console `group`
+  defaults to the browser.
+- Node and hub display/timing settings are grouped: `screen.width/height`,
+  `shm.sizeLimit`, `readinessProbe.*`, and `registration.*`. The Playwright
+  session-manager screen size lives under `playwright.sessionManager.screen`.
+  `selenium.sessionManager.chromeOptions` and `firefoxOptions` are YAML maps
+  keyed by Selenium node value (for example `default` and `chrome-profile`).
+- Selenium `chromeOptions` and `firefoxOptions` are empty by default; the
+  chart no longer sets anti-automation flags, `--start-maximized`, or
+  `--lang=ja-JP`. Configure per-node options explicitly; Playwright uses
+  `console.contextOptions.locale`.
+- Ingress `pathType` is passed through without chart-side validation, and the
+  chart no longer enforces a relationship between `ingress.path` and
+  `console.basePath`.
+- Selenium nodes and both session managers now have readiness probes, and all
+  Pods disable service-account token automounting.
+- The session-manager images no longer install unused `curl`.
+- Selenium profile PVCs now use `podSecurityContext.fsGroup` instead of a
+  Helm root init container. `persistence.enabled` requires an fsGroup-capable
+  storage class; the `profileInit` image was removed. Compose uses the
+  one-shot `profile-volumes-init` instead because it has no fsGroup
+  equivalent.
+- Renamed the release workflow from `docker.yml` to `release.yml`. A `vX.Y.Z`
+  tag now publishes the Docker images and, after the image and channel jobs
+  succeed, the Helm chart in the same run.
+- Helm proxy settings are configured directly with
+  `global.proxy.httpProxy`, `global.proxy.httpsProxy`, and
+  `global.proxy.noProxy`; the ConfigMap reference was removed.
+  `global.timezone` now defaults to empty (no `TZ` env).
+
+### Fixed
+
+- The Helm chart now fails rendering only for values that would otherwise
+  break silently: reserved node names, duplicate console routing tuples, a hub
+  disabled while its nodes are enabled, wrong `framework`/`browser` pairs,
+  framework-specific fields on the wrong node type, persistent Selenium nodes
+  without `maxSessions: 1` or `podSecurityContext.fsGroup`, non-positive
+  `maxSessions` / Selenium `screen` values, non-boolean
+  `console.storageState`, and proxy settings missing
+  `httpProxy`/`httpsProxy`.
+  Null sub-maps are normalized, `playwright-session-states` is reserved to
+  avoid a PVC name collision, and console config changes trigger a console
+  rollout. Format, length, image, Ingress, probe, registration, and
+  context-option values are left to Kubernetes, the console, and the session
+  managers.
+- Null node `enabled` values now use the default `true`, null
+  `persistence.keep` retains the PVC, and an empty or null `shm.sizeLimit`
+  falls back to `2Gi`. Per-node `console.contextOptions` that are not maps are
+  passed to the console, which rejects them at startup instead of silently
+  dropping them.
+- `WebPageSeleniumChrome` now warns when `profile=` / `user_data_dir=` /
+  `SELENIUM_CHROME_PROFILE` is combined with `node=`, because the client-side
+  `--user-data-dir` may override the node-owned profile.
+
 ## [3.7.1]
 
 ### Changed
